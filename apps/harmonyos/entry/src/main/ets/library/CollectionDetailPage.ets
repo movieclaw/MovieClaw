@@ -26,6 +26,7 @@ import { LibraryFilter } from './LibraryWall';
 import { LibraryFilterBar } from './LibraryFilterBar';
 import { SharePanel, shareMessage } from './ShareSheet';
 import { GalleryDensity, GalleryPrefs, GalleryWall } from './GalleryWall';
+import { SpatialMaterial } from '../common/SpatialMaterial';
 
 /** 合集详情页的路由参数（路由参数会被序列化，不要用 instanceof） */
 export class CollectionRouteParams {
@@ -879,6 +880,7 @@ export struct CollectionDetailPage {
       height: SheetSize.FIT_CONTENT,
       dragBar: true,
       showClose: false,
+      systemMaterial: SpatialMaterial.sheet(),
       backgroundColor: Theme.bg
     })
   }
@@ -1197,6 +1199,7 @@ export struct CollectionDetailPage {
           height: SheetSize.MEDIUM,
           dragBar: true,
           showClose: false,
+          systemMaterial: SpatialMaterial.sheet(),
           backgroundColor: Theme.bg
         })
         ListItem() {
@@ -1268,6 +1271,7 @@ export struct CollectionDetailPage {
         height: SheetSize.LARGE,
         dragBar: true,
         showClose: false,
+        systemMaterial: SpatialMaterial.sheet(),
         backgroundColor: Theme.bg
       })
       // 滚到底自动续下一页（对应 iOS 海报墙的翻页）
@@ -1360,6 +1364,7 @@ export struct CollectionDetailPage {
       height: SheetSize.MEDIUM,
       dragBar: true,
       showClose: false,
+      systemMaterial: SpatialMaterial.sheet(),
       backgroundColor: Theme.bg
     })
   }

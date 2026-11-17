@@ -16,6 +16,7 @@ import {
   UiPreferencesSettingInput
 } from '../api/Models';
 import { HomeRow, HomeRows, LibraryRowKind, CollectionRowKind, MediaKindRowKind } from './HomeRows';
+import { SpatialMaterial } from '../common/SpatialMaterial';
 
 /** 一行在编辑态的样子：展示用 + 可编辑的偏好 */
 class EditableRow {
@@ -428,6 +429,7 @@ export struct LibraryCustomizeSheet {
       height: SheetSize.MEDIUM,
       dragBar: true,
       showClose: false,
+      systemMaterial: SpatialMaterial.sheet(),
       backgroundColor: Theme.bg
     })
   }

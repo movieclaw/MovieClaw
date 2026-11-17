@@ -20,6 +20,7 @@ import {
   ToggleRequest,
   ToolPreview
 } from '../api/Models';
+import { SpatialMaterial } from '../common/SpatialMaterial';
 
 /** `EndpointUpdateRequest` 同样几乎全可选，用类填 */
 class UpdateBody implements EndpointUpdateRequest {
@@ -543,6 +544,7 @@ export struct McpSection {
       height: SheetSize.LARGE,
       dragBar: true,
       showClose: false,
+      systemMaterial: SpatialMaterial.sheet(),
       backgroundColor: Theme.bg
     })
   }

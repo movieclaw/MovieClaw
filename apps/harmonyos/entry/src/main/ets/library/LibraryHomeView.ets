@@ -59,6 +59,7 @@ import {
   libraryFromNow,
   libraryStatsSummary
 } from './LibraryShared';
+import { SpatialMaterial } from '../common/SpatialMaterial';
 
 /** UpNextCard 的空默认值（ArkTS 组件属性必须有初值；父组件一定会覆盖） */
 const EMPTY_UP_NEXT: UpNextItemView = {
@@ -937,6 +938,7 @@ export struct LibraryHomeView {
       height: SheetSize.MEDIUM,
       dragBar: true,
       showClose: false,
+      systemMaterial: SpatialMaterial.sheet(),
       backgroundColor: Theme.bg
     })
   }

@@ -932,6 +932,14 @@ _RELAY_HEADERS = (
 )
 
 
+def _content_range_start(content_range: str | None) -> int | None:
+    """``Content-Range: bytes 100-999/1000`` → 100；没有或形态不对返回 None。"""
+    if not content_range:
+        return None
+    match = re.match(r"bytes\s+(\d+)-", content_range, re.IGNORECASE)
+    return int(match.group(1)) if match else None
+
+
 class RemoteRelayResponse(Response):
     """把网盘直链按播放器的 Range 原样转发（不起 ffmpeg）——Jellyfin 的
     ``GetStaticRemoteStreamResult`` 同一思路。
@@ -940,9 +948,27 @@ class RemoteRelayResponse(Response):
     后台任务等 ``http.disconnect``，每块只做一次同步检查；上游的 Content-Length 原样透传，提前
     停止时不补结束帧、交给服务器关连接。上游一律用 GET（预签名直链常常只签了 GET），播放器
     发的 HEAD 只回响应头。上游不走代理：要转发的都是内网地址。
+
+    2026-11-17 真机取证：续播/暂停恢复这类「从中间拉」的 Range 请求，网盘 CDN 常给成
+    停顿/低速（15~120KB/s）的坏连接，而换一条新连接（重新跟跳转、换节点）常就恢复
+    200KB/s+——histreamer 等不起，画面冻结。所以逐块转发时做窗口测速：窗口内字节不够
+    就关掉这条上游、带 ``Range: bytes=<已收字节之后>-`` 重连续传（重连响应的
+    Content-Range 起点必须对上断点，对不上宁可截断也不错位喂）；重连额度用尽后最后
+    一条只转发、不再掐。只把等上游的时间计入窗口（发给播放器的阻塞不算），客户端
+    缓冲反压不会误判成上游过慢。
     """
 
     chunk_size = 1024 * 1024
+
+    #: 打开后的首窗：给足重定向+首块时间；窗口内至少要到这么多字节，否则换连接
+    _FIRST_WINDOW_S = 8.0
+    _FIRST_WINDOW_MIN_BYTES = 1024 * 1024
+    #: 后续窗口：5 秒内至少 640KB（约 128KB/s 底线；块是 1MB 时实际门槛是一条
+    #: 整块 5 秒内到不到，即 200KB/s）
+    _WINDOW_S = 5.0
+    _WINDOW_MIN_BYTES = 640 * 1024
+    #: 过慢/停顿最多重连次数（一条播放器请求最多开 3 条上游连接）
+    _MAX_RECONNECTS = 2
 
     def __init__(
         self,
@@ -965,6 +991,7 @@ class RemoteRelayResponse(Response):
         self._probe = probe
         self._disconnected = asyncio.Event()
         self._bytes = 0
+        self._reconnects = 0
         self._stopped_early = False
 
     def _should_stop(self) -> bool:
@@ -984,47 +1011,156 @@ class RemoteRelayResponse(Response):
                 return
             await asyncio.sleep(0)
 
+    def _resume_ok(self, upstream: httpx.Response, absolute_start: int | None) -> bool:
+        """重连响应必须从断点字节接着给：Content-Range 起点对上才继续喂，对不上
+        宁可截断也不能错位——错位喂出去就是花屏坏帧，比停了更糟。"""
+        if upstream.status_code >= 400:
+            logger.warning("网盘中继重连被上游拒绝（HTTP %d），停止转发", upstream.status_code)
+            return False
+        expected = None if absolute_start is None else absolute_start + self._bytes
+        start = _content_range_start(upstream.headers.get("content-range"))
+        if start is not None:
+            if expected is not None and start != expected:
+                logger.warning(
+                    "网盘中继重连位置不符：Content-Range 从 %d 开始，期望 %d，停止转发",
+                    start,
+                    expected,
+                )
+                return False
+            return True
+        if upstream.status_code == 200 and expected == 0:
+            return True
+        logger.warning(
+            "网盘中继重连响应没有 Content-Range（HTTP %d，已转 %d 字节），停止转发",
+            upstream.status_code,
+            self._bytes,
+        )
+        return False
+
+    async def _relay_body(self, send: Send, upstream: httpx.Response, *, watch: bool) -> str:
+        """逐块转发上游响应体，返回 ``"complete"`` / ``"stopped"`` / ``"slow"``。
+
+        ``watch=True`` 时做窗口测速：只累计等上游的时间（发给播放器的阻塞不计入），
+        首窗 ``_FIRST_WINDOW_S`` 内至少 ``_FIRST_WINDOW_MIN_BYTES``、后续窗口
+        ``_WINDOW_S`` 内至少 ``_WINDOW_MIN_BYTES``，不够返回 ``"slow"`` 交调用方换
+        连接续传；``watch=False``（重连额度用尽 / 定位不到续传起点）只转发不掐。
+        """
+        loop = asyncio.get_running_loop()
+        window_min = self._FIRST_WINDOW_MIN_BYTES
+        window_budget = self._FIRST_WINDOW_S
+        window_bytes = 0
+        upstream_wait = 0.0
+        chunks = upstream.aiter_raw(self.chunk_size)
+        while True:
+            if self._should_stop():
+                return "stopped"
+            began = loop.time()
+            try:
+                chunk = await asyncio.wait_for(
+                    anext(chunks),
+                    timeout=max(window_budget - upstream_wait, 0.05) if watch else None,
+                )
+            except StopAsyncIteration:
+                return "complete"
+            except TimeoutError:
+                return "slow"
+            except httpx.HTTPError:
+                if watch:
+                    return "slow"
+                raise
+            upstream_wait += loop.time() - began
+            if self._probe is not None:
+                self._probe.first_chunk()
+            self._bytes += len(chunk)
+            window_bytes += len(chunk)
+            if self._byte_sink is not None:
+                self._byte_sink(len(chunk))
+            await send({"type": "http.response.body", "body": chunk, "more_body": True})
+            if not watch:
+                continue
+            if window_bytes >= window_min:
+                window_min = self._WINDOW_MIN_BYTES
+                window_budget = self._WINDOW_S
+                window_bytes = 0
+                upstream_wait = 0.0
+            elif upstream_wait >= window_budget:
+                return "slow"
+
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         watcher = asyncio.ensure_future(self._watch_disconnect(receive))
         started = False
+        absolute_start: int | None = None
+        began = asyncio.get_running_loop().time()
         try:
-            headers = dict(self._upstream_headers)
+            base_headers = dict(self._upstream_headers)
             if self._range:
-                headers["Range"] = self._range
-            client = httpx.AsyncClient(
-                follow_redirects=False, trust_env=False, timeout=httpx.Timeout(30.0, read=60.0)
-            )
-            async with client:
-                upstream = await open_followed_stream(client, self._url, headers)
-                try:
-                    relayed = [
-                        (name.encode(), value.encode())
-                        for name in _RELAY_HEADERS
-                        if (value := upstream.headers.get(name)) is not None
-                    ]
-                    await send(
-                        {
-                            "type": "http.response.start",
-                            "status": upstream.status_code,
-                            "headers": relayed,
-                        }
-                    )
-                    started = True
-                    if scope.get("method") == "HEAD" or upstream.status_code >= 400:
-                        await send({"type": "http.response.body", "body": b"", "more_body": False})
-                        return
-                    async for chunk in upstream.aiter_raw(self.chunk_size):
-                        if self._should_stop():
+                base_headers["Range"] = self._range
+            for attempt in range(self._MAX_RECONNECTS + 1):
+                if attempt and self._should_stop():
+                    return
+                headers = dict(base_headers)
+                if attempt and absolute_start is not None and self._bytes:
+                    headers["Range"] = f"bytes={absolute_start + self._bytes}-"
+                client = httpx.AsyncClient(
+                    follow_redirects=False, trust_env=False, timeout=httpx.Timeout(30.0, read=60.0)
+                )
+                async with client:
+                    try:
+                        upstream = await open_followed_stream(client, self._url, headers)
+                    except httpx.HTTPError as exc:
+                        if (
+                            started
+                            and attempt < self._MAX_RECONNECTS
+                            and absolute_start is not None
+                        ):
+                            logger.warning("网盘中继重连打开失败，再换一条连接：%s", exc)
+                            continue
+                        raise
+                    try:
+                        if attempt == 0:
+                            relayed = [
+                                (name.encode(), value.encode())
+                                for name in _RELAY_HEADERS
+                                if (value := upstream.headers.get(name)) is not None
+                            ]
+                            await send(
+                                {
+                                    "type": "http.response.start",
+                                    "status": upstream.status_code,
+                                    "headers": relayed,
+                                }
+                            )
+                            started = True
+                            if scope.get("method") == "HEAD" or upstream.status_code >= 400:
+                                await send(
+                                    {"type": "http.response.body", "body": b"", "more_body": False}
+                                )
+                                return
+                            absolute_start = _content_range_start(
+                                upstream.headers.get("content-range")
+                            )
+                            if upstream.status_code == 200 and absolute_start is None:
+                                absolute_start = 0
+                        elif not self._resume_ok(upstream, absolute_start):
                             return
-                        if self._probe is not None:
-                            self._probe.first_chunk()
-                        self._bytes += len(chunk)
-                        if self._byte_sink is not None:
-                            self._byte_sink(len(chunk))
-                        await send({"type": "http.response.body", "body": chunk, "more_body": True})
-                    await send({"type": "http.response.body", "body": b"", "more_body": False})
-                finally:
-                    await upstream.aclose()
+                        watch = attempt < self._MAX_RECONNECTS and absolute_start is not None
+                        outcome = await self._relay_body(send, upstream, watch=watch)
+                        if outcome == "complete":
+                            await send(
+                                {"type": "http.response.body", "body": b"", "more_body": False}
+                            )
+                            return
+                        if outcome == "stopped":
+                            return
+                        self._reconnects += 1
+                        logger.warning(
+                            "网盘中继上游过慢/停顿，换连接续传：已转 %d 字节（第 %d/%d 次重连）",
+                            self._bytes,
+                            self._reconnects,
+                            self._MAX_RECONNECTS,
+                        )
+                    finally:
+                        await upstream.aclose()
         except httpx.HTTPError as exc:
             logger.warning("转发网盘直链失败：%s", exc)
             if not started:
@@ -1032,6 +1168,12 @@ class RemoteRelayResponse(Response):
                 await send({"type": "http.response.body", "body": b"", "more_body": False})
         finally:
             watcher.cancel()
+            logger.info(
+                "网盘中继结束：转发了 %d 字节，用时 %.1f 秒，重连 %d 次",
+                self._bytes,
+                asyncio.get_running_loop().time() - began,
+                self._reconnects,
+            )
             if self._probe is not None:
                 self._probe.finish(self._bytes, disconnected=self._stopped_early)
             if self._on_close is not None:

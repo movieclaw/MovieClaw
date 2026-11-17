@@ -23,6 +23,7 @@ import {
   UpdateProgressView,
   UpdateStatusView
 } from '../api/Models';
+import { SpatialMaterial } from '../common/SpatialMaterial';
 
 /** 三个页签（对应 iOS `AppMaintenanceSettingsView.Tab`） */
 class AppTab {
@@ -707,6 +708,7 @@ export struct AppMaintenanceSection {
       height: SheetSize.LARGE,
       dragBar: true,
       showClose: false,
+      systemMaterial: SpatialMaterial.sheet(),
       backgroundColor: Theme.bg
     })
   }

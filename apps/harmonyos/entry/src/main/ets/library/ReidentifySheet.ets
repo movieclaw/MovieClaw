@@ -322,10 +322,13 @@ export struct ReidentifySheet {
   }
 
   private openUrl(url: string): void {
-    const context: common.UIAbilityContext = getContext() as common.UIAbilityContext;
-    context.openLink(url).catch((): void => {
-      this.getUIContext().getPromptAction().showToast({ message: '打不开链接' });
-    });
+    const raw: common.Context | undefined = this.getUIContext().getHostContext();
+    if (raw !== undefined) {
+      const host: common.UIAbilityContext = raw as common.UIAbilityContext;
+      host.openLink(url).catch((): void => {
+        this.getUIContext().getPromptAction().showToast({ message: '打不开链接' });
+      });
+    }
   }
 }
 

@@ -39,6 +39,7 @@ import { SearchScope } from '../search/SearchTabs';
 import { SearchAccess } from '../search/SearchAccess';
 import { AppFooter } from '../common/AppFooter';
 import { SubscribeCenter } from './SubscribeCenter';
+import { SpatialMaterial } from '../common/SpatialMaterial';
 
 /** 订阅详情页的路由参数（路由参数会被序列化，不要用 instanceof） */
 export class SubscriptionParams {
@@ -1106,6 +1107,7 @@ export struct SubscriptionDetailPage {
       height: SheetSize.LARGE,
       dragBar: true,
       showClose: false,
+      systemMaterial: SpatialMaterial.sheet(),
       backgroundColor: Theme.bg
     })
     .onReady((ctx: NavDestinationContext) => {

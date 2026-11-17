@@ -112,12 +112,13 @@
 
 ### 2.4 前置条件清单（平台与账号侧——评审后第一周确认项）
 
-以下任何一条**不满足只影响上线，不影响开发与本地联调**（意图框架调试开关
-不要求上架）：
+以下任何一条**不满足只影响上线与小艺可见性，不影响开发自测**（真机实测
+2026-11-13：调试页列表读的是云端注册库，AGC 技能调用方案能力申请通过前，
+任何应用——含华为自家——都不会出现在里面，见 §4.4）：
 
 | # | 事项 | 为什么需要 | 确认方式 |
 | --- | --- | --- | --- |
-| 1 | AGC 账号形态（个人 / 团队、实名认证状态）——**已确认：团队/企业账号** | 意图插件注册需团队账号；个人账号需先升级或入队 | 登录 AGC 管理中心查看 |
+| 1 | AGC 账号形态（个人 / 团队、实名认证状态）——**已确认：个人实名认证**（2026-11-13 用户核实；此前记为团队/企业有误） | 意图框架能力申请仅对企业开发者开放（FAQ faqs-intents-kit-5：个人开发者无法在「开放能力管理」搜到意图框架）；须先升级企业实名认证（需营业执照）再申请 | AGC 右上角头像 → 账号中心 → 实名认证信息 |
 | 2 | 鸿蒙 App 的 AGC 上架状态——**已确认：审核中**（上架由我们自己操作，不依赖外部确认） | 意图注册审核要求应用已上架 AppGallery；未上架则 P1/P2 无法正式上线，只能本地联调 | AGC「我的应用」列表 |
 | 3 | DevEco Studio 6.0.0 Beta2+ 与 CodeGenie 可用性 | 装饰器生成走 CodeGenie（HarmonyOS Ask） | 本机 DevEco 版本 |
 | 4 | 小艺开放平台入口与垂类 | 意图注册入口：管理中心 → 生态服务 → 智慧服务 → 小艺开放平台；影视垂类 schema 以注册页当日为准 | 登录开放平台预览 |
@@ -280,6 +281,74 @@ onIntent(name, params):
 7. 灰度顺序：先只提审 `ContinuePlay` 一个意图摸全流程（审核时长、卡片形态先见
    实物），其余五个意图复用同一套流程批量提审。
 
+**真机调试结论（2026-11-13，Pura X / HarmonyOS 7.0.0.111，API 26）**：
+「查看设备上所有意图」列表**不读本地注册数据**——实测它经
+`com.huawei.hmos.aidataservice` 的 DataShare（云同步注册库）查询，本机
+**所有应用（含华为音乐/华为视频）返回空**；`bm dump` 亦证实华为自家应用
+`hasIntent` 全为 false。即：该页空白 ≠ 我方接入缺陷，可见性完全取决于华为
+平台侧注册（AGC 技能调用方案能力申请 → 基础信息提供 → 审核下发）。本地
+链路（insight_intent.json + 执行器 + 路由接线）已过 SDK schema 校验，执行
+链待平台注册后经小艺联调验证。`module.json` 的 `hasInsightIntent` 字段被
+工具链 schema 拒绝（不可写入源码），且与生产可见性无关（华为自家应用均为
+false），不再追。
+
+### 4.5 备选路线：API 26 Skill 框架（已落地，消费侧未激活，挂起等 OTA）
+
+**背景**：意图框架可见性卡在 AGC 企业实名（§2.4）。调研发现 API 26 新增 Skill
+框架（`module.json5` 的 `skillProfiles` + `SKILL.md` + ArkTS 脚本），本地 BMS
+注册、不经 AGC 审核，理论上可绕开企业门槛，遂先做最小验证（仅 continuePlay
+一个场景）。
+
+**已落地（代码保留在工程中）**：
+
+- `entry/skills/movieclaw-player/SKILL.md`：技能声明（name=movieclaw-player，
+  场景1 `continuePlay`，arg1 可选片名；回包 success / ERR_INTERNAL）；
+- `entry/skills/movieclaw-player/scripts/MovieClawSkill.ets`：脚本薄适配层 →
+  `XiaoyiIntentDispatcher.shared().handOff(CONTINUE_PLAY, title)` → 复用
+  §4.3 分发器与路由落点（MainTabsPage 消费 + 冷启动兜底），与意图框架执行器
+  同一条链；
+- `module.json5` 加 `skillProfiles`；`obfuscation-rules.txt` 加
+  `-keep file path "entry/skills/.*"`；
+- EntryAbility 冷启动探针 `probeSkills()`（`skillManager.getSkillInfosForSelf`）：
+  输出注册结果日志，供 OTA 后复测。
+
+**注册链路实测全通（2026-11-14，Pura X / HarmonyOS 7.0.0.111，API 26）**：
+HAP 打包验证 `skills/movieclaw-player/SKILL.md` 在包内、`srcEntries` 被工具链
+归一化为 `@normalized:N&&&entry/...`；装机后探针日志：
+
+```
+skillProbe count=1
+name=movieclaw-player module=entry
+path=/data/skills/io.movieclaw.HUAWEI/entry/skills/movieclaw-player
+ability=EntryAbility type=0 visibility=system version=1.0.0
+```
+
+BMS 本地注册成功（`visibility=system`：系统应用和当前应用可见），
+`param get const.SystemCapability.Ability.AgentRuntime.Core` 为 true。
+
+**消费链路实测不通（同日，两轮真机测试）**：
+
+- 语音「继续播放」×2：拒绝话术（「当前应用不支持语音执行这项功能」/「不支持」）
+  **来自云端 NLU**——第一轮实测拒绝播报 02:42:08 下发，早于本地太初智能体
+  02:42:33 冷启动，即语音先走云端经典管线，**本地技能表从未被查询**；第二轮
+  云端下发 `MediaMusic.AvSessionAction`（通用播控指令），当时无活跃 AVSession
+  （`find session descriptor fail bundleName:undefined`、`focusSession no play`），
+  指令未落到任何应用，同时播报拒绝话术；
+- 打字「继续播放」/「用 MovieClaw 继续播放」：云端大模型回复「无法执行/不支
+  持」，本地零参与（无太初进程、无 BMS 技能查询）；
+- 语音「打开 MovieClaw」：太初（`com.huawei.hmos.systemagent`，vassistant
+  沙箱内模块进程，非独立安装包）冷启动，但其 toollery **9 个工具/技能手册全部
+  `Failed to get rawfile`**（含 `SkillLoad` 与 `device-app-ctl`）——该版本智能体
+  工具库未预置，无法行动（App 最终由用户手动打开）；
+- 全程日志零命中 `MovieClawSkill` / `movieclaw-player` / `scriptManager`；
+  测试含未重启场景（重启与否不影响结论：根本没有消费方查询注册表）。
+
+**结论**：阻塞点不在我方——打包 → 安装 → BMS 注册 → 可查询，链路全通；该系统
+版本消费侧没有入口读本地技能注册表（云端 NLU/LLM 不感知第三方本地技能 + 本地
+太初工具库未预置）。**挂起等 OTA**：系统更新后冷启动 App 看 `skillProbe` 日志
+确认注册仍在，重跑同样三测试；技能代码零改动即绪。消费侧验证通过后再铺开
+§4.1 全量六场景。
+
 ---
 
 ## 5. P2 小艺建议：习惯推荐卡片
@@ -309,13 +378,17 @@ ContinuePlay 意图 → `player` 带续播位置（闭环回 P1）。
 | `intentEntityInfo.logo` | **v1 不带**（评审意见 #3）——避免把服务端地址 + 带签名的图片 URL 交给平台，签名有效期也免管；后续版本再评估 |
 | `intentEntityInfo` 其余字段（时长、描述等） | 片目元数据 |
 
-**上报时机与节流**：
+**上报时机与节流**（实现期修订，2026-11-13）：Intents Kit 官方文档给出
+`shareIntent` 的硬限额——**每应用每天最多 20 次调用**（超限报 `1000101104`，
+当天静默放弃）、单次 50KB（`1000101105`）但**每次可携带多条意图数据**，官方
+建议攒批后一次共享。原表「每 30s 报一次进度」会一天烧穿限额，不可行，修订为：
 
 | 时机 | 说明 |
 | --- | --- |
-| `player` 起播成功 | 一次（actionMode=EXECUTED） |
-| 进度落盘（playback-history-sync 心跳） | 节流上报：每 30s 或百分比变化 >5% 才报一次 |
-| 播放结束 | 上报完成态（percentage=100） |
+| 播放会话结束（`stop`） | 一次共享：EXECUTED + 起止时段 + 最终百分比 + 实体；App 自留每日 18 次余量，超限错误出现后当天不再尝试 |
+| 新集差分检出（§5.2 轻路径一轮） | 一轮一次共享，单次携带多条新集（官方攒批建议） |
+
+边看边报的进度流不进 v1：卡片消费的是完成/接续态，「勤报」只烧限额不增价值。
 
 ### 5.2 常用推新（订阅新集上架）——关键取舍
 

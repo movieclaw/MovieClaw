@@ -80,7 +80,11 @@ export class PhoneMedia implements PlaybackMedia {
     try {
       // Fetch optional subtitles outside the native command queue, with HTTP deadlines.
       // A missing subtitle must never prevent acquisition of the video source.
-      if (this.subtitleUrl.length > 0 && this.subtitlePath.length === 0) {
+      // avplayer 例外（2026-11-17 真机取证）：histreamer 挂上 fd 字幕源后主解码流
+      // 高概率楔死——时钟停走、状态机仍报 playing、无 error 回调（NAS 直连 4/4
+      // 复现）。文本旁挂一律由宿主下载解析、按位置自绘，不进内核：acquire 不为
+      // avplayer 下载/打开任何字幕句柄；mpv 照旧（下载的临时文件随租约回收）。
+      if (engine !== 'avplayer' && this.subtitleUrl.length > 0 && this.subtitlePath.length === 0) {
         try {
           const downloaded = await this.downloadSubtitle(engine);
           temporaryPath = downloaded.path;
@@ -94,7 +98,7 @@ export class PhoneMedia implements PlaybackMedia {
         }
       }
       if (this.path.length > 0) { media = fileIo.openSync(this.path, fileIo.OpenMode.READ_ONLY); }
-      if (this.subtitlePath.length > 0) {
+      if (engine !== 'avplayer' && this.subtitlePath.length > 0) {
         subtitle = fileIo.openSync(this.subtitlePath, fileIo.OpenMode.READ_ONLY);
         // 离线外挂按文件扩展名给格式（mpv 用它判定原生上屏层开关）。
         subtitleFormat = this.subtitlePath.split('.').pop()?.toLowerCase() ?? '';
@@ -160,6 +164,15 @@ export class PhoneMedia implements PlaybackMedia {
     } finally { request.destroy(); }
   }
 
+}
+
+/** 读小文本字幕为字符串（UTF-8，BOM 剥除）；打不开/读不出返回空串，调用方按无字幕处理。 */
+export function readSubtitleTextFile(path: string): string {
+  try {
+    return fileIo.readTextSync(path).replace(/^\uFEFF/, '');
+  } catch (error) {
+    return '';
+  }
 }
 
 /** PGS 旁挂 .sup 的会话内缓存：一次下载，重挂/切引擎复用；换文件/换轨作废。 */

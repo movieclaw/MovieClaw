@@ -151,8 +151,8 @@ export struct ProfilePage {
     }
     const api: MovieClawApi | null = this.api();
     const client = AppModel.shared.client;
-    const context = getContext() as common.UIAbilityContext;
-    if (api === null || client === null) {
+    const context: common.Context | undefined = this.getUIContext().getHostContext();
+    if (api === null || client === null || context === undefined) {
       return;
     }
     this.avatarBusy = true;
@@ -170,7 +170,7 @@ export struct ProfilePage {
       };
       const pixelMap: image.PixelMap = await source.createPixelMap({ desiredSize: target });
       const packer: image.ImagePacker = image.createImagePacker();
-      const jpeg: ArrayBuffer = await packer.packing(pixelMap, { format: 'image/jpeg', quality: 90 });
+      const jpeg: ArrayBuffer = await packer.packToData(pixelMap, { format: 'image/jpeg', quality: 90 });
       packer.release();
       source.release();
 

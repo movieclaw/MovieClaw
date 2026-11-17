@@ -34,6 +34,21 @@ export class SpatialMaterial {
     });
   }
 
+  /**
+   * 半模态（bindSheet）背板的材质：沉浸光感规范给半模态 / 大面积弹窗推荐
+   * 最厚的 ULTRA_THICK——弹层内容多、层级深，厚材质压得住底层内容，可读性最好。
+   * 材质生效时系统会忽略调用方写死的 backgroundColor；不支持沉浸光感的
+   * 设备上本方法返回 undefined，调用方的实色底照常兜底，两不误。
+   */
+  static sheet(): SystemUiMaterial | undefined {
+    if (!SpatialMaterial.supported) {
+      return undefined;
+    }
+    return new uiMaterial.ImmersiveMaterial({
+      style: uiMaterial.ImmersiveStyle.ULTRA_THICK
+    });
+  }
+
   /** HDS 标题栏的材质参数：设备不支持 HDS 系统材质时返回 undefined（保持普通渐变模糊） */
   static hds(): SystemMaterialParams | undefined {
     if (hdsMaterial.getSystemMaterialTypes().length === 0) {

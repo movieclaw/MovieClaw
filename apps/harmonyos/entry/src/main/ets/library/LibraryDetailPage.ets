@@ -50,6 +50,7 @@ import { SaveAsCollectionSheet } from './SaveAsCollectionSheet';
 import { GalleryDensity, GalleryPrefs, GalleryWall } from './GalleryWall';
 import { LatestRequestGate } from './LatestRequestGate';
 import { LibraryRouteParams } from './LibraryRouteParams';
+import { SpatialMaterial } from '../common/SpatialMaterial';
 
 /** 路由表注册用（router_map.json 的 buildMethod） */
 @Builder
@@ -827,7 +828,7 @@ struct LibraryDetailPage {
       });
       return;
     }
-    AlertDialog.show({
+    this.getUIContext().showAlertDialog({
       title: `扫描「${library.name}」？`,
       message: LibraryDetailPage.bullets('本次扫描会检查库文件夹的最新变化：', [
         '找出新增的影片文件，自动识别并加入媒体库',
@@ -888,7 +889,7 @@ struct LibraryDetailPage {
         '不会移动、修改或删除你的视频文件'
       ]);
     const confirmTitle: string = !caps.scraped && caps.playable ? '开始读取' : '开始刷新';
-    AlertDialog.show({
+    this.getUIContext().showAlertDialog({
       title: title,
       message: message,
       primaryButton: {
@@ -997,6 +998,7 @@ struct LibraryDetailPage {
       height: SheetSize.LARGE,
       dragBar: true,
       showClose: false,
+      systemMaterial: SpatialMaterial.sheet(),
       backgroundColor: Theme.bg
     })
   }

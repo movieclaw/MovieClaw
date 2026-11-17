@@ -90,6 +90,12 @@ export struct ResumeBar {
   @Require @Param item: UpNextItemView;
   /** 收起态：整条缩窄并移到导航同一行，保留内容与播放入口、隐藏关闭按钮 */
   @Param compact: boolean = false;
+  /**
+   * 内嵌官方胶囊 minibar 行（HdsTabs 上下布局变体的上排）：背景、圆角、材质由
+   * 官方胶囊一体给出（`enableMiniBarBackground` 默认跟随页签栏），这里只出内容，
+   * 不再自带玻璃底/描边/投影，避免胶囊里再套一层胶囊。
+   */
+  @Param embedded: boolean = false;
   @Event onHide: () => void = () => {
   };
 
@@ -164,86 +170,106 @@ export struct ResumeBar {
   }
 
   build() {
-    Row() {
-      // 左边整块点了起播（左边区域与 ✕ 是并排的两个按钮，按钮里套按钮点击会串）
-      Row({ space: 10 }) {
-        // 封面 + 环形进度（同华为音乐迷你播放条：Stack 层叠环形进度条）
-        Stack({ alignContent: Alignment.Center }) {
-          if (this.ringPercent() !== null) {
-            Progress({ value: this.ringPercent()!, total: 100, type: ProgressType.Ring })
-            .width(44)
-            .height(44)
-            .color(Theme.text)
-            .backgroundColor('rgba(255,255,255,0.14)')
-            .style({ strokeWidth: 2.5 })
-          }
-          RemoteImage({
-            url: this.posterUrl(),
-            placeholderSymbol: $r('sys.symbol.play_square')
-          })
-            .width(34)
-            .height(34)
-            .borderRadius(8)
-            .clip(true)
+    if (this.embedded) {
+      Row() {
+        this.Content()
+      }
+      .width('100%')
+      // 官方 minibar 内容区高度跟页签行走（文档：与页签栏等高），实测小于进度
+      // 环外径：环整体缩小画进区域内（2026-11-17 真机反馈「环太大」）；行高仍
+      // 随区域（'100%'），enableMiniBarClip: false 兜底防官方默认裁剪
+      .height('100%')
+    } else {
+      Row() {
+        this.Content()
+      }
+      .width('100%')
+      .height(56)
+      /*
+       * 和官方悬浮页签栏同一套：深色玻璃底（实色，不再靠空间化材质透出来——列表上方
+       * 不在标题栏/页签栏作用域时系统材质不生效，条几乎全透明看不见）、厚模糊、
+       * 1px 细描边、胶囊圆角 28。API 26+ 再叠一层空间化材质，能吃到就多一层光感。
+       */
+      .backgroundColor('rgba(18, 21, 27, 0.94)')
+      .backgroundBlurStyle(BlurStyle.COMPONENT_THICK)
+      .systemMaterial(SpatialMaterial.floating())
+      .borderRadius(28)
+      .border({ width: 1, color: 'rgba(255, 255, 255, 0.10)' })
+      .shadow({ radius: 22, color: 'rgba(0, 0, 0, 0.45)', offsetX: 0, offsetY: 8 })
+    }
+  }
+
+  /** 两种形态共用的内容行：左边整块起播区 + 右边 ✕ */
+  @Builder
+  Content() {
+    // 左边整块点了起播（左边区域与 ✕ 是并排的两个按钮，按钮里套按钮点击会串）
+    Row({ space: 10 }) {
+      // 封面 + 环形进度（同华为音乐迷你播放条：Stack 层叠环形进度条）
+      Stack({ alignContent: Alignment.Center }) {
+        if (this.ringPercent() !== null) {
+          Progress({ value: this.ringPercent()!, total: 100, type: ProgressType.Ring })
+          .width(this.embedded ? 36 : 44)
+          .height(this.embedded ? 36 : 44)
+          .color(Theme.text)
+          .backgroundColor('rgba(255,255,255,0.14)')
+          .style({ strokeWidth: 2.5 })
         }
-        .width(46)
-        .height(46)
-        Column({ space: 1 }) {
-          Text(this.item.title)
-            .id('app-resume-title')
-            .fontSize(14)
-            .fontWeight(FontWeight.Medium)
-            .fontColor(Theme.text)
+        RemoteImage({
+          url: this.posterUrl(),
+          placeholderSymbol: $r('sys.symbol.play_square')
+        })
+          .width(this.embedded ? 28 : 34)
+          .height(this.embedded ? 28 : 34)
+          // 圆形封面：裁圆后最大半径是半宽（embedded 14），与环内缘
+          // （18-2.5=15.5）净空 1.5vp；经典尺寸环内缘 19.5、净空 2.5vp
+          // （同华为音乐的比例）。
+          .borderRadius(this.embedded ? 14 : 17)
+          .clip(true)
+      }
+      .width(this.embedded ? 40 : 46)
+      .height(this.embedded ? 40 : 46)
+      Column({ space: 1 }) {
+        Text(this.item.title)
+          .id('app-resume-title')
+          .fontSize(14)
+          .fontWeight(FontWeight.Medium)
+          .fontColor(Theme.text)
+          .maxLines(1)
+          .textOverflow({ overflow: TextOverflow.Ellipsis })
+        if (this.detail().length > 0) {
+          Text(this.detail())
+            .fontSize(11)
+            .fontColor(Theme.textMuted)
             .maxLines(1)
             .textOverflow({ overflow: TextOverflow.Ellipsis })
-          if (this.detail().length > 0) {
-            Text(this.detail())
-              .fontSize(11)
-              .fontColor(Theme.textMuted)
-              .maxLines(1)
-              .textOverflow({ overflow: TextOverflow.Ellipsis })
-          }
         }
-        .layoutWeight(1)
-        .alignItems(HorizontalAlign.Start)
-        SymbolGlyph($r('sys.symbol.play_fill'))
-          .id('app-resume-play-icon')
-          .fontSize(16)
-          .fontColor([Theme.accentStrong])
       }
-      .padding({ left: 12, right: this.compact ? 16 : 4 })
       .layoutWeight(1)
-      .height('100%')
-      .id('app-resume-play')
-      .accessibilityText(`继续播放 ${this.item.title}`)
-      .onClick(() => {
-        this.play();
-      })
-
-      if (!this.compact) {
-        SymbolGlyph($r('sys.symbol.xmark'))
-          .id('app-resume-close')
-          .accessibilityText('关闭最近播放')
-          .fontSize(13)
-          .fontColor([Theme.textMuted])
-          .padding(10)
-          .onClick(() => {
-            this.onHide();
-          })
-      }
+      .alignItems(HorizontalAlign.Start)
+      SymbolGlyph($r('sys.symbol.play_fill'))
+        .id('app-resume-play-icon')
+        .fontSize(16)
+        .fontColor([Theme.accentStrong])
     }
-    .width('100%')
-    .height(56)
-    /*
-     * 和官方悬浮页签栏同一套：深色玻璃底（实色，不再靠空间化材质透出来——列表上方
-     * 不在标题栏/页签栏作用域时系统材质不生效，条几乎全透明看不见）、厚模糊、
-     * 1px 细描边、胶囊圆角 28。API 26+ 再叠一层空间化材质，能吃到就多一层光感。
-     */
-    .backgroundColor('rgba(18, 21, 27, 0.94)')
-    .backgroundBlurStyle(BlurStyle.COMPONENT_THICK)
-    .systemMaterial(SpatialMaterial.floating())
-    .borderRadius(28)
-    .border({ width: 1, color: 'rgba(255, 255, 255, 0.10)' })
-    .shadow({ radius: 22, color: 'rgba(0, 0, 0, 0.45)', offsetX: 0, offsetY: 8 })
+    .padding({ left: 12, right: this.compact ? 16 : 4 })
+    .layoutWeight(1)
+    .height('100%')
+    .id('app-resume-play')
+    .accessibilityText(`继续播放 ${this.item.title}`)
+    .onClick(() => {
+      this.play();
+    })
+
+    if (!this.compact) {
+      SymbolGlyph($r('sys.symbol.xmark'))
+        .id('app-resume-close')
+        .accessibilityText('关闭最近播放')
+        .fontSize(13)
+        .fontColor([Theme.textMuted])
+        .padding(10)
+        .onClick(() => {
+          this.onHide();
+        })
+    }
   }
 }

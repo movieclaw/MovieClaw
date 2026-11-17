@@ -103,8 +103,12 @@ export struct LibraryCreatePage {
 
   /** 选根目录：用鸿蒙原生的文件夹选择器（对应 iOS 的 `.fileImporter` 目录模式） */
   private async addRoot(): Promise<void> {
+    const context = this.getUIContext().getHostContext();
+    if (context === undefined) {
+      return;
+    }
     try {
-      const picked: string = await pickFolder();
+      const picked: string = await pickFolder(context);
       if (picked.length === 0) {
         return;
       }
@@ -127,7 +131,7 @@ export struct LibraryCreatePage {
     }
   }
 
-  private async create(): Promise<void> {
+  private async createLibrary(): Promise<void> {
     const api: MovieClawApi | null = this.api();
     if (api === null || this.busy) {
       return;
@@ -416,7 +420,7 @@ export struct LibraryCreatePage {
       .borderRadius(Theme.cardRadius)
       .onClick(() => {
         if (this.ready() && !this.busy) {
-          this.create();
+          this.createLibrary();
         }
       })
     }

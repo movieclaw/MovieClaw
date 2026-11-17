@@ -28,6 +28,8 @@ export interface TrackPreference {
   title: string;
   ordinal: number;
   sourceCount?: number;
+  /** 用户显式选过这条轨。观看状态继承来的偏好无此标志：恢复失败降级为跳过，不再整引擎回退 */
+  explicit?: boolean;
 }
 export class PlaybackSnapshot {
   phase: string = 'idle';
@@ -61,6 +63,10 @@ export class PlaybackController {
   // Release still cancels the pending native seek immediately.
   private static readonly seekTimeoutMs: number = 35000;
   private static readonly startupTimeoutMs: number = 25000;
+  // prepared 态续播 seek 的兜底预算：健康网络下 seek 拉流一两秒内完成，挂起
+  // 说明 histreamer 没接住该 seek——seek 阶段没有画面可等，不值得陪服务端
+  // 中继的重连窗口耗满，比停滞看门狗更早放弃转 mpv。
+  private static readonly preparedSeekTimeoutMs: number = 12000;
   private static readonly releaseTimeoutMs: number = 3000;
   // mpv 看门狗触发一次画面冻结就地重开一次；超过上限说明源/服务端持续异常，
   // 转 decode 失败收尾，绝不无限循环。
@@ -94,6 +100,9 @@ export class PlaybackController {
   private cancelStartup: (() => void) | null = null;
   private startupConfirmed: boolean = false;
   private startupPositionMs: number = 0;
+  // prepared 态续播 seek 之后首帧必须在同款预算内落地，否则视作 seek 假成功
+  // （seekDone 谎报而画面从未渲染）按启动超时转 mpv。
+  private startupDeadlineMs: number = PlaybackController.startupTimeoutMs;
   private startupSeekSuperseded: boolean = false;
   private deferredResumePending: boolean = false;
   private deferredSeekIssued: boolean = false;
@@ -149,6 +158,7 @@ export class PlaybackController {
     this.startupSeekSuperseded = false;
     this.deferredResumePending = false;
     this.deferredSeekIssued = false;
+    this.startupDeadlineMs = PlaybackController.startupTimeoutMs;
     this.snapshot.engine = id; this.snapshot.phase = 'opening'; this.snapshot.playing = false;
     this.snapshot.firstFrame = false; this.snapshot.buffering = false; this.snapshot.failure = null; this.publish();
     let engine: PlayerEngine | null = null;
@@ -171,11 +181,15 @@ export class PlaybackController {
       };
       await this.deadline(engine.open(lease.source, this.surface), 25000);
       if (!this.valid(generation, attempt)) { return; }
-      // AVPlayer's prepared-state resume-seek strands the decoder in FLUSHED: the
-      // pipeline freezes while the state machine still reports playing — paused and
-      // interrupted opens included. Playback always starts first (a paused open
-      // simply stays prepared) and seek/track selection defer until the first frame
-      // proves the decoder is running. MPV has no such hazard and keeps seeking at open.
+      // AVPlayer 的续播 seek 不能等首帧：histreamer http 源的前读在起播后半秒内
+      // 就把缓存塞满（CacheMediaBuffer full），之后做超出缓存范围的 seek，拉回
+      // 的数据存不进满缓存（SaveBodyData failed），demuxer 永远要不到数据——
+      // 时钟冻在 seek 点、状态机仍报 playing，只能靠停滞看门狗 30s 后转 mpv。
+      // 所以远程直链的续播 seek 提前到 open() 刚返回的 prepared 态做掉（此刻
+      // 缓存里只有 moov，seek 拉流有空间可进），起播直接落在续播点。fd 本地源
+      // 没有该死锁，维持首帧后延迟 seek 的老路径；轨选择也统一延迟到首帧后的
+      // restore（prepared 态选轨的老坑一并避开）。HLS 在上面已整体拒绝。
+      // MPV has no such hazard and keeps seeking at open.
       const resumeTargetMs = this.intent.positionMs;
       const deferUntilRunning = id === 'avplayer';
       if (!deferUntilRunning) {
@@ -186,6 +200,19 @@ export class PlaybackController {
             await this.deadline(engine.seek(Math.max(0, restoredPosition - media.originMs)), PlaybackController.seekTimeoutMs);
           }
         }
+        if (!this.valid(generation, attempt)) { return; }
+      }
+      // 远程直链（非 HLS）且需要续播跳转：prepared 态就地 seek。seek 挂起由本处
+      // deadline 兜底；seekDone 假成功（首帧迟迟不来）由 playEngine 的首帧超时
+      // 兜底——两者都按停滞看门狗同款预算转 mpv，失败面与旧行为等宽。
+      if (deferUntilRunning && lease.source.fd < 0 && lease.source.url.length > 0
+        && !(lease.source.isHls ?? true) && resumeTargetMs > media.originMs) {
+        hilog.info(0x0000, 'MCSub', 'avplayer prepared 态续播 seek: position=%{public}d origin=%{public}d',
+          resumeTargetMs, media.originMs);
+        this.deferredSeekIssued = true;
+        this.startupDeadlineMs = PlaybackController.preparedSeekTimeoutMs;
+        await this.deadline(engine.seek(Math.max(0, resumeTargetMs - media.originMs)),
+          PlaybackController.preparedSeekTimeoutMs);
         if (!this.valid(generation, attempt)) { return; }
       }
       // 冻结的就地重开绕过 open()：在播时的字幕操作 host 不会重走挂载流程
@@ -254,9 +281,10 @@ export class PlaybackController {
   // a jumped currentTime while the decoder never renders again: every observable
   // signal lies, so AVPlayer refuses required seeks on remote HLS sources outright
   // and recover() hands the session to MPV instead of freezing on a dead pipeline.
-  // Plain remote URLs (/stream, /disc directory listings) range-request fine and
-  // stay seekable; EngineSource.isHls distinguishes the two (absent = conservative
-  // HLS = refuse, so old media implementations cannot regress into freezing).
+  // Plain remote URLs (/stream) stay seekable: 首帧后的续播死锁由 startAttempt
+  // 的 prepared 态 seek 绕开，in-session 拖动走正常 seek 路径。isHls absent
+  // = conservative HLS = refuse, so old media implementations cannot regress
+  // into freezing.
   private remoteAvplayerSeek(engine: PlayerEngine): boolean {
     const lease = this.lease;
     return engine.id === 'avplayer' && lease !== null && lease.source.fd < 0
@@ -293,12 +321,16 @@ export class PlaybackController {
   }
 
   /**
-   * 视频画面冻结（mpv 看门狗触发）：dispose 后就地重开 mpv 恢复流连续。重开
-   * 位置取 intent 与看门狗实测的较大值——time 事件可能被事件洪峰（404 风暴）
-   * 整段丢弃，intent 里是旧位置，直接用会把已看过的片段重放一遍，还得让服务
-   * 端重新产段；看门狗上报的是冻结瞬间的引擎位置（+originMs 换算到文件时间），
-   * 绝不让重开位置回退。重开次数超上限说明源/服务端持续异常，转 decode 失败
-   * 交给宿主收尾，绝不无限循环。
+   * 视频画面冻结（mpv 看门狗 / AVP 停滞看门狗触发）：dispose 后一律转 mpv 就地
+   * 重开恢复流连接。AVP 远程直连源不再做同引擎重开——2026-11-17 设备日志实测：
+   * 直链冻结的根因是服务端中继的上游断流（上游停发约 60s），同引擎重开三次全
+   * 部只播 59~87ms 就再冻（全新实例照样撞死在同一个断流窗口里，并非 histreamer
+   * 就实例缓存死锁），白耗约 45 秒才轮到 mpv；mpv 缓冲有耐心，熬到上游恢复就
+   * 能接着播，直转一步到位。重开位置取 intent 与看门狗实测的较大值——time 事
+   * 件可能被事件洪峰（404 风暴）整段丢弃，intent 里是旧位置，直接用会把已看
+   * 过的片段重放一遍，还得让服务端重新产段；看门狗上报的是冻结瞬间的引擎位置
+   * （+originMs 换算到文件时间），绝不让重开位置回退。重开次数超上限说明源/
+   * 服务端持续异常，转 decode 失败交给宿主收尾，绝不无限循环。
    */
   private async recoverFrozen(generation: number, id: EngineId, watchdogPositionMs: number): Promise<void> {
     const originMs = this.media?.originMs ?? 0;
@@ -316,7 +348,7 @@ export class PlaybackController {
       await this.recover(new EngineFailure('decode', 0, '视频画面反复卡死，已停止自动恢复'), generation, id);
       return;
     }
-    hilog.error(0x0000, 'MCSub', '视频冻结，就地重开恢复: position=%{public}d 第 %{public}d 次',
+    hilog.error(0x0000, 'MCSub', '视频冻结，就地重开恢复: engine=mpv position=%{public}d 第 %{public}d 次',
       positionMs, this.frozenRecoveries);
     const notice = new EngineEvent();
     notice.type = 'diagnostic';
@@ -415,7 +447,7 @@ export class PlaybackController {
         if (this.valid(generation, attempt) && !this.intent.paused && !this.interrupted) {
           this.recover(new EngineFailure('timeout', 0, '播放启动超时，请重试'), generation, engine.id);
         }
-      }, PlaybackController.startupTimeoutMs);
+      }, this.startupDeadlineMs);
       cancel = (): void => {
         clearTimeout(timer);
         if (this.cancelStartup === cancel) { this.cancelStartup = null; }
@@ -440,9 +472,10 @@ export class PlaybackController {
       };
     });
   }
-  // The first frame proves the decoder is RUNNING: the deferred seek then takes the
-  // same path as a user seek, and selectTrack stops touching the prepared-state
-  // sidecar subtitle source (whose sub-seek histreamer rejects at prepared).
+  // 首帧证明解码器在跑：fd 本地源的延迟续播 seek 与统一的轨恢复都在这里落地
+  // （走与用户 seek 相同的路径）。远程直链的续播 seek 已在 startAttempt 的
+  // prepared 态做完，这里只负责确认落地与轨恢复——此刻缓存已被前读塞满，
+  // 没有拖动接管时绝不原地再 seek（正是要绕开的死锁）。
   private deferStartupResume(engine: PlayerEngine, media: PlaybackMedia, targetMs: number,
     generation: number, attempt: number): void {
     this.waitFirstFrame().then((): void => {
@@ -458,7 +491,10 @@ export class PlaybackController {
         const resumeMs = this.startupSeekSuperseded ? this.intent.positionMs : targetMs;
         hilog.info(0x0000, 'MCSub', 'avplayer 延迟恢复: seek=%{public}d 取代=%{public}s',
           resumeMs, `${this.startupSeekSuperseded}`);
-        if (resumeMs > media.originMs) {
+        // prepared 态已 seek 且窗口内无拖动：跳过重复 seek（缓存已满，原地重
+        // seek 即死锁）。拖动过则按最新位置补一次。
+        const alreadySought = this.deferredSeekIssued && !this.startupSeekSuperseded;
+        if (resumeMs > media.originMs && !alreadySought) {
           if (this.remoteAvplayerSeek(engine)) {
             hilog.info(0x0000, 'MCSub', 'avplayer 远程流延迟恢复需跳转，拒绝: position=%{public}d origin=%{public}d',
               resumeMs, media.originMs);
@@ -599,10 +635,10 @@ export class PlaybackController {
   async selectTrack(kind: string, preference: TrackPreference | null): Promise<void> {
     if (kind === 'audio') { this.intent.audio = preference; }
     else { this.intent.subtitle = preference; this.intent.subtitlesOff = preference === null; }
-    // Before the first frame only record the intent: selectTrack at prepared state
-    // touches the sidecar subtitle source whose sub-seek histreamer rejects, and
-    // the deferred restore applies the latest preference once the decoder runs.
-    if (this.deferredResumePending && !this.deferredSeekIssued) { return; }
+    // Before the first frame only record the intent: prepared 态不碰轨选择（远程
+    // 直链的续播 seek 也在 prepared 态发生，轨操作必须避开同窗口），延迟恢复
+    // 任务在首帧后统一应用最新偏好。
+    if (this.deferredResumePending) { return; }
     await this.command((engine: PlayerEngine): Promise<void> => this.restoreTracks(engine));
   }
   async tracks(): Promise<EngineTrack[]> {
@@ -620,7 +656,12 @@ export class PlaybackController {
       if (preference === null) { continue; }
       const candidates = tracks.filter((track: EngineTrack): boolean => track.kind === kind);
       if (kind === 'audio' && preference.sourceCount !== undefined && candidates.length !== preference.sourceCount) {
-        throw new EngineFailure('unsupported', 0, '当前内核未完整识别原片音轨，无法可靠选择指定音轨');
+        if (preference.explicit === true) {
+          throw new EngineFailure('unsupported', 0, '当前内核未完整识别原片音轨，无法可靠选择指定音轨');
+        }
+        hilog.warn(0x0000, 'MCSub', '%{public}s',
+          `restore audio 跳过（继承偏好，内核音轨数不符）: candidates=${candidates.length} sourceCount=${preference.sourceCount}`);
+        continue;
       }
       const matches = candidates.filter((track: EngineTrack): boolean =>
         preference.language.length > 0 && track.language === preference.language && track.title === preference.title);
@@ -639,7 +680,13 @@ export class PlaybackController {
           hilog.warn(0x0000, 'MCSub', '%{public}s',
             `restore sub 跳过: candidates=${candidates.length} ordinal=${preference.ordinal} 越界`);
         }
-        if (kind === 'audio') { throw new EngineFailure('unsupported', 0, '当前内核无法选择指定音轨'); }
+        if (kind === 'audio') {
+          if (preference.explicit === true) {
+            throw new EngineFailure('unsupported', 0, '当前内核无法选择指定音轨');
+          }
+          hilog.warn(0x0000, 'MCSub', '%{public}s',
+            `restore audio 跳过（继承偏好，未定位到指定音轨）: candidates=${candidates.length} ordinal=${preference.ordinal}`);
+        }
       }
     }
   }

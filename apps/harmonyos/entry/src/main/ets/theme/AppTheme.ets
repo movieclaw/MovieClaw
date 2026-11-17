@@ -82,10 +82,15 @@ export class Theme {
    * 之前这两处各写了一个固定值（320 / 440），**同一部剧在两个页面里图的取景不一样**，
    * 用户看到的感受就是「订阅轮播的海报位置不对」。
    */
+  /** px → vp：按主屏密度换算（替代已弃用的全局 px2vp；换算对象都是主屏尺寸，口径一致） */
+  static pxToVp(px: number): number {
+    return px / display.getDefaultDisplaySync().densityPixels;
+  }
+
   static get heroHeight(): number {
     const d: display.Display = display.getDefaultDisplaySync();
-    const w: number = px2vp(d.width);
-    const h: number = px2vp(d.height);
+    const w: number = Theme.pxToVp(d.width);
+    const h: number = Theme.pxToVp(d.height);
     return Math.min(w * 1.15, h * 0.62);
   }
 
@@ -124,7 +129,7 @@ export class Theme {
    */
   static posterColumns(): number {
     const d: display.Display = display.getDefaultDisplaySync();
-    const widthVp: number = px2vp(d.width);
+    const widthVp: number = Theme.pxToVp(d.width);
     const usable: number = widthVp - Theme.pagePadding * 2;
     const estimated: number = Math.floor((usable + 12) / 118);
     return Math.min(4, Math.max(2, estimated));

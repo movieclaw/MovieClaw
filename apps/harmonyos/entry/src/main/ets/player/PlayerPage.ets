@@ -21,6 +21,14 @@ interface PlayerMenuRowOptions {
   icon?: Resource;
 }
 
+/** 舞台矩形（选集面板打开时画面/面板/题注各占哪里，对齐 iOS EpisodeStageLayout） */
+interface StageRect {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
 @Builder
 export function PlayerBuilder() { PlayerPage() }
 
@@ -30,8 +38,168 @@ export struct PlayerPage {
   @Local private menuContentHeight: number = 1;
   /** 锁定键按压中：按下缩放反馈用 */
   @Local private lockPressed: boolean = false;
+  /** 选集列表滚动器：打开列表时定位到当前集（对齐 TV 端选集列的定位行为） */
+  private episodeScroller: Scroller = new Scroller();
+  /** 选集列表刚打开，等当前集行首帧布局完成后滚过去（只滚一次，之后不打扰手动滚动） */
+  private episodeScrollPending: boolean = false;
   aboutToAppear(): void { this.host.bindUI(this.getUIContext()); this.host.aboutToAppear(); }
   aboutToDisappear(): void { this.host.aboutToDisappear(); }
+
+  // ---- 选集舞台（iOS EpisodeStageLayout：画面让位，面板不盖画面） ----
+
+  /** 选集舞台开着（音轨/字幕/设置等其余菜单仍走 MenuOverlay 浮层） */
+  private episodesStageActive(): boolean {
+    return this.host.showSheet && this.host.sheetKind === 'episodes';
+  }
+
+  /** 画面让位：横屏永远让；竖屏画面矮（不足屏高六成）时挪到顶上，画面占满屏就没处可让 */
+  private stageYields(): boolean {
+    if (this.host.isLandscape()) {
+      return true;
+    }
+    return this.host.surfaceHeight() < this.host.layerHeight * 0.6;
+  }
+
+  /** 让位后画面卡片矩形（不让位时为 null：面板浮在画面上，画面不动） */
+  private stageVideoCard(): StageRect | null {
+    const surfaceWidth = this.host.surfaceWidth();
+    const surfaceHeight = this.host.surfaceHeight();
+    if (surfaceWidth <= 0 || surfaceHeight <= 0) {
+      return null;
+    }
+    if (!this.host.isLandscape()) {
+      if (!this.stageYields()) {
+        return null;
+      }
+      // 竖屏：画面原尺寸挪到顶上（不缩）
+      return { x: (this.host.layerWidth - surfaceWidth) / 2, y: 12, w: surfaceWidth, h: surfaceHeight };
+    }
+    const drawer = this.stageDrawer();
+    const from = 16;
+    const to = drawer.x - 16;
+    const top = 20;
+    const bottom = this.host.layerHeight - 12;
+    // 集名一行 + 简介两行放得下（且画面本身还剩至少 120 高）才要题注
+    const showsCaption = bottom - top - 12 - 62 >= 120;
+    const budget = showsCaption ? bottom - top - 12 - 62 : bottom - top;
+    const available = Math.max(0, to - from);
+    const aspect = surfaceWidth / surfaceHeight;
+    const cardWidth = Math.min(available, budget * aspect);
+    // 分屏/悬浮窗这类极窄横屏：卡片挤没了就不让位，抽屉浮在画面上
+    if (cardWidth <= 0) {
+      return null;
+    }
+    const cardHeight = cardWidth / aspect;
+    const blockHeight = cardHeight + (showsCaption ? 12 + 62 : 0);
+    return {
+      x: from + (available - cardWidth) / 2,
+      y: top + (bottom - top - blockHeight) / 2,
+      w: cardWidth,
+      h: cardHeight
+    };
+  }
+
+  /** 选集抽屉矩形（横屏靠右成侧栏；竖屏接在画面下面或占 55% 下半屏） */
+  private stageDrawer(): StageRect {
+    if (this.host.isLandscape()) {
+      const drawerWidth = Math.min(380, Math.max(300, Math.round(this.host.layerWidth * 0.365)));
+      return {
+        x: this.host.layerWidth - 8 - drawerWidth,
+        y: 8,
+        w: drawerWidth,
+        h: this.host.layerHeight - 16
+      };
+    }
+    const drawerWidth = Math.min(this.host.layerWidth - 16, 560);
+    const drawerTop = this.stageYields() ? 12 + this.host.surfaceHeight() + 12
+      : Math.round(this.host.layerHeight * 0.45);
+    return {
+      x: (this.host.layerWidth - drawerWidth) / 2,
+      y: drawerTop,
+      w: drawerWidth,
+      h: this.host.layerHeight - 8 - drawerTop
+    };
+  }
+
+  /** 横屏让位后画面下方的集名简介矩形（没在让位/放不下 = 零矩形） */
+  private stageCaptionRect(): StageRect {
+    const empty: StageRect = { x: 0, y: 0, w: 0, h: 0 };
+    if (!this.host.isLandscape() || !this.stageYields()) {
+      return empty;
+    }
+    const card = this.stageVideoCard();
+    if (card === null) {
+      return empty;
+    }
+    if (this.host.layerHeight - 12 - 20 - 12 - 62 < 120) {
+      return empty;
+    }
+    return { x: card.x, y: card.y + card.h + 12, w: card.w, h: 62 };
+  }
+
+  private stageCaptionVisible(): boolean {
+    return this.episodesStageActive() && this.stageCaptionRect().h > 0;
+  }
+
+  private stageCaptionName(): string {
+    const episode = this.currentEpisodeView();
+    return episode === null ? '' : this.episodeLabel(episode);
+  }
+
+  private stageCaptionOverview(): string {
+    const episode = this.currentEpisodeView();
+    return episode === null ? '' : (episode.overview ?? '');
+  }
+
+  /** 画面让位的缩放（不让位/舞台关着 = 1） */
+  private stageVideoScale(): number {
+    const card = this.stageVideoCard();
+    if (!this.episodesStageActive() || card === null || this.host.surfaceWidth() <= 0) {
+      return 1;
+    }
+    return card.w / this.host.surfaceWidth();
+  }
+
+  /** 位移：把居中的画面挪到卡片中心 */
+  private stageVideoDx(): number {
+    const card = this.stageVideoCard();
+    if (!this.episodesStageActive() || card === null) {
+      return 0;
+    }
+    return card.x + card.w / 2 - this.host.layerWidth / 2;
+  }
+
+  private stageVideoDy(): number {
+    const card = this.stageVideoCard();
+    if (!this.episodesStageActive() || card === null) {
+      return 0;
+    }
+    return card.y + card.h / 2 - this.host.layerHeight / 2;
+  }
+
+  /** 让位期间画面裁成圆角卡片：圆角量在组件本地坐标里，除以缩放补偿后屏幕上正好 18 */
+  private stageVideoRadius(): number {
+    if (!this.episodesStageActive() || !this.stageYields()) {
+      return 0;
+    }
+    const scale = this.stageVideoScale();
+    return scale > 0 ? 18 / scale : 0;
+  }
+
+  /** 当前集（题注与氛围底色用） */
+  private currentEpisodeView(): EpisodeView | null {
+    for (const episode of this.host.episodes) {
+      if (episode.episode_number === this.host.episodeNumber) {
+        return episode;
+      }
+    }
+    return null;
+  }
+
+  private stageAmbienceUrl(): string {
+    const episode = this.currentEpisodeView();
+    return episode === null ? '' : this.host.episodeStillUrl(episode);
+  }
   build() {
     NavDestination() {
       /*
@@ -39,8 +207,12 @@ export struct PlayerPage {
        * ZStack 层次：视频 → 点击层 → 控制条浮层（含上下渐变）。
        */
       Stack({ alignContent: Alignment.Center }) {
+        // 画面让位后四周垫当前集剧照的氛围底色（iOS DeckAmbience）
+        if (this.episodesStageActive() && this.stageYields() && this.host.layerWidth > 0) {
+          this.StageAmbience()
+        }
         this.VideoSurface()
-        if (this.host.chromeVisible && !this.host.controlsLocked) {
+        if (this.host.chromeVisible && !this.host.controlsLocked && !this.episodesStageActive()) {
           this.Controls()
           if (this.host.phase === PlayerPhase.ready && !this.host.engineOpening && !this.host.menuCoversCenter()) {
             Row({ space: 36 }) {
@@ -53,7 +225,8 @@ export struct PlayerPage {
             .hitTestBehavior(HitTestMode.Transparent)
           }
         }
-        if (this.host.isLandscape() && (this.host.chromeVisible || this.host.controlsLocked)) {
+        if (this.host.isLandscape() && (this.host.chromeVisible || this.host.controlsLocked)
+          && !this.episodesStageActive()) {
           Row() {
             this.LockAction()
           }
@@ -91,8 +264,17 @@ export struct PlayerPage {
         if (this.host.clipEnded) {
           this.ClipEndCard()
         }
-        if (this.host.showSheet) { this.MenuOverlay() }
-        this.TopHud()
+        if (this.host.showSheet) {
+          // 选集走「画面让位」的舞台；其余菜单仍是左下浮层
+          if (this.host.sheetKind === 'episodes' && this.host.layerWidth > 0) {
+            this.EpisodesStage()
+          } else {
+            this.MenuOverlay()
+          }
+        }
+        if (!this.episodesStageActive()) {
+          this.TopHud()
+        }
         /*
          * 片尾「即将播放」卡片（iOS PlayerUpNextCard）：独立浮层，不随控制层收起；
          * 右下角、底栏上方。
@@ -103,12 +285,14 @@ export struct PlayerPage {
          * onClick 全被它吃掉，片段播完卡「重播/看全片」怎么点都没反应就是它干的。
          * None 容器自身不吃触摸，触摸穿透给下层兄弟节点；卡片是它的子节点照常可点。
          */
-        Stack({ alignContent: Alignment.BottomEnd }) {
-          this.UpNextOverlay()
+        if (!this.episodesStageActive()) {
+          Stack({ alignContent: Alignment.BottomEnd }) {
+            this.UpNextOverlay()
+          }
+          .width('100%')
+          .height('100%')
+          .hitTestBehavior(HitTestMode.None)
         }
-        .width('100%')
-        .height('100%')
-        .hitTestBehavior(HitTestMode.None)
       }
       .width('100%')
       .height('100%')
@@ -164,45 +348,60 @@ export struct PlayerPage {
   @Builder
   VideoSurface() {
     Stack({ alignContent: Alignment.Center }) {
-      ForEach([this.host.surfaceGeneration], (generation: number) => {
-        XComponent({
-          type: XComponentType.SURFACE,
-          controller: this.host.surfaceController
-        })
-          .hitTestBehavior(HitTestMode.Transparent)
-          .id('player-surface')
-          .hdrBrightness(0.0)
-          /*
-           * **按视频比例摆放**：surface 是个画布，播放器会把画面铺满它——
-           * 给全屏尺寸就会把 16:9 的片子拉成竖屏（实测过：测试图的圆变成了竖椭圆）。
-           */
+      /*
+       * 选集舞台让位：画面（连字幕）整层缩放、位移成左侧/顶上的圆角卡片
+       * （iOS EpisodeStageLayout——不改 XComponent 尺寸，引擎不用重排）。
+       * 缩放锚点=组件中心：画布本来居中，位移把它挪到卡片中心。
+       */
+      Stack({ alignContent: Alignment.Center }) {
+        ForEach([this.host.surfaceGeneration], (generation: number) => {
+          XComponent({
+            type: XComponentType.SURFACE,
+            controller: this.host.surfaceController
+          })
+            .hitTestBehavior(HitTestMode.Transparent)
+            .id('player-surface')
+            .hdrBrightness(0.0)
+            /*
+             * **按视频比例摆放**：surface 是个画布，播放器会把画面铺满它——
+             * 给全屏尺寸就会把 16:9 的片子拉成竖屏（实测过：测试图的圆变成了竖椭圆）。
+             */
+            .width(this.host.surfaceWidth())
+            .height(this.host.surfaceHeight())
+            .onLoad((): void => { this.host.surfaceReady(generation); })
+            .onDestroy((): void => { this.host.surfaceDestroyed(generation); })
+        }, (generation: number): string => `${generation}`)
+
+        // 本机外挂字幕：系统只回调文本不代画，自己画。锚到视频盒底部，与 mpv 渲染进
+        // surface 同一参照系：字号 = 视频高 × fontScale%（mpv 的 sub-font-size 量纲
+        // 是 720 画布，N 渲染为 N/720 视频高，同语义）、距视频盒底 bottomPercent%。
+        // （此前按全屏顶边 92% 锚：长文案底边截出屏外，短文案也不水平居中。）
+        // 让位时跟着画面一起缩放挪走（iOS SubtitleOverlay 在缩放层里）。
+        if (this.host.subtitleCue.length > 0) {
+          Stack({ alignContent: Alignment.Bottom }) {
+            Text(this.host.subtitleCue)
+              .fontSize(Math.max(12, this.host.subFontScale / 100 * this.host.surfaceHeight()))
+              .fontColor('#ffffff')
+              .textAlign(TextAlign.Center)
+              .maxLines(2)
+              .padding({ left: 14, right: 14, top: 5, bottom: 5 })
+              .backgroundColor(this.host.subBackground ? 'rgba(0,0,0,0.55)' : Color.Transparent)
+              .borderRadius(6)
+              .constraintSize({ maxWidth: '88%' })
+              .margin({ left: 16, right: 16, bottom: this.host.subBottom / 100 * this.host.surfaceHeight() })
+          }
           .width(this.host.surfaceWidth())
           .height(this.host.surfaceHeight())
-          .onLoad((): void => { this.host.surfaceReady(generation); })
-          .onDestroy((): void => { this.host.surfaceDestroyed(generation); })
-      }, (generation: number): string => `${generation}`)
-
-      // 本机外挂字幕：系统只回调文本不代画，自己画。锚到视频盒底部，与 mpv 渲染进
-      // surface 同一参照系：字号 = 视频高 × fontScale%（mpv 的 sub-font-size 量纲
-      // 是 720 画布，N 渲染为 N/720 视频高，同语义）、距视频盒底 bottomPercent%。
-      // （此前按全屏顶边 92% 锚：长文案底边截出屏外，短文案也不水平居中。）
-      if (this.host.subtitleCue.length > 0) {
-        Stack({ alignContent: Alignment.Bottom }) {
-          Text(this.host.subtitleCue)
-            .fontSize(Math.max(12, this.host.subFontScale / 100 * this.host.surfaceHeight()))
-            .fontColor('#ffffff')
-            .textAlign(TextAlign.Center)
-            .maxLines(2)
-            .padding({ left: 14, right: 14, top: 5, bottom: 5 })
-            .backgroundColor(this.host.subBackground ? 'rgba(0,0,0,0.55)' : Color.Transparent)
-            .borderRadius(6)
-            .constraintSize({ maxWidth: '88%' })
-            .margin({ left: 16, right: 16, bottom: this.host.subBottom / 100 * this.host.surfaceHeight() })
+          .hitTestBehavior(HitTestMode.None)
         }
-        .width(this.host.surfaceWidth())
-        .height(this.host.surfaceHeight())
-        .hitTestBehavior(HitTestMode.None)
       }
+      .borderRadius(this.stageVideoRadius())
+      .clip(true)
+      .scale({ x: this.stageVideoScale(), y: this.stageVideoScale() })
+      .translate({ x: this.stageVideoDx(), y: this.stageVideoDy() })
+      .animation({ duration: 320, curve: Curve.EaseInOut })
+      .width(this.host.surfaceWidth())
+      .height(this.host.surfaceHeight())
 
       if (this.host.phase === PlayerPhase.negotiating || this.host.engineOpening) {
         Column({ space: 10 }) {
@@ -318,7 +517,70 @@ export struct PlayerPage {
     }
     .id(id).accessibilityText(label).width(44).height(44).padding(0).backgroundColor(Color.Transparent)
     .onTouch((event: TouchEvent): void => { event.stopPropagation(); })
-    .onClick((): void => { this.host.noteUserActivity(); this.host.toggleMenu(kind); })
+    .onClick((): void => {
+      this.host.noteUserActivity();
+      this.host.toggleMenu(kind);
+      if (kind === 'episodes' && this.host.showSheet) {
+        this.episodeScrollPending = true;
+      }
+    })
+  }
+
+  /** 右下「选集 / 下一集」合成胶囊（iOS PlayerControls）：换集多数时候就是看下一集——
+   *  ⏭ 一颗键直接换；要挑某一集才开选集面板。没有下一集（最后一集/后面全缺）时 ⏭ 置灰；
+   *  「选集」带文字（只有图标认不出来），窄屏（折叠外屏）一行放不下时退成只有图标。 */
+  @Builder
+  EpisodesNextCapsule() {
+    Row({ space: 0 }) {
+      Button({ type: ButtonType.Normal }) {
+        Row({ space: 5 }) {
+          Image($r('app.media.player_episodes')).width(20).height(20)
+          if (this.host.layerWidth >= 360) {
+            Text('选集').fontSize(13).fontColor('#ffffff')
+          }
+        }
+        .height(44)
+        .padding({ left: 12, right: 8 })
+      }
+      .id('player-episodes')
+      .accessibilityText('选集')
+      .height(44)
+      .padding(0)
+      .backgroundColor(this.host.showSheet && this.host.sheetKind === 'episodes'
+        ? 'rgba(255,255,255,0.2)' : Color.Transparent)
+      .borderRadius(22)
+      .onTouch((event: TouchEvent): void => { event.stopPropagation(); })
+      .onClick((): void => {
+        this.host.noteUserActivity();
+        this.host.toggleMenu('episodes');
+        if (this.host.showSheet) {
+          this.episodeScrollPending = true;
+        }
+      })
+      Button({ type: ButtonType.Normal }) {
+        SymbolGlyph($r('sys.symbol.forward_end_fill'))
+          .fontSize(20)
+          .fontColor(['#ffffff'])
+          .opacity(this.host.nextEpisode() === null ? 0.35 : 1)
+      }
+      .id('player-next-episode')
+      .accessibilityText('下一集')
+      .width(44)
+      .height(44)
+      .padding(0)
+      .backgroundColor(Color.Transparent)
+      .borderRadius(22)
+      .onTouch((event: TouchEvent): void => { event.stopPropagation(); })
+      .onClick((): void => {
+        this.host.noteUserActivity();
+        this.host.playNext();
+        this.host.armChromeTimer();
+      })
+    }
+    .backgroundColor('rgba(45,45,48,0.65)')
+    .backgroundBlurStyle(BlurStyle.Thin, { colorMode: ThemeColorMode.DARK })
+    .borderRadius(22)
+    .border({ width: 0.5, color: 'rgba(255,255,255,0.16)' })
   }
 
   @Builder
@@ -390,15 +652,16 @@ export struct PlayerPage {
           Row({ space: 0 }) {
             this.MenuAction($r('app.media.player_audio'), '音轨', 'audio', 'player-audio')
             this.MenuAction($r('app.media.player_subtitle'), '字幕', 'subtitle', 'player-subtitle')
-            if (this.host.episodes.length > 0) {
-              this.MenuAction($r('app.media.player_episodes'), '选集', 'episodes', 'player-episodes')
-            }
             this.MenuAction($r('app.media.player_more'), '设置', 'settings', 'player-settings')
           }
           .backgroundColor('rgba(45,45,48,0.65)')
           .backgroundBlurStyle(BlurStyle.Thin, { colorMode: ThemeColorMode.DARK })
           .borderRadius(22).border({ width: 0.5, color: 'rgba(255,255,255,0.16)' })
           Blank()
+          // 右下「选集 / 下一集」合成胶囊（iOS PlayerControls）：换集多数时候就是看下一集
+          if (this.host.episodes.length > 0) {
+            this.EpisodesNextCapsule()
+          }
           // 折叠外屏（Pura X 方屏）没有横屏可言：收起转屏按钮（折叠/展开由 @Trace 驱动自动重排）
           if (!FoldState.shared().coverActive) {
             this.IconAction($r('app.media.player_rotate'), this.host.isLandscape() ? '退出横屏' : '横屏播放', 'player-rotate', (): void => { this.host.toggleLandscape(); })
@@ -765,7 +1028,8 @@ export struct PlayerPage {
         .onTouch((event: TouchEvent): void => { event.stopPropagation(); })
         .id('player-menu-dismiss').onClick((): void => { this.host.closeMenu(); })
       Column({ space: 0 }) {
-        if (this.host.sheetKind !== 'settings' && this.host.sheetKind !== 'stats') {
+        if (this.host.sheetKind !== 'settings' && this.host.sheetKind !== 'stats'
+          && this.host.sheetKind !== 'episodes') {
           Row({ space: 4 }) {
             if (this.host.sheetKind !== 'audio' && this.host.sheetKind !== 'subtitle'
               && this.host.sheetKind !== 'episodes') {
@@ -781,7 +1045,7 @@ export struct PlayerPage {
         } else {
           // A new menu starts at its first row, independent of the previous menu's scroll offset.
           ForEach([this.host.sheetKind], (kind: string) => {
-            Scroll() {
+            Scroll(this.episodeScroller) {
               Column({ space: 0 }) { this.MenuContents() }.width('100%').padding({ left: 6, right: 6, bottom: 8, top: kind === 'settings' ? 8 : 0 })
                 .onAreaChange((_old: Area, area: Area): void => { this.menuContentHeight = this.host.vpOf(area.height); })
             }.id(`player-menu-scroll-${kind}`).width('100%')
@@ -790,7 +1054,9 @@ export struct PlayerPage {
           }, (kind: string): string => kind)
         }
       }
-      .id('player-menu').width(Math.min(290, this.host.layerWidth - 32))
+      .id('player-menu').width(this.host.sheetKind === 'episodes'
+        ? Math.min(440, this.host.layerWidth - 32)
+        : Math.min(290, this.host.layerWidth - 32))
       .constraintSize({ maxHeight: this.host.menuHeight() }).borderRadius(26).clip(true)
       .backgroundColor('rgba(35,35,38,0.72)')
       .backgroundBlurStyle(BlurStyle.Thick, { colorMode: ThemeColorMode.DARK })
@@ -850,9 +1116,7 @@ export struct PlayerPage {
       this.MenuRow({ title: '等比例铺满', selected: this.host.displayMode === 'fill', id: 'player-display-fill', action: (): void => { this.host.selectDisplay('fill'); }, hint: '保持比例，裁去超出屏幕的部分' })
       this.MenuRow({ title: '拉伸铺满', selected: this.host.displayMode === 'stretch', id: 'player-display-stretch', action: (): void => { this.host.selectDisplay('stretch'); }, hint: '填满屏幕，改变画面比例' })
     } else if (this.host.sheetKind === 'episodes') {
-      ForEach(this.host.episodes, (episode: EpisodeView) => {
-        this.EpisodeRow(episode)
-      }, (episode: EpisodeView): string => `${episode.episode_number}`)
+      this.EpisodesPanel()
     }
   }
 
@@ -861,63 +1125,325 @@ export struct PlayerPage {
     return name.length > 0 ? `第 ${episode.episode_number} 集 · ${name}` : `第 ${episode.episode_number} 集`;
   }
 
-  /** 选集行：分集剧照 + 「第 N 集 · 集名」（最多两行自适应，长了才截断）+ 状态行（缺集/已看/进度）；缺集置灰不可点 */
+  /** 选集列表打开时定位到当前集：当前集行首帧布局完成即滚到该行（列表重建即重定位，见 MenuAction） */
+  private onEpisodeRowArea(episode: EpisodeView, area: Area): void {
+    if (!this.episodeScrollPending || episode.episode_number !== this.host.episodeNumber) {
+      return;
+    }
+    this.episodeScrollPending = false;
+    const offsetY: number = this.host.vpOf(area.position.y ?? 0);
+    // 稍等菜单高度收敛（menuContentHeight 初值 1，同帧 scrollTo 会被钳到 0），再定位
+    setTimeout((): void => {
+      if (this.host.showSheet && this.host.sheetKind === 'episodes') {
+        this.episodeScroller.scrollTo({ xOffset: 0, yOffset: offsetY });
+      }
+    }, 150);
+  }
+
+  /** 状态行（iOS EpisodePicker.meta）：缺集 / 已看 / 看到哪；都不是返回空串（不占行） */
+  private episodeMeta(episode: EpisodeView): string {
+    if (!episode.owned) {
+      return '缺集';
+    }
+    if (episode.played) {
+      return '已看';
+    }
+    if ((episode.progress_percent ?? 0) > 0 && episode.position_ms > 0) {
+      return `看到 ${this.host.clockText(episode.position_ms)}`;
+    }
+    return '';
+  }
+
+  /** 正在播那一集的实时进度（0-100）：不用 progressPercent()——那是底栏拖动用的 */
+  private livePercent(): number {
+    const duration: number = this.host.displayDurationMs();
+    if (duration <= 0) {
+      return 0;
+    }
+    return Math.min(100, Math.max(0, this.host.displayPositionMs() * 100 / duration));
+  }
+
+  /** 还剩几分钟：向上取整、最少 1（剩几十秒不写「剩 0 分钟」，同 iOS minutesLeft） */
+  private minutesLeft(): number {
+    const duration: number = this.host.displayDurationMs();
+    if (duration <= 0) {
+      return 1;
+    }
+    return Math.max(1, Math.ceil(Math.max(0, duration - this.host.displayPositionMs()) / 60000));
+  }
+
+  /** 选集面板（iOS PlayerEpisodeDrawer 的 sheet 版）：正在播的那一集单独成卡，
+   *  其余是紧凑行；头部「剧名 · 共 N 集 / 第 N 季」。 */
   @Builder
-  EpisodeRow(episode: EpisodeView) {
-    Button({ type: ButtonType.Normal }) {
-      Row({ space: 10 }) {
-        RemoteImage({ url: this.host.episodeStillUrl(episode) })
-          .width(64)
-          .height(36)
-          .borderRadius(8)
-          .clip(true)
-          .border({
-            width: episode.episode_number === this.host.episodeNumber ? 1.5 : 0,
-            color: 'rgba(255,255,255,0.9)'
-          })
-        Column({ space: 2 }) {
-          Text(this.episodeLabel(episode))
+  /** 选集列表本体（正在播成卡 + 紧凑行）；头部在 EpisodesStage 抽屉里 */
+  EpisodesPanel() {
+    ForEach(this.host.episodes, (episode: EpisodeView) => {
+      if (episode.episode_number === this.host.episodeNumber) {
+        this.CurrentEpisodeCard(episode)
+      } else {
+        this.EpisodeRow(episode)
+      }
+    }, (episode: EpisodeView): string => `${episode.episode_number}`)
+  }
+
+  /** 让位后画面四周垫当前集剧照的氛围底色（iOS DeckAmbience） */
+  @Builder
+  StageAmbience() {
+    Stack() {
+      RemoteImage({ url: this.stageAmbienceUrl() })
+        .width('100%')
+        .height('100%')
+        .blur(24)
+      Column()
+        .width('100%')
+        .height('100%')
+        .backgroundColor('rgba(0,0,0,0.5)')
+    }
+    .width('100%')
+    .height('100%')
+    .transition(TransitionEffect.OPACITY)
+  }
+
+  /**
+   * 选集舞台（iOS episodeStage/EpisodeStageLayout）：画面让位成左侧/顶上的圆角卡片，
+   * 抽屉靠右（横屏）或接在画面下面（竖屏），面板不盖画面；点抽屉以外的地方或 ✕ 收起。
+   * 画面与让位动画在 VideoSurface 的变换层上（scale/translate），这里只有抽屉、题注和点外关闭。
+   */
+  @Builder
+  EpisodesStage() {
+    Stack() {
+      if (this.stageCaptionVisible()) {
+        Column({ space: 4 }) {
+          Text(this.stageCaptionName())
             .fontSize(14)
-            .fontWeight(episode.episode_number === this.host.episodeNumber ? 600 : 400)
+            .fontWeight(600)
+            .fontColor('#ffffff')
+            .maxLines(1)
+            .textOverflow({ overflow: TextOverflow.Ellipsis })
+            .width('100%')
+          if (this.stageCaptionOverview().length > 0) {
+            Text(this.stageCaptionOverview())
+              .fontSize(12)
+              .fontColor('rgba(255,255,255,0.68)')
+              .maxLines(2)
+              .textOverflow({ overflow: TextOverflow.Ellipsis })
+              .width('100%')
+          }
+        }
+        .position({ x: this.stageCaptionRect().x, y: this.stageCaptionRect().y })
+        .width(this.stageCaptionRect().w)
+        .alignItems(HorizontalAlign.Start)
+        .hitTestBehavior(HitTestMode.None)
+      }
+      Column() {
+        Row({ space: 12 }) {
+          Column({ space: 2 }) {
+            Text(`${this.host.title} · 共 ${this.host.episodes.length} 集`)
+              .fontSize(11)
+              .fontColor('rgba(255,255,255,0.55)')
+              .maxLines(1)
+              .textOverflow({ overflow: TextOverflow.Ellipsis })
+            Text(this.host.seasonNumber === 0 ? '特别篇' : `第 ${this.host.seasonNumber} 季`)
+              .fontSize(17)
+              .fontWeight(700)
+              .fontColor('#ffffff')
+          }
+          .layoutWeight(1)
+          .alignItems(HorizontalAlign.Start)
+
+          Button({ type: ButtonType.Circle }) {
+            SymbolGlyph($r('sys.symbol.xmark'))
+              .fontSize(13)
+              .fontColor(['#ffffff'])
+          }
+          .id('player-episodes-close')
+          .width(30)
+          .height(30)
+          .backgroundColor('rgba(255,255,255,0.14)')
+          .onClick((): void => { this.host.noteUserActivity(); this.host.closeMenu(); })
+        }
+        .width('100%')
+        .alignItems(VerticalAlign.Center)
+        .padding({ left: 16, right: 12, top: 10, bottom: 8 })
+
+        Scroll(this.episodeScroller) {
+          Column({ space: 0 }) {
+            this.EpisodesPanel()
+          }
+          .width('100%')
+          .padding({ left: 6, right: 6, bottom: 10 })
+        }
+        .id('player-episodes-scroll')
+        .width('100%')
+        .layoutWeight(1)
+        .scrollBar(BarState.Auto)
+        .edgeEffect(EdgeEffect.Spring)
+      }
+      .id('player-episodes-drawer')
+      .position({ x: this.stageDrawer().x, y: this.stageDrawer().y })
+      .width(this.stageDrawer().w)
+      .height(this.stageDrawer().h)
+      .borderRadius(36)
+      .clip(true)
+      .backgroundColor('rgba(35,35,38,0.72)')
+      .backgroundBlurStyle(BlurStyle.Thick, { colorMode: ThemeColorMode.DARK })
+      .border({ width: 0.5, color: 'rgba(255,255,255,0.15)' })
+      .onTouch((event: TouchEvent): void => { event.stopPropagation(); })
+      .onClick((): void => {})
+    }
+    .width('100%')
+    .height('100%')
+    .transition(TransitionEffect.OPACITY)
+    .onClick((): void => { this.host.noteUserActivity(); this.host.closeMenu(); })
+  }
+
+  /** 正在播的那一集单独成卡（iOS PlayerEpisodeDrawer 英雄卡）：剧照更大、「正在播放」、
+   *  分集简介（只给正在播的集——没看过的集放简介就是剧透）、实时进度（看到哪 / 还剩几分钟）。
+   *  点它 = 收起面板，不换集。 */
+  @Builder
+  CurrentEpisodeCard(episode: EpisodeView) {
+    Column({ space: 10 }) {
+      Row({ space: 12 }) {
+        RemoteImage({ url: this.host.episodeStillUrl(episode) })
+          .width(128)
+          .height(72)
+          .borderRadius(12)
+          .clip(true)
+        Column({ space: 4 }) {
+          Row({ space: 4 }) {
+            SymbolGlyph($r('sys.symbol.play_fill'))
+              .fontSize(11)
+              .fontColor(['rgba(255,255,255,0.62)'])
+            Text('正在播放')
+              .fontSize(11)
+              .fontColor('rgba(255,255,255,0.62)')
+          }
+          Text(this.episodeLabel(episode))
+            .fontSize(15)
+            .fontWeight(600)
             .fontColor('#ffffff')
             .maxLines(2)
             .textOverflow({ overflow: TextOverflow.Ellipsis })
             .width('100%')
-          if (!episode.owned) {
-            Text('缺集')
-              .fontSize(11)
-              .fontColor('rgba(255,255,255,0.4)')
-          } else if (episode.played) {
-            Text('已看')
-              .fontSize(11)
-              .fontColor('rgba(255,255,255,0.4)')
-          } else if ((episode.progress_percent ?? 0) > 0) {
-            Text(`已看 ${Math.round(episode.progress_percent ?? 0)}%`)
-              .fontSize(11)
-              .fontColor('rgba(255,255,255,0.4)')
+        }
+        .layoutWeight(1)
+        .alignItems(HorizontalAlign.Start)
+      }
+      .width('100%')
+      .alignItems(VerticalAlign.Top)
+
+      if ((episode.overview ?? '').length > 0) {
+        Text(episode.overview ?? '')
+          .fontSize(12)
+          .fontColor('rgba(255,255,255,0.68)')
+          .maxLines(2)
+          .textOverflow({ overflow: TextOverflow.Ellipsis })
+          .width('100%')
+      }
+
+      Column({ space: 6 }) {
+        Stack({ alignContent: Alignment.Start }) {
+          Column().width('100%').height(3).backgroundColor('rgba(255,255,255,0.22)').borderRadius(2)
+          Column().width(`${this.livePercent()}%`).height(3).backgroundColor('#ffffff').borderRadius(2)
+        }
+        .width('100%')
+        Row() {
+          Text(this.host.clockText(this.host.displayPositionMs()))
+            .fontSize(11)
+            .fontColor('rgba(255,255,255,0.6)')
+          Blank()
+          Text(`剩 ${this.minutesLeft()} 分钟`)
+            .fontSize(11)
+            .fontColor('rgba(255,255,255,0.6)')
+        }
+        .width('100%')
+      }
+      .width('100%')
+    }
+    .width('100%')
+    .padding({ left: 12, right: 12, top: 12, bottom: 12 })
+    .backgroundColor('rgba(255,255,255,0.12)')
+    .borderRadius(20)
+    .border({ width: 0.5, color: 'rgba(255,255,255,0.2)' })
+    .margin({ left: 8, right: 8, top: 2 })
+    .onAreaChange((_old: Area, area: Area): void => { this.onEpisodeRowArea(episode, area); })
+    .onClick((): void => { this.host.noteUserActivity(); this.host.closeMenu(); })
+  }
+
+  /** 紧凑选集行（iOS PlayerEpisodeDrawer 行样式）：剧照 + 灰集号 + 集名 + 状态行；
+   *  看一半的剧照下沿带细进度；看完集名变暗；缺集整行置灰不可点。 */
+  @Builder
+  EpisodeRow(episode: EpisodeView) {
+    Button({ type: ButtonType.Normal }) {
+      Row({ space: 12 }) {
+        Stack({ alignContent: Alignment.BottomStart }) {
+          RemoteImage({ url: this.host.episodeStillUrl(episode) })
+            .width(112)
+            .height(63)
+            .borderRadius(10)
+            .clip(true)
+          if (episode.owned && !episode.played && (episode.progress_percent ?? 0) > 0) {
+            Row() {
+              Column()
+                .width(`${Math.min(100, episode.progress_percent ?? 0)}%`)
+                .height(3)
+                .backgroundColor('#ffffff')
+            }
+            .width('100%')
+            .height(10)
+            .padding({ left: 5, right: 5, bottom: 4 })
+            .hitTestBehavior(HitTestMode.None)
+          }
+        }
+        .width(112)
+        .height(63)
+        Column({ space: 3 }) {
+          Row({ space: 8 }) {
+            Text(`${episode.episode_number}`)
+              .fontSize(15)
+              .fontColor('rgba(255,255,255,0.42)')
+            if ((episode.name ?? '').length > 0) {
+              Text(episode.name ?? '')
+                .fontSize(15)
+                .fontWeight(500)
+                .fontColor(episode.played ? 'rgba(255,255,255,0.55)' : '#ffffff')
+                .layoutWeight(1)
+                .maxLines(1)
+                .textOverflow({ overflow: TextOverflow.Ellipsis })
+            } else {
+              Blank().layoutWeight(1)
+            }
+          }
+          .width('100%')
+          if (this.episodeMeta(episode).length > 0) {
+            Row({ space: 3 }) {
+              if (episode.played) {
+                SymbolGlyph($r('sys.symbol.checkmark'))
+                  .fontSize(10)
+                  .fontColor(['rgba(255,255,255,0.5)'])
+              }
+              Text(this.episodeMeta(episode))
+                .fontSize(11)
+                .fontColor('rgba(255,255,255,0.5)')
+            }
+            .width('100%')
           }
         }
         .layoutWeight(1)
         .alignItems(HorizontalAlign.Start)
-        if (episode.episode_number === this.host.episodeNumber) {
-          SymbolGlyph($r('sys.symbol.checkmark'))
-            .fontSize(14)
-            .fontWeight(600)
-            .fontColor(['#ffffff'])
-        }
       }
       .width('100%')
       .alignItems(VerticalAlign.Center)
-      .padding({ left: 8, right: 12, top: 8, bottom: 8 })
-      .constraintSize({ minHeight: 52 })
-      .opacity(episode.owned ? 1 : 0.4)
+      .padding({ left: 8, right: 12, top: 7, bottom: 7 })
+      .opacity(episode.owned ? 1 : 0.36)
     }
     .id(`player-episode-${episode.episode_number}`)
     .accessibilityText(`第 ${episode.episode_number} 集`)
     .width('100%')
     .padding(0)
     .backgroundColor(Color.Transparent)
-    .borderRadius(20)
+    .borderRadius(18)
+    .margin({ left: 8, right: 8, top: 2, bottom: 2 })
     .onClick((): void => {
       this.host.noteUserActivity();
       if (!episode.owned || episode.episode_number === this.host.episodeNumber) {
@@ -926,6 +1452,7 @@ export struct PlayerPage {
       this.host.closeMenu();
       this.host.playEpisode(episode);
     })
+    .onAreaChange((_old: Area, area: Area): void => { this.onEpisodeRowArea(episode, area); })
   }
 
   /** 样式行里的圆步进钮（iOS StepButton） */
@@ -1035,16 +1562,16 @@ export struct PlayerPage {
                 .fontSize(16)
                 .fontWeight(600)
                 .fontColor(Theme.text)
-              Text(this.host.engineLine()).id('player-engine')
+              Text(this.host.engineLine())
                 .fontSize(12)
                 .fontColor(Theme.textMuted)
               if (this.host.decodeModeLine().length > 0) {
-                Text(this.host.decodeModeLine()).id('player-diag-decode')
+                Text(this.host.decodeModeLine())
                   .fontSize(12)
                   .fontColor(Theme.textMuted)
               }
               if (this.host.decodeSpecLine().length > 0) {
-                Text(this.host.decodeSpecLine()).id('player-diag-spec')
+                Text(this.host.decodeSpecLine())
                   .fontSize(12)
                   .fontColor(Theme.textMuted)
               }

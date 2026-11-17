@@ -176,7 +176,10 @@ export struct DeviceApprovalDialog {
     this.scanHint = '';
     this.errorMessage = '';
     try {
-      const context: common.UIAbilityContext = getContext() as common.UIAbilityContext;
+      const context: common.Context | undefined = this.getUIContext().getHostContext();
+      if (context === undefined) {
+        return;
+      }
       const options: scanBarcode.ScanOptions = { scanTypes: [scanCore.ScanType.QR_CODE] };
       const result: scanBarcode.ScanResult = await scanBarcode.startScanForResult(context, options);
       const parsed: PairingScan | null = PairingScan.parse(result.originalValue);

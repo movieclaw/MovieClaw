@@ -1,84 +1,60 @@
-import { Theme } from '../theme/AppTheme';
-import { trackLanguageLabel } from '../common/LanguageLabels';
-import {
-  AudioStreamView,
-  LibraryFileView,
-  SubtitleStreamView,
-  TrackDefaultsView
-} from '../api/Models';
-
-/** 音轨编码 → 用户认知的读法（同 iOS audioCodecLabels） */
-const AUDIO_CODEC_LABELS: Record<string, string> = {
-  'aac': 'AAC', 'ac3': 'Dolby Digital', 'eac3': 'Dolby Digital+', 'truehd': 'Dolby TrueHD',
-  'dts': 'DTS', 'flac': 'FLAC', 'opus': 'Opus', 'mp3': 'MP3', 'vorbis': 'Vorbis'
-};
-
-/** 语言中文名走 common/LanguageLabels（与播放器轨菜单共用一份）；未标给占位文案 */
-function languageLabel(code: string | null | undefined): string {
-  return trackLanguageLabel(code) ?? '未标语言';
-}
-
-function audioCodecName(codec: string | null | undefined): string {
-  if (codec === null || codec === undefined || codec.length === 0) {
-    return '未知格式';
-  }
-  const label: string | undefined = AUDIO_CODEC_LABELS[codec.toLowerCase()];
-  return label !== undefined ? label : codec.toUpperCase();
-}
-
-function channelsLabel(channels: number | null | undefined): string {
-  if (channels === null || channels === undefined) {
-    return '';
-  }
-  if (channels === 1) {
-    return '单声道';
-  }
-  if (channels === 2) {
-    return '2.0';
-  }
-  if (channels === 6) {
-    return '5.1';
-  }
-  if (channels === 7) {
-    return '6.1';
-  }
-  if (channels === 8) {
-    return '7.1';
-  }
-  return `${channels} 声道`;
-}
-
-/** 一个语言分组的摘要芯片（含默认轨标记，iOS TrackRowView 的芯片 + defaultNote） */
-class TrackChip {
-  readonly text: string;
-  readonly detail: string;
-  readonly isDefault: boolean;
-
-  constructor(text: string, detail: string, isDefault: boolean) {
-    this.text = text;
-    this.detail = detail;
-    this.isDefault = isDefault;
-  }
-
-  key(): string {
-    return `${this.text}|${this.detail}|${this.isDefault}`;
-  }
-}
-
 /**
- * 条目详情的媒体轨道区（iOS MediaTrackSection.swift 的可搬子集）：
- * - 多版本（同一部片多个在位文件）时给版本选择菜单；
- * - 音轨 / 字幕各一行：按语言分组的芯片摘要，「全部轨道」挂在首个有芯片的行尾，点开整单；
- * - 默认轨（`playback_defaults`）的芯片带「默认」角标，展开行里注明原因。
- *
- * 交互部分（轨道列表弹层、字幕预览、AI 字幕生成、外挂字幕删除）留待后续批次。
+ * 条目详情的媒体轨道区（对应 iOS `Features/Library/MediaTrackSection.swift`）：
+ * - 多版本（同一部片多个在位文件）时给全宽的版本选择菜单；
+ * - 音轨 / 字幕各一行：按语言分组的芯片摘要，点芯片打开按语言分组的完整列表弹层
+ *   （默认组带播放标）；音轨行尾挂「最高规格」，字幕行尾挂 AI 字幕生成徽章；
+ *   芯片数按实测宽度自适应——放得下就多放、放不下收「+N 种」，保证整行恒为一行；
+ * - 弹层（`MediaTrackListSheet`）里才是全部轨道：字幕行可进预览、外挂可左滑删除。
  */
+import { display } from '@kit.ArkUI';
+import { Theme } from '../theme/AppTheme';
+import { AppModel } from '../common/AppModel';
+import { Permissions } from '../common/Permissions';
+import { LibraryFileView } from '../api/Models';
+import { TrackSubtitleGenButton } from './TrackSubtitleGen';
+import { MediaTrackListSheet } from './MediaTrackListSheet';
+import { SpatialMaterial } from '../common/SpatialMaterial';
+import {
+  TrackEntry,
+  TrackLanguageGroup,
+  trackAudioEntries,
+  trackFileOptionLabel,
+  trackGroupByLanguage,
+  trackSubtitleEntries,
+  trackTopAudioSpec,
+  trackVideoStem
+} from './MediaTrackModel';
+
+/** 芯片行的自适应折行：芯片占宽用 measure 实测文字 + 按样式硬算常量，
+ *  行内放得下就多放、放不下收进「+N 种」，保证整行恒为一行（窄屏、折叠副屏都成立）。 */
+
+/** 「音轨 / 字幕」行标签宽（15fp 两字 ≈ 30，留 6 松量） */
+const ROW_LABEL_WIDTH: number = 36;
+/** 行标签与芯片内容的间距 */
+const ROW_GAP: number = 10;
+/** 芯片左右内边距合计（9 + 9） */
+const CHIP_H_PAD: number = 18;
+/** 芯片左右边框合计 */
+const CHIP_BORDER: number = 2;
+/** 芯片右外边距（收紧，给芯片腾位） */
+const CHIP_MARGIN: number = 4;
+/** 芯片内元素间距 */
+const CHIP_GAP: number = 6;
+/** 直接展示的语言芯片数上限，再多收「+N 种」（防芯片墙） */
+const MAX_VISIBLE_CHIPS: number = 4;
+
 @Component
 export struct MediaTrackSection {
   /** 当前播放单元的在位文件（state == "in_place"；外面过滤） */
   @Prop files: LibraryFileView[] = [];
   @State private selectedFileId: number = -1;
-  @State private expanded: boolean = false;
+  /** 弹层状态：'audio' / 'subtitle'，空串表示未开 */
+  @State private sheetKind: string = '';
+  @State private sheetOpen: boolean = false;
+  /** 打开弹层时聚焦的语言组；空串从头展示 */
+  @State private focusLanguage: string = '';
+  /** AI 字幕生成 / 删除外挂 / 校准完成后由外层刷新详情（轨道与字幕列表都会变） */
+  onChanged: () => void = (): void => {};
 
   /** 选中的文件：外部指定的，否则第一个 */
   private selectedFile(): LibraryFileView | null {
@@ -90,177 +66,245 @@ export struct MediaTrackSection {
     return this.files.length > 0 ? this.files[0] : null;
   }
 
-  /** 默认音轨在 audio_streams 里的下标（`embedded:<k>`）；没有为 -1 */
-  private defaultAudioIndex(file: LibraryFileView): number {
-    const defaults: TrackDefaultsView | null | undefined = file.playback_defaults;
-    if (defaults === null || defaults === undefined) {
-      return -1;
-    }
-    const ref: string | null = defaults.audio_track ?? null;
-    if (ref === null || !ref.startsWith('embedded:')) {
-      return -1;
-    }
-    const index: number = Number(ref.substring('embedded:'.length));
-    return Number.isFinite(index) && index >= 0 ? Math.floor(index) : -1;
+  private isSelected(file: LibraryFileView): boolean {
+    const selected: LibraryFileView | null = this.selectedFile();
+    return selected !== null && selected.id === file.id;
   }
 
-  /** 默认字幕在 subtitle_streams 里的下标；外挂（external:）与没有都返回 -1 */
-  private defaultSubtitleIndex(file: LibraryFileView): number {
-    const defaults: TrackDefaultsView | null | undefined = file.playback_defaults;
-    if (defaults === null || defaults === undefined) {
-      return -1;
-    }
-    const ref: string | null = defaults.subtitle_track ?? null;
-    if (ref === null || !ref.startsWith('embedded:')) {
-      return -1;
-    }
-    const index: number = Number(ref.substring('embedded:'.length));
-    return Number.isFinite(index) && index >= 0 ? Math.floor(index) : -1;
+  private openSheet(kind: string, language: string): void {
+    this.sheetKind = kind;
+    this.focusLanguage = language;
+    this.sheetOpen = true;
   }
 
-  private audioChips(file: LibraryFileView): TrackChip[] {
-    const streams: AudioStreamView[] = file.audio_streams ?? [];
-    const defaultIndex: number = this.defaultAudioIndex(file);
-    const groups: Record<string, AudioStreamView[]> = {};
-    const groupDefaults: Record<string, boolean> = {};
-    const order: string[] = [];
-    for (let i: number = 0; i < streams.length; i++) {
-      const stream: AudioStreamView = streams[i];
-      const key: string = languageLabel(stream.language);
-      if (groups[key] === undefined) {
-        groups[key] = [];
-        groupDefaults[key] = false;
-        order.push(key);
-      }
-      (groups[key] as AudioStreamView[]).push(stream);
-      if (i === defaultIndex) {
-        groupDefaults[key] = true;
-      }
-    }
-    const chips: TrackChip[] = [];
-    for (const key of order) {
-      const group: AudioStreamView[] = groups[key] as AudioStreamView[];
-      const codec: string = group[0].codec ?? '';
-      chips.push(new TrackChip(key, group.length === 1 ? audioCodecName(codec) : `×${group.length}`,
-        groupDefaults[key]));
-    }
-    return chips;
+  /** 下滑/点遮罩关掉时也会走这里（onDisappear 兜底），停掉弹层里的预览轮询 */
+  private closeSheet(): void {
+    this.sheetOpen = false;
+    this.sheetKind = '';
+    this.focusLanguage = '';
   }
 
-  private audioLines(file: LibraryFileView): string[] {
-    const streams: AudioStreamView[] = file.audio_streams ?? [];
-    const defaultIndex: number = this.defaultAudioIndex(file);
-    const defaults: TrackDefaultsView | null | undefined = file.playback_defaults;
-    const note: string = defaults === null || defaults === undefined ? '' : defaults.audio_note;
-    const lines: string[] = [];
-    for (let i: number = 0; i < streams.length; i++) {
-      const stream: AudioStreamView = streams[i];
-      const parts: string[] = [audioCodecName(stream.codec), channelsLabel(stream.channels),
-        languageLabel(stream.language)];
-      const title: string | null = stream.title ?? null;
-      if (title !== null && title.length > 0) {
-        parts.push(title);
-      }
-      if (i === defaultIndex) {
-        parts.push(`默认（${note}）`);
-      }
-      const line: string = parts.filter((part: string): boolean => part.length > 0).join(' · ');
-      lines.push(`轨 ${i + 1} · ${line}`);
-    }
-    return lines;
+  // MARK: 数据
+
+  private audioEntries(file: LibraryFileView): TrackEntry[] {
+    return trackAudioEntries(file.audio_streams ?? [], file.playback_defaults ?? null);
   }
 
-  private subtitleChips(file: LibraryFileView): TrackChip[] {
-    const streams: SubtitleStreamView[] = file.subtitle_streams;
-    const defaultIndex: number = this.defaultSubtitleIndex(file);
-    const groups: Record<string, SubtitleStreamView[]> = {};
-    const groupDefaults: Record<string, boolean> = {};
-    const order: string[] = [];
-    for (let i: number = 0; i < streams.length; i++) {
-      const stream: SubtitleStreamView = streams[i];
-      const key: string = languageLabel(stream.language);
-      if (groups[key] === undefined) {
-        groups[key] = [];
-        groupDefaults[key] = false;
-        order.push(key);
-      }
-      (groups[key] as SubtitleStreamView[]).push(stream);
-      if (i === defaultIndex) {
-        groupDefaults[key] = true;
-      }
-    }
-    const chips: TrackChip[] = [];
-    for (const key of order) {
-      const group: SubtitleStreamView[] = groups[key] as SubtitleStreamView[];
-      const codec: string = group[0].codec ?? '';
-      chips.push(new TrackChip(key, group.length === 1 ? subtitleCodecShort(codec) : `×${group.length}`,
-        groupDefaults[key]));
-    }
-    return chips;
+  private subtitleEntries(file: LibraryFileView): TrackEntry[] {
+    return trackSubtitleEntries(file.subtitle_streams, trackVideoStem(file.file_name),
+      file.playback_defaults ?? null);
   }
 
-  private subtitleLines(file: LibraryFileView): string[] {
-    const streams: SubtitleStreamView[] = file.subtitle_streams;
-    const defaultIndex: number = this.defaultSubtitleIndex(file);
-    const lines: string[] = [];
-    for (let i: number = 0; i < streams.length; i++) {
-      const stream: SubtitleStreamView = streams[i];
-      const parts: string[] = [subtitleCodecShort(stream.codec), languageLabel(stream.language),
-        stream.external ? '外挂' : '内封'];
-      const title: string | null = (stream.file_name ?? stream.title) ?? null;
-      if (title !== null && title.length > 0) {
-        parts.push(title);
-      }
-      if (stream.forced) {
-        parts.push('强制');
-      }
-      if (i === defaultIndex) {
-        parts.push('默认');
-      }
-      lines.push(parts.join(' · '));
-    }
-    return lines;
+  private audioGroups(file: LibraryFileView): TrackLanguageGroup[] {
+    return trackGroupByLanguage(this.audioEntries(file));
   }
+
+  private subtitleGroups(file: LibraryFileView): TrackLanguageGroup[] {
+    return trackGroupByLanguage(this.subtitleEntries(file));
+  }
+
+  private visibleGroups(file: LibraryFileView, kind: string): TrackLanguageGroup[] {
+    return this.rowGroups(file, kind).slice(0, this.fittingChipCount(file, kind));
+  }
+
+  private moreCount(file: LibraryFileView, kind: string): number {
+    const groups: TrackLanguageGroup[] = this.rowGroups(file, kind);
+    return Math.max(0, groups.length - this.fittingChipCount(file, kind));
+  }
+
+  private rowGroups(file: LibraryFileView, kind: string): TrackLanguageGroup[] {
+    return kind === 'audio' ? this.audioGroups(file) : this.subtitleGroups(file);
+  }
+
+  /** 行内直接展示的语言芯片数：先试全放，放不下从多到少找到还能配上「+N 种」的最大值 */
+  private fittingChipCount(file: LibraryFileView, kind: string): number {
+    const groups: TrackLanguageGroup[] = this.rowGroups(file, kind);
+    if (groups.length === 0) {
+      return 0;
+    }
+    const budget: number = this.chipsBudgetVp(file, kind);
+    let total: number = 0;
+    for (const group of groups) {
+      total += this.chipWidthVp(file, group);
+    }
+    if (total <= budget) {
+      return Math.min(groups.length, MAX_VISIBLE_CHIPS);
+    }
+    const maxTry: number = Math.min(groups.length - 1, MAX_VISIBLE_CHIPS);
+    for (let count: number = maxTry; count >= 1; count--) {
+      let used: number = 0;
+      for (let i: number = 0; i < count; i++) {
+        used += this.chipWidthVp(file, groups[i]);
+      }
+      if (used + this.moreChipWidthVp(groups.length - count) <= budget) {
+        return count;
+      }
+    }
+    return 1;
+  }
+
+  /** 芯片可用宽度：窗口宽 − 页边距 − 行标签 − 行距 − 行尾元素（规格 / AI 徽章），再留 6 余量 */
+  private chipsBudgetVp(file: LibraryFileView, kind: string): number {
+    const windowVp: number = this.getUIContext().px2vp(display.getDefaultDisplaySync().width);
+    const reserve: number = kind === 'audio' ? this.specChipWidthVp(file) : this.badgeWidthVp();
+    return windowVp - Theme.pagePadding * 2 - ROW_LABEL_WIDTH - ROW_GAP - reserve - 6;
+  }
+
+  /** 一个语言芯片的占宽：右外边距 + 边框 + 内边距 + 播放标？ + 语言 + 格式/条数 */
+  private chipWidthVp(file: LibraryFileView, group: TrackLanguageGroup): number {
+    let width: number = CHIP_MARGIN + CHIP_BORDER + CHIP_H_PAD;
+    if (this.marksDefault(file) && group.hasDefault()) {
+      width += 10 + CHIP_GAP;
+    }
+    width += this.textWidthVp(group.language, 12) + CHIP_GAP;
+    width += group.entries.length === 1
+      ? this.textWidthVp(group.entries[0].format, 11)
+      : this.textWidthVp(`×${group.entries.length}`, 12);
+    return width;
+  }
+
+  /** 「+N 种」芯片占宽 */
+  private moreChipWidthVp(count: number): number {
+    return CHIP_MARGIN + CHIP_BORDER + CHIP_H_PAD + this.textWidthVp(`+${count} 种`, 12);
+  }
+
+  /** 音轨行尾「最高规格」芯片占宽；无规格记 0 */
+  private specChipWidthVp(file: LibraryFileView): number {
+    const spec: string = this.topSpec(file);
+    if (spec.length === 0) {
+      return 0;
+    }
+    return CHIP_MARGIN + CHIP_BORDER + CHIP_H_PAD + this.textWidthVp(spec, 12);
+  }
+
+  /** 字幕行尾 AI 徽章占宽（非管理员记 0）。徽章文字有闲 / 运行 / 未完成三态，运行中更短，
+   *  按最宽的闲时文案「AI 生成字幕」预留；模型未接入时徽章换成整条提示（降级态，会折行） */
+  private badgeWidthVp(): number {
+    if (!this.canGenSubtitles()) {
+      return 0;
+    }
+    // 右外边距 4 + 边框 2 + 内边距 20 + 图标 16 + 间距 6
+    return 4 + 2 + 20 + 16 + CHIP_GAP + this.textWidthVp('AI 生成字幕', 12);
+  }
+
+  /** 单行文字实测宽（vp）：measure 返回 px，用屏密度换算；测失败按字数粗估（只大不小，
+   *  宁可少放芯片也不折行） */
+  private textWidthVp(text: string, fontSize: number): number {
+    const px: number = this.getUIContext().getMeasureUtils().measureText({
+      textContent: text,
+      fontSize: `${fontSize}fp`,
+      fontWeight: FontWeight.Medium
+    });
+    if (px > 0) {
+      return this.getUIContext().px2vp(px);
+    }
+    return text.length * fontSize;
+  }
+
+  /** 芯片上的播放标只在服务端记下了起播默认时画（原盘/未探测时没有这个信息） */
+  private marksDefault(file: LibraryFileView): boolean {
+    return file.playback_defaults !== null && file.playback_defaults !== undefined;
+  }
+
+  /** 音轨行尾的最高规格摘要；只有一条音轨时芯片已写格式，不重复挂 */
+  private topSpec(file: LibraryFileView): string {
+    const spec: string | null = trackTopAudioSpec(file.audio_streams ?? []);
+    return spec !== null ? spec : '';
+  }
+
+  /** 外挂字幕文件名（生成面板的源候选回退名单） */
+  private externalSubtitleNames(file: LibraryFileView): string[] {
+    const names: string[] = [];
+    for (const stream of file.subtitle_streams) {
+      if (stream.external) {
+        const name: string = stream.file_name ?? '';
+        if (name.length > 0) {
+          names.push(name);
+        }
+      }
+    }
+    return names;
+  }
+
+  /** AI 字幕生成只对管理员开放（iOS 同款门槛） */
+  private canGenSubtitles(): boolean {
+    return Permissions.fromSession(AppModel.shared.session).isAdmin;
+  }
+
+  // MARK: 布局
 
   build() {
-    if (this.files.length > 0 && this.selectedFile() !== null) {
-      Column({ space: 10 }) {
-        // 多版本：同一部片多个在位文件时选看哪个的轨道（iOS versionPicker）
+    // 根节点恒在：files 清空时也要留着 bindSheet 宿主，否则弹层随内容一起卸载
+    Column({ space: 10 }) {
+      if (this.files.length > 0 && this.selectedFile() !== null) {
         if (this.files.length > 1) {
-          Row({ space: 8 }) {
-            Text('版本')
-              .fontSize(13)
-              .fontColor(Theme.textFaint)
-            Text(this.versionLabel(this.selectedFile() as LibraryFileView))
-              .fontSize(13)
-              .fontColor(Theme.text)
-              .padding({ left: 10, right: 10, top: 5, bottom: 5 })
-              .backgroundColor(Theme.glassFillHover)
-              .borderRadius(14)
-              .bindMenu(this.VersionMenu())
-          }
-          .width('100%')
+          this.VersionPicker(this.selectedFile() as LibraryFileView)
         }
-        this.TrackLineRow('音轨', this.audioChips(this.selectedFile() as LibraryFileView),
-          this.audioLines(this.selectedFile() as LibraryFileView), '尚未探测',
-          this.audioChips(this.selectedFile() as LibraryFileView).length > 0)
-        this.TrackLineRow('字幕', this.subtitleChips(this.selectedFile() as LibraryFileView),
-          this.subtitleLines(this.selectedFile() as LibraryFileView), '无内封或外挂字幕',
-          this.audioChips(this.selectedFile() as LibraryFileView).length === 0
-            && this.subtitleChips(this.selectedFile() as LibraryFileView).length > 0)
+        this.AudioTrackRow(this.selectedFile() as LibraryFileView)
+        this.SubtitleTrackRow(this.selectedFile() as LibraryFileView)
       }
-      .width('100%')
-      .alignItems(HorizontalAlign.Start)
-      .padding({ top: 4 })
+    }
+    .width('100%')
+    .alignItems(HorizontalAlign.Start)
+    .padding({ top: 4 })
+    .bindSheet($$this.sheetOpen, this.TrackSheet(), {
+      height: SheetSize.FIT_CONTENT,
+      dragBar: true,
+      showClose: false,
+      // 半模态上最厚的沉浸光感材质（规范推荐）；不支持的设备自动落回 backgroundColor
+      systemMaterial: SpatialMaterial.sheet(),
+      backgroundColor: Theme.bg,
+      onDisappear: (): void => {
+        this.closeSheet();
+      }
+    })
+  }
+
+  /** 弹层内容：按语言分组的完整轨道列表（列表 + 字幕预览都在里面） */
+  @Builder
+  TrackSheet() {
+    if (this.sheetKind === 'audio' || this.sheetKind === 'subtitle') {
+      MediaTrackListSheet({
+        kind: this.sheetKind,
+        file: this.selectedFile(),
+        focusLanguage: this.focusLanguage,
+        onChanged: (): void => {
+          this.onChanged();
+        },
+        onClose: (): void => {
+          this.closeSheet();
+        }
+      })
     }
   }
 
-  /** 版本菜单：文件名 + 体积，勾当前选中 */
+  /** 多版本：全宽的版本选择菜单（分辨率 — 文件名；同 iOS versionPicker） */
+  @Builder
+  VersionPicker(file: LibraryFileView) {
+    Row({ space: 8 }) {
+      Text(trackFileOptionLabel(file))
+        .fontSize(15)
+        .fontColor('rgba(255,255,255,0.9)')
+        .maxLines(1)
+        .textOverflow({ overflow: TextOverflow.Ellipsis })
+        .layoutWeight(1)
+      SymbolGlyph($r('sys.symbol.chevron_down'))
+        .fontSize(12)
+        .fontColor(['rgba(255,255,255,0.6)'])
+    }
+    .width('100%')
+    .padding({ left: 14, right: 14, top: 9, bottom: 9 })
+    .backgroundColor('rgba(255,255,255,0.055)')
+    .borderRadius(12)
+    .border({ width: 1, color: 'rgba(255,255,255,0.08)' })
+    .bindMenu(this.VersionMenu())
+  }
+
   @Builder
   VersionMenu() {
     Menu() {
       ForEach(this.files, (file: LibraryFileView) => {
-        MenuItem({ content: this.versionLabel(file) })
+        MenuItem({ content: `${this.isSelected(file) ? '✓ ' : ''}${trackFileOptionLabel(file)}` })
           .onClick(() => {
             this.selectedFileId = file.id;
           })
@@ -268,127 +312,164 @@ export struct MediaTrackSection {
     }
   }
 
+  /** 音轨行：语言芯片 + 最高规格；尚未探测与空列表给不同文案 */
   @Builder
-  TrackLineRow(label: string, chips: TrackChip[], lines: string[], emptyText: string, showToggle: boolean) {
-    if (chips.length === 0) {
-      Row({ space: 16 }) {
-        Text(label)
-          .fontSize(15)
-          .fontColor(Theme.textFaint)
-          .width(40)
-        Text(emptyText)
-          .fontSize(15)
-          .fontColor(Theme.textMuted)
-      }
-      .width('100%')
-      .alignItems(VerticalAlign.Center)
-    } else {
-      Column({ space: 6 }) {
-        Row({ space: 16 }) {
-          Text(label)
+  AudioTrackRow(file: LibraryFileView) {
+    Row({ space: ROW_GAP }) {
+      Text('音轨')
+        .fontSize(15)
+        .fontColor(Theme.textFaint)
+        .width(ROW_LABEL_WIDTH)
+      Flex({ wrap: FlexWrap.Wrap, alignContent: FlexAlign.Start }) {
+        if (file.audio_streams === null || file.audio_streams === undefined) {
+          Text('尚未探测')
             .fontSize(15)
-            .fontColor(Theme.textFaint)
-            .width(40)
-          Scroll() {
-            Row({ space: 6 }) {
-              ForEach(chips, (chip: TrackChip) => {
-                this.TrackChipView(chip)
-              }, (chip: TrackChip) => chip.key())
-            }
-          }
-          .scrollable(ScrollDirection.Horizontal)
-          .scrollBar(BarState.Off)
-          .layoutWeight(1)
-          // layoutWeight 定宽后视口比内容宽时，Scroll 默认把内容居中排布（faqs-arkui-725），强制起始对齐
-          .align(Alignment.Start)
-          if (showToggle) {
-            Text(this.expanded ? '收起' : '全部轨道')
-              .fontSize(13)
+            .fontColor(Theme.textMuted)
+            .height(32)
+        } else {
+          if (this.audioGroups(file).length === 0) {
+            Text('文件内没有音轨')
+              .fontSize(15)
               .fontColor(Theme.textMuted)
-              .padding({ left: 10, right: 10, top: 6, bottom: 6 })
-              .backgroundColor('rgba(255,255,255,0.045)')
-              .borderRadius(16)
-              .onClick(() => {
-                this.expanded = !this.expanded;
-              })
+              .height(32)
+          } else {
+            ForEach(this.visibleGroups(file, 'audio'), (group: TrackLanguageGroup) => {
+              this.LanguageChip(file, group, 'audio')
+            }, (group: TrackLanguageGroup) => `audio-${group.language}`)
+            if (this.moreCount(file, 'audio') > 0) {
+              this.MoreChip(this.moreCount(file, 'audio'), 'audio')
+            }
+            this.AudioSpecChip(file)
           }
-        }
-        .width('100%')
-        .alignItems(VerticalAlign.Center)
-        if (this.expanded) {
-          Column({ space: 4 }) {
-            ForEach(lines, (line: string) => {
-              Text(line)
-                .fontSize(13)
-                .fontColor('rgba(255,255,255,0.7)')
-                .width('100%')
-                .padding({ right: 4, top: 3, bottom: 3 })
-            }, (line: string) => line)
-          }
-          .width('100%')
-          .alignItems(HorizontalAlign.Start)
-          .padding({ left: 56 })
         }
       }
-      .width('100%')
-      .alignItems(HorizontalAlign.Start)
+      .layoutWeight(1)
     }
+    .width('100%')
+    .alignItems(VerticalAlign.Center)
   }
 
-  /** 芯片：语言 + 编码摘要；默认轨加「默认」角标（iOS defaultNote 的徽标形态） */
+  /** 字幕行：语言芯片 + AI 生成徽章；空的也保留徽章（可以先给它生成一份） */
   @Builder
-  TrackChipView(chip: TrackChip) {
-    Row({ space: 6 }) {
-      Text(chip.text)
-        .fontSize(13)
-        .fontColor('rgba(255,255,255,0.85)')
-      if (chip.isDefault) {
-        Text('默认')
-          .fontSize(10)
-          .fontWeight(FontWeight.Medium)
-          .fontColor(Theme.accent)
-          .padding({ left: 5, right: 5, top: 1, bottom: 1 })
-          .borderRadius(6)
-          .border({ width: 1, color: Theme.accentSoft })
+  SubtitleTrackRow(file: LibraryFileView) {
+    Row({ space: ROW_GAP }) {
+      Text('字幕')
+        .fontSize(15)
+        .fontColor(Theme.textFaint)
+        .width(ROW_LABEL_WIDTH)
+      Flex({ wrap: FlexWrap.Wrap, alignContent: FlexAlign.Start }) {
+        if (this.subtitleGroups(file).length === 0) {
+          Text('无内封或外挂字幕')
+            .fontSize(15)
+            .fontColor(Theme.textMuted)
+            .height(32)
+          this.GenBadge(file)
+        } else {
+          ForEach(this.visibleGroups(file, 'subtitle'), (group: TrackLanguageGroup) => {
+            this.LanguageChip(file, group, 'subtitle')
+          }, (group: TrackLanguageGroup) => `subtitle-${group.language}`)
+          if (this.moreCount(file, 'subtitle') > 0) {
+            this.MoreChip(this.moreCount(file, 'subtitle'), 'subtitle')
+          }
+          this.GenBadge(file)
+        }
       }
-      Text(chip.detail)
-        .fontSize(11)
-        .fontWeight(FontWeight.Medium)
-        .fontColor('rgba(255,255,255,0.5)')
+      .layoutWeight(1)
     }
-    .padding({ left: 10, right: 10, top: 6, bottom: 6 })
+    .width('100%')
+    .alignItems(VerticalAlign.Center)
+  }
+
+  /** 语言芯片：默认组带播放标；单条时给格式，多条给 ×N；点开聚焦该语言的弹层 */
+  @Builder
+  LanguageChip(file: LibraryFileView, group: TrackLanguageGroup, kind: string) {
+    Row({ space: 6 }) {
+      if (this.marksDefault(file) && group.hasDefault()) {
+        SymbolGlyph($r('sys.symbol.play_fill'))
+          .fontSize(8)
+          .fontColor([Theme.accentStrong])
+      }
+      Text(group.language)
+        .fontSize(12)
+        .fontWeight(FontWeight.Medium)
+        .fontColor('rgba(255,255,255,0.85)')
+      if (group.entries.length === 1) {
+        Text(group.entries[0].format)
+          .fontSize(11)
+          .fontWeight(FontWeight.Medium)
+          .fontColor('rgba(255,255,255,0.5)')
+      } else {
+        Text(`×${group.entries.length}`)
+          .fontSize(12)
+          .fontWeight(FontWeight.Medium)
+          .fontColor('rgba(255,255,255,0.5)')
+      }
+    }
+    .height(32)
+    .padding({ left: 9, right: 9 })
     .backgroundColor('rgba(255,255,255,0.075)')
-    .borderRadius(16)
+    .borderRadius(7)
+    .border({ width: 1, color: 'rgba(255,255,255,0.06)' })
+    .margin({ right: CHIP_MARGIN, bottom: 6 })
+    .onClick(() => {
+      this.openSheet(kind, group.language);
+    })
   }
 
-  /** 版本菜单的一行：文件名 + 体积 */
-  private versionLabel(file: LibraryFileView): string {
-    return `${file.file_name} · ${bytesShort(file.size_bytes)}`;
+  /** 折叠行放不下的语言：点开完整列表（不聚焦某一组，从头看） */
+  @Builder
+  MoreChip(count: number, kind: string) {
+    Row() {
+      Text(`+${count} 种`)
+        .fontSize(12)
+        .fontWeight(FontWeight.Medium)
+        .fontColor(Theme.textMuted)
+    }
+    .height(32)
+    .padding({ left: 9, right: 9 })
+    .backgroundColor('rgba(255,255,255,0.045)')
+    .borderRadius(7)
+    .border({ width: 1, color: 'rgba(255,255,255,0.06)' })
+    .margin({ right: CHIP_MARGIN, bottom: 6 })
+    .onClick(() => {
+      this.openSheet(kind, '');
+    })
   }
-}
 
-function bytesShort(value: number): string {
-  const units: string[] = ['B', 'KB', 'MB', 'GB', 'TB'];
-  let v: number = value;
-  let i: number = 0;
-  while (v >= 1024 && i < units.length - 1) {
-    v /= 1024;
-    i++;
+  /** 音轨行尾的最高规格摘要（格式 · 声道；同 iOS topAudioSpec） */
+  @Builder
+  AudioSpecChip(file: LibraryFileView) {
+    if (this.topSpec(file).length > 0) {
+      Row() {
+        Text(this.topSpec(file))
+          .fontSize(12)
+          .fontWeight(FontWeight.Medium)
+          .fontColor('rgba(255,255,255,0.8)')
+      }
+      .height(32)
+      .padding({ left: 9, right: 9 })
+      .backgroundColor('rgba(255,255,255,0.04)')
+      .borderRadius(7)
+      .border({ width: 1, color: 'rgba(255,255,255,0.14)' })
+      .margin({ right: CHIP_MARGIN, bottom: 6 })
+    }
   }
-  const rounded: number = Math.round(v * 10) / 10;
-  return `${rounded} ${units[i]}`;
-}
 
-/** 字幕编码 → 紧凑读法（同 ShareItemView subtitleCodecLabels） */
-function subtitleCodecShort(codec: string | null | undefined): string {
-  if (codec === null || codec === undefined || codec.length === 0) {
-    return '字幕';
+  /** AI 字幕生成入口：非管理员不实例化（按钮内部有 SSE/轮询，不做无用功） */
+  @Builder
+  GenBadge(file: LibraryFileView) {
+    if (this.canGenSubtitles()) {
+      TrackSubtitleGenButton({
+        fileId: file.id,
+        fileName: file.file_name,
+        filePath: file.file_path,
+        fileMissing: file.missing,
+        externalSubtitleNames: this.externalSubtitleNames(file),
+        onChanged: (): void => {
+          this.onChanged();
+        }
+      })
+        .margin({ right: CHIP_MARGIN, bottom: 6 })
+    }
   }
-  const labels: Record<string, string> = {
-    'subrip': 'SRT', 'srt': 'SRT', 'ass': 'ASS', 'ssa': 'SSA', 'hdmv_pgs_subtitle': 'PGS',
-    'dvd_subtitle': 'VobSub', 'mov_text': 'Text', 'webvtt': 'VTT', 'vtt': 'VTT',
-    'sub': 'VobSub', 'sup': 'PGS'
-  };
-  const label: string | undefined = labels[codec.toLowerCase()];
-  return label !== undefined ? label : codec.toUpperCase();
 }

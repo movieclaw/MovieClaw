@@ -59,7 +59,9 @@ export struct NotifySection {
   private async onMasterToggle(on: boolean): Promise<void> {
     if (on) {
       this.busy = true;
-      const granted: boolean = await NotifyCenter.requestPermission();
+      const raw: common.Context | undefined = this.getUIContext().getHostContext();
+      const granted: boolean = raw === undefined
+        ? false : await NotifyCenter.requestPermission(raw as common.UIAbilityContext);
       this.busy = false;
       if (!granted) {
         this.granted = false;
@@ -143,11 +145,13 @@ export struct NotifySection {
    * 应用改不了（横幅默认关，须用户在系统设置里开——官方 FAQ 的推荐做法就是拉起这页）。
    */
   private openSystemPrefs(): void {
-    const context: common.UIAbilityContext = getContext(this) as common.UIAbilityContext;
-    notificationManager.openNotificationSettings(context)
-      .catch((): void => {
-        this.toast('打不开系统通知设置');
-      });
+    const raw: common.Context | undefined = this.getUIContext().getHostContext();
+    if (raw !== undefined) {
+      notificationManager.openNotificationSettings(raw as common.UIAbilityContext)
+        .catch((): void => {
+          this.toast('打不开系统通知设置');
+        });
+    }
   }
 
   build() {

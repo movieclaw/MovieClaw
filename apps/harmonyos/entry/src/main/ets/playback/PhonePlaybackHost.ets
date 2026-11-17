@@ -9,9 +9,9 @@ import { image } from '@kit.ImageKit';
 import { http } from '@kit.NetworkKit';
 import { PlaybackGuard } from '@movieclaw/playback';
 import { PlayerPrefs, SubStyle } from '../player/PlayerPrefs';
-import { PlaybackController, PlaybackSnapshot, PlaybackIntent, PlaybackSessionCoordinator, PlaybackOwnership, SkipSegments } from '@movieclaw/playback';
+import { PlaybackController, PlaybackSnapshot, PlaybackIntent, PlaybackSessionCoordinator, PlaybackOwnership, SkipSegments, SubtitleCue, parseSubtitleCues, subtitleCueTextAt, assToSrt } from '@movieclaw/playback';
 import { EngineEvent, EngineFailure, EngineSource, DefaultEngineFactory } from '@movieclaw/player-engine';
-import { PhoneMedia, playbackUrl, downloadPgsSidecar, removePgsSidecar, PgsSidecarCache, DownloadedSubtitle } from './PhoneMedia';
+import { PhoneMedia, playbackUrl, downloadPgsSidecar, removePgsSidecar, PgsSidecarCache, DownloadedSubtitle, readSubtitleTextFile } from './PhoneMedia';
 import { MpvTrust } from './MpvTrust';
 import { PgsPrepareGuard, PgsPrepareTracker } from './PgsPrepareGuard';
 import { MovieClawPlaybackSession } from './MovieClawPlaybackSession';
@@ -299,8 +299,14 @@ export class PhonePlaybackHost implements PlaybackTestHost {
   private pgsPrepareSeq: number = 0;
   /** mpv 在播时就地挂的文本旁挂临时文件（换轨/重挂/退出时回收；mpv 持有的句柄不受 unlink 影响） */
   private textSidecarPath: string = '';
+  /** AVP 自绘字幕：宿主解析出的 cue 表（null = 无/未就绪；mpv 全程不用此路径） */
+  private avpSubtitleCues: SubtitleCue[] | null = null;
+  /** AVP 自绘字幕的窗原点（tier≥1 转码窗的 start_ms；直连/本机为 0）：快照位置减它得 cue 检索时刻 */
+  private avpSubtitleOriginMs: number = 0;
   /** 音轨：当前选中的 ref（空 = 服务端自动挑） */
   @Trace audioRef: string = '';
+  /** 音轨是用户在本会话里显式选的（区别于观看状态继承）——AVP 恢复失败时显式回退、继承跳过 */
+  audioPicked: boolean = false;
   @Trace showAudio: boolean = false;
 
   // —— 下一集 / 自动连播（对应 iOS PlaybackController 的 autoNext 一节）——
@@ -421,6 +427,10 @@ export class PhonePlaybackHost implements PlaybackTestHost {
 
   /** 折叠监听（Pura X：内屏锁横屏后折叠，要把横屏偏好从外屏窗口上摘掉） */
   private foldListener: ((status: display.FoldStatus) => void) | null = null;
+
+  private hostContext(): common.Context | undefined {
+    return this.ui === null ? undefined : this.ui.getHostContext();
+  }
   getUIContext(): UIContext {
     if (this.ui === null) { throw new Error('Player UI is not attached'); }
     return this.ui;
@@ -429,14 +439,12 @@ export class PhonePlaybackHost implements PlaybackTestHost {
     this.bindController();
     PlaybackTestProbe.bind(this);
     this.claimPlayback();
-    // Pura X 折叠感知：内屏锁着横屏时折叠去外屏，横屏偏好会跟着窗口走、
-    // 方屏界面就横过来了——折叠瞬间立刻清锁（restoreOrientation 会置回竖屏偏好）。
+    // Pura X 折叠感知：内屏锁着横屏/控制锁时折叠去外屏——横屏偏好会跟着窗口走
+    // （方屏界面就横过来），控制锁在方屏上既没有按钮可解、点按又被锁定分支吞掉。
+    // 折叠瞬间两把锁都摘（见 handleFoldStatus）。
     if (this.foldListener === null) {
       this.foldListener = (status: display.FoldStatus): void => {
-        if (status === display.FoldStatus.FOLD_STATUS_FOLDED && this.landscapeLocked) {
-          this.restoreOrientation().catch((): void => {
-          });
-        }
+        this.handleFoldStatus(status);
       };
       try {
         display.on('foldStatusChange', this.foldListener);
@@ -586,7 +594,7 @@ export class PhonePlaybackHost implements PlaybackTestHost {
       PlaybackTestProbe.record('session', `tier=${view.decision.tier};file=${view.decision.file_id}`);
       PlaybackTestProbe.record('delivery', JSON.stringify({ tier: view.decision.tier,
         audio: view.decision.audio, video: view.decision.video }));
-      if (this.audioRef.length === 0) { this.audioRef = view.watch?.audio_track || view.decision.audio?.track_ref || ''; }
+      if (this.audioRef.length === 0) { this.audioRef = view.watch?.audio_track || view.decision.audio?.track_ref || ''; this.audioPicked = false; }
       if (this.subtitleRef.length === 0) { this.subtitleRef = view.watch?.subtitle_track ?? ''; }
       this.subtitleIndex = view.decision.subtitles.findIndex((track: SubtitlePlanView): boolean =>
         track.track_ref === this.subtitleRef);
@@ -897,6 +905,14 @@ export class PhonePlaybackHost implements PlaybackTestHost {
     hilog.info(0x0000, 'MCSub', '%{public}s', `attach: engine=${enginePref} tier=${view.decision.tier}` +
       ` subIndex=${this.subtitleIndex} ref=${currentRef.length > 0 ? currentRef : '-'}` +
       ` nativeOrdinal=${nativeOrdinal ?? '-'} sidecar=${subtitleUrl.length > 0} pgs=${pgsPath.length > 0}`);
+    // AVP 文本旁挂不进内核（histreamer 挂外挂字幕高概率楔死主流，见 PhoneMedia
+    // acquire 的 avplayer 例外）：宿主下载解析成 cue，onSnapshot 按位置自绘。
+    // 后台预备不阻塞起播——旁挂抽取首次要通读容器，服务端可能很久才回包；
+    // 下好前的 tick 查不到 cue 自然不绘，晚到只是字幕晚出，起播绝不等它。
+    this.resetAvpSubtitleCues();
+    if (enginePref !== 'mpv' && subtitleUrl.length > 0) {
+      this.prepareAvpSidecarCues(subtitleUrl, origin).catch((): void => { });
+    }
     // 服务端交付契约：tier 0 = 直连（/files/{id}/stream 或 /disc 目录清单，HTTP
     // Range 可 seek），tier ≥ 1 = HLS（/sessions/{id}/index.m3u8，histreamer 的 HLS
     // seek 会假 seekDone 真冻结）。PhoneMedia 按此标注 isHls，AVPlayer 只拒 HLS 跳
@@ -991,9 +1007,78 @@ export class PhonePlaybackHost implements PlaybackTestHost {
       const directory = this.localMediaPath.substring(0, this.localMediaPath.lastIndexOf('/'));
       subtitlePath = `${directory}/subs/${this.localSpec.subtitles[this.subtitleIndex].fileName}`;
     }
+    const enginePref: string = PlayerPrefs.engine();
+    // 本机外挂同口径：AVP 不进内核（PhoneMedia.acquire 已按引擎跳过字幕句柄），
+    // 宿主读文件解析 cue 自绘；mpv 照旧开 fd 走内核原生渲染。
+    this.resetAvpSubtitleCues();
+    if (enginePref !== 'mpv' && subtitlePath.length > 0) { this.parseLocalSubtitleCues(subtitlePath); }
     await this.controller.open(new PhoneMedia(0, this.localSpec.durationMs ?? 0, '',
       this.localMediaPath, '', subtitlePath, '', false, `local:${this.localMediaPath}`),
-      this.surfaceId, this.makeIntent(), PlayerPrefs.engine());
+      this.surfaceId, this.makeIntent(enginePref), enginePref);
+  }
+
+  /** 清空 AVP 自绘字幕状态（重挂/换轨/释放时调）；cue 在档时连旧句一起擦掉，免得残留驱动 overlay。 */
+  private resetAvpSubtitleCues(): void {
+    if (this.avpSubtitleCues !== null) { this.subtitleCue = ''; }
+    this.avpSubtitleCues = null;
+    this.avpSubtitleOriginMs = 0;
+  }
+
+  /**
+   * AVP 文本旁挂的宿主预备：下载（复用 PhoneMedia 的 ass→srt 转换与窗原点平移，
+   * cue 即为窗相对）→ 读文本 → 解析 cue 表 → 回收临时文件。换集/退出（代次不
+   * 符）只回收不落账；下载/解析失败只 warn，裸播不阻塞（与 open 时「字幕下载
+   * 失败跳过字幕继续播放」同口径）。
+   */
+  private async prepareAvpSidecarCues(url: string, originMs: number): Promise<void> {
+    const epoch: number = this.sessionEpoch;
+    try {
+      const media: PhoneMedia = new PhoneMedia(originMs, 0, '', '', url, '',
+        this.getUIContext().getHostContext()?.cacheDir ?? '');
+      const sidecar: DownloadedSubtitle = await media.downloadSidecar('avplayer');
+      const text: string = readSubtitleTextFile(sidecar.path);
+      removePgsSidecar(sidecar.path);
+      if (epoch !== this.sessionEpoch || this.disposed) { return; }
+      const cues: SubtitleCue[] = parseSubtitleCues(text);
+      if (cues.length === 0) {
+        hilog.warn(0x0000, 'MCSub', 'avp 自绘字幕解析为空: format=%{public}s bytes=%{public}d',
+          sidecar.format, text.length);
+        return;
+      }
+      this.avpSubtitleCues = cues;
+      this.avpSubtitleOriginMs = originMs;
+      hilog.info(0x0000, 'MCSub', 'avp 自绘字幕就绪: %{public}d cues', cues.length);
+    } catch (error) {
+      if (epoch !== this.sessionEpoch || this.disposed) { return; }
+      hilog.warn(0x0000, 'MCSub', 'avp 自绘字幕下载失败，暂无字幕: %{public}s', `${error}`);
+    }
+  }
+
+  /** AVP 本机外挂的宿主解析：.ass/.ssa 先转纯文本 SRT 再解析；读不出按无字幕处理。 */
+  private parseLocalSubtitleCues(path: string): void {
+    const text: string = readSubtitleTextFile(path);
+    if (text.length === 0) {
+      hilog.warn(0x0000, 'MCSub', 'avp 本机字幕读取为空: %{public}s', path);
+      return;
+    }
+    const lower: string = path.toLowerCase();
+    const normalized: string = lower.endsWith('.ass') || lower.endsWith('.ssa') ? assToSrt(text) : text;
+    const cues: SubtitleCue[] = parseSubtitleCues(normalized);
+    if (cues.length === 0) {
+      hilog.warn(0x0000, 'MCSub', 'avp 本机字幕解析为空: %{public}s', path);
+      return;
+    }
+    this.avpSubtitleCues = cues;
+    this.avpSubtitleOriginMs = 0;
+    hilog.info(0x0000, 'MCSub', 'avp 本机自绘字幕就绪: %{public}d cues', cues.length);
+  }
+
+  /** AVP 自绘字幕驱动：按快照位置查当前 cue，变化才写 @Trace 触发重绘；mpv 由内核 sub-text 事件驱动，不走这里。 */
+  private tickAvpSubtitle(snapshot: PlaybackSnapshot): void {
+    const cues: SubtitleCue[] | null = this.avpSubtitleCues;
+    if (cues === null || snapshot.engine !== 'avplayer') { return; }
+    const text: string = subtitleCueTextAt(cues, snapshot.positionMs - this.avpSubtitleOriginMs);
+    if (text !== this.subtitleCue) { this.subtitleCue = text; }
   }
 
   makeIntent(engine: string = PlayerPrefs.engine()): PlaybackIntent {
@@ -1003,11 +1088,17 @@ export class PhonePlaybackHost implements PlaybackTestHost {
     intent.paused = this.pausedIntent;
     intent.rate = this.holdSpeedActive ? 2 : this.playbackRate;
     intent.subtitlesOff = this.subtitleIndex < 0;
-    if (this.subtitleIndex >= 0) { intent.subtitle = { language: '', title: '', ordinal: this.nativeEmbeddedOrdinalFor(engine) ?? -1 }; }
+    // mpv 才预知内封轨落点；AVP 无位图字幕能力，外挂/转码轨两边都给不出序号，
+    // 原来兜底 -1 会让 restoreTracks 选中内核里最后一条候选（avp 下正是刚挂上
+    // 的旁挂轨——楔死主流的元凶）。非 mpv 一律不下字幕意图：AVP 的文本字幕由
+    // 宿主自绘（avpSubtitleCues + onSnapshot tick），内核零字幕参与；mpv 的旁挂
+    // 靠 open 时 sub-add 的 select 标志保持选中，不依赖这里的序号。
+    const subtitleOrdinal: number | null = this.nativeEmbeddedOrdinalFor(engine);
+    if (subtitleOrdinal !== null) { intent.subtitle = { language: '', title: '', ordinal: subtitleOrdinal }; }
     const tracks = this.session?.decision.audio_tracks ?? [];
     const index = tracks.findIndex((track: AudioTrackView): boolean => track.ref === this.audioRef);
     if (index >= 0 && (this.localSpec !== null || this.session?.decision.tier === 0)) {
-      intent.audio = { language: tracks[index].language ?? '', title: '', ordinal: index, sourceCount: tracks.length };
+      intent.audio = { language: tracks[index].language ?? '', title: '', ordinal: index, sourceCount: tracks.length, explicit: this.audioPicked };
     }
     return intent;
   }
@@ -1051,6 +1142,7 @@ export class PhonePlaybackHost implements PlaybackTestHost {
     this.controller.onSnapshot = (snapshot: PlaybackSnapshot): void => {
       if (this.disposed) { return; }
       PlaybackTestProbe.observe(snapshot);
+      this.tickAvpSubtitle(snapshot);
       this.engineOpening = snapshot.phase === 'opening';
       const previousPlaying = this.playing;
       this.playing = snapshot.playing;
@@ -1191,6 +1283,8 @@ export class PhonePlaybackHost implements PlaybackTestHost {
   async releasePlayer(): Promise<void> {
     // 就地挂的文本旁挂临时文件随引擎一起走（mpv 已打开的句柄在 unlink 后仍有效）
     if (this.textSidecarPath.length > 0) { removePgsSidecar(this.textSidecarPath); this.textSidecarPath = ''; }
+    // AVP 自绘 cue 随引擎一起走：重开/换引擎/换集后旧 cue 不该再驱动 overlay
+    this.resetAvpSubtitleCues();
     await this.controller.release();
     this.engineHwdec = ''; this.engineCodec = ''; this.enginePixel = '';
     this.engineWidth = 0; this.engineHeight = 0;
@@ -1360,7 +1454,7 @@ export class PhonePlaybackHost implements PlaybackTestHost {
     this.releasePlayer().then(async (): Promise<void> => {
       this.stopSession();
       if (this.disposed) { return; }
-      this.pausedIntent = false; this.subtitleIndex = -1; this.subtitleRef = ''; this.subtitleBeforePgsIndex = -1; this.audioRef = '';
+      this.pausedIntent = false; this.subtitleIndex = -1; this.subtitleRef = ''; this.subtitleBeforePgsIndex = -1; this.audioRef = ''; this.audioPicked = false;
       this.positionMs = 0;
       this.episodeNumber = target.episode_number;
       this.resumeExplicit = false;
@@ -1797,13 +1891,16 @@ export class PhonePlaybackHost implements PlaybackTestHost {
 
   async pickAudio(ref: string): Promise<void> {
     this.showSheet = false;
-    if (ref === this.audioRef) { return; }
+    // 同一条轨重复点击且已是显式选择：空操作。继承来的「默认轨」点一下升级为
+    // 显式——否则继承轨永远选不上，AVP 恢复失败也只会跳过而不会回退保证。
+    if (ref === this.audioRef && this.audioPicked) { return; }
     this.audioRef = ref;
+    this.audioPicked = true;
     const view = this.session;
     const tracks = view?.decision.audio_tracks ?? [];
     const index = tracks.findIndex((track: AudioTrackView): boolean => track.ref === ref);
     if (index >= 0 && (this.localSpec !== null || view?.decision.tier === 0)) {
-      await this.controller.selectTrack('audio', { language: tracks[index].language ?? '', title: '', ordinal: index, sourceCount: tracks.length });
+      await this.controller.selectTrack('audio', { language: tracks[index].language ?? '', title: '', ordinal: index, sourceCount: tracks.length, explicit: true });
       return;
     }
     this.startMs = this.positionMs;
@@ -2199,7 +2296,7 @@ export class PhonePlaybackHost implements PlaybackTestHost {
   menuAnchorY(): number {
     return this.menuAnchorTop > 0 ? this.menuAnchorTop : Math.max(0, this.layerHeight - Theme.safeBottomInset - 100);
   }
-  menuHeaderHeight(): number { return this.sheetKind === 'settings' || this.sheetKind === 'stats' ? 0 : 36; }
+  menuHeaderHeight(): number { return this.sheetKind === 'settings' || this.sheetKind === 'stats' || this.sheetKind === 'episodes' ? 0 : 36; }
   selectRate(rate: number): void {
     this.playbackRate = rate; this.controller.setRate(rate); this.closeMenu();
   }
@@ -2347,15 +2444,17 @@ export class PhonePlaybackHost implements PlaybackTestHost {
         // 读不到就退到系统设置
       }
     }
-    try {
-      const context = getContext(this) as common.UIAbilityContext;
-      const raw: string = settings.getValueSync(context, settings.display.SCREEN_BRIGHTNESS_STATUS, '255');
-      const level: number = Number(raw);
-      if (Number.isFinite(level) && level >= 0) {
-        return Math.min(1, level / 255);
+    const context: common.Context | undefined = this.hostContext();
+    if (context !== undefined) {
+      try {
+        const raw: string = settings.getValueSync(context, settings.display.SCREEN_BRIGHTNESS_STATUS, '255');
+        const level: number = Number(raw);
+        if (Number.isFinite(level) && level >= 0) {
+          return Math.min(1, level / 255);
+        }
+      } catch (error) {
+        // 读不到（部分设备不给）：从满亮度起调
       }
-    } catch (error) {
-      // 读不到（部分设备不给）：从满亮度起调
     }
     return 1;
   }
@@ -2368,7 +2467,11 @@ export class PhonePlaybackHost implements PlaybackTestHost {
       });
       return;
     }
-    window.getLastWindow(getContext(this)).then((win: window.Window): Promise<void> => {
+    const context: common.Context | undefined = this.hostContext();
+    if (context === undefined) {
+      return;
+    }
+    window.getLastWindow(context).then((win: window.Window): Promise<void> => {
       this.brightnessWindow = win;
       return win.setWindowBrightness(value);
     }).then((): void => {
@@ -2416,8 +2519,12 @@ export class PhonePlaybackHost implements PlaybackTestHost {
     if (this.keptScreenOn) {
       return;
     }
+    const context: common.Context | undefined = this.hostContext();
+    if (context === undefined) {
+      return;
+    }
     try {
-      const win: window.Window = await window.getLastWindow(getContext(this));
+      const win: window.Window = await window.getLastWindow(context);
       await win.setWindowKeepScreenOn(true);
       this.keptScreenOn = true;
     } catch (error) {
@@ -2431,8 +2538,12 @@ export class PhonePlaybackHost implements PlaybackTestHost {
       return;
     }
     this.keptScreenOn = false;
+    const context: common.Context | undefined = this.hostContext();
+    if (context === undefined) {
+      return;
+    }
     try {
-      const win: window.Window = await window.getLastWindow(getContext(this));
+      const win: window.Window = await window.getLastWindow(context);
       await win.setWindowKeepScreenOn(false);
     } catch (error) {
     }
@@ -2445,14 +2556,30 @@ export class PhonePlaybackHost implements PlaybackTestHost {
     if (FoldState.shared().coverActive) {
       return;
     }
+    const context: common.Context | undefined = this.hostContext();
+    if (context === undefined) {
+      return;
+    }
     try {
-      const win: window.Window = await window.getLastWindow(getContext(this));
+      const win: window.Window = await window.getLastWindow(context);
+      // getLastWindow 是异步的：等待期间可能已折叠，此刻监听器看到的还是
+      // landscapeLocked=false、不会代为清向。过期的切换不得把横屏锁写上外屏——
+      // 落地前重查折叠态；写入之后才到来的折叠由监听器清锁兜底。
+      if (FoldState.shared().coverActive) {
+        return;
+      }
       if (this.landscapeLocked) {
         this.landscapeLocked = false;
         await win.setPreferredOrientation(window.Orientation.PORTRAIT);
       } else {
         this.landscapeLocked = true;
         await win.setPreferredOrientation(window.Orientation.AUTO_ROTATION_LANDSCAPE);
+        // 写横屏期间的极端竞态：并发清向可能已先落地、又被这次写入盖回横屏——
+        // 复查一次把外屏补正成竖屏（两个写入都收敛到竖屏，幂等）。
+        if (FoldState.shared().coverActive) {
+          this.landscapeLocked = false;
+          await win.setPreferredOrientation(window.Orientation.PORTRAIT);
+        }
       }
     } catch (error) {
       this.toast('切换方向失败');
@@ -2465,10 +2592,40 @@ export class PhonePlaybackHost implements PlaybackTestHost {
       return;
     }
     this.landscapeLocked = false;
+    const context: common.Context | undefined = this.hostContext();
+    if (context === undefined) {
+      return;
+    }
     try {
-      const win: window.Window = await window.getLastWindow(getContext(this));
+      const win: window.Window = await window.getLastWindow(context);
       await win.setPreferredOrientation(window.Orientation.PORTRAIT);
     } catch (error) {
+    }
+  }
+
+  /**
+   * 折叠状态变化（Pura X：折叠 = 应用移到外屏方屏）。
+   *
+   * 折叠瞬间要摘两把锁：
+   * - 控制锁：它是内屏沉浸态的产物，而方屏上控制层与解锁按钮的渲染跟横屏态走
+   *   （PlayerPage 只在横屏渲染锁定态）——锁着进方屏既看不到解锁按钮、点按又被
+   *   onGesture 的锁定分支吞掉，用户会被困住。一并解除并亮出控制层。
+   * - 横屏锁：横屏偏好跟着窗口走，不清掉方屏界面就横过来（restoreOrientation
+   *   会置回竖屏偏好）。
+   * 非折叠事件（展开/半折）不处理：锁是内屏临时态，折叠即失效，展开后按需重锁。
+   */
+  handleFoldStatus(status: display.FoldStatus): void {
+    if (status !== display.FoldStatus.FOLD_STATUS_FOLDED) {
+      return;
+    }
+    if (this.controlsLocked) {
+      this.controlsLocked = false;
+      this.chromeVisible = true;
+      this.armChromeTimer();
+    }
+    if (this.landscapeLocked) {
+      this.restoreOrientation().catch((): void => {
+      });
     }
   }
 

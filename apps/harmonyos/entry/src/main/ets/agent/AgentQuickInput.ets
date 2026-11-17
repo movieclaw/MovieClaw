@@ -17,6 +17,7 @@ import { AgentCatalog, AgentThinking } from './AgentCatalog';
 import { AgentSessionsSignal } from './AgentSessionsSignal';
 import { AgentSkillText } from './AgentSkills';
 import { ChatParams } from './ChatParams';
+import { SpatialMaterial } from '../common/SpatialMaterial';
 
 /**
  * 「我的」页的 AI 快捷输入（对应 iOS `AgentQuickBar` + `AgentComposer` 新样式）。
@@ -183,7 +184,7 @@ export class AgentComposerStore {
   }
 
   /** 三种来源共用：选 → 压缩 → 上传 → 进托盘（逐张，失败只提示不打断其它） */
-  async addImages(source: string, context: common.UIAbilityContext): Promise<void> {
+  async addImages(source: string, context: common.Context): Promise<void> {
     this.uploadError = '';
     const client = AppModel.shared.client;
     if (client === null) {
@@ -339,11 +340,14 @@ export struct AgentQuickInput {
 
   /** 监听输入法高度：弹出把输入卡顶上去；收起且没内容时折回一行 */
   private observeKeyboard(): void {
-    const context: common.UIAbilityContext = getContext(this) as common.UIAbilityContext;
+    const context: common.Context | undefined = this.getUIContext().getHostContext();
+    if (context === undefined) {
+      return;
+    }
     window.getLastWindow(context).then((win: window.Window): void => {
       this.keyboardWindow = win;
       this.keyboardCallback = (height: number): void => {
-        const inset: number = height > 0 ? px2vp(height) : 0;
+        const inset: number = height > 0 ? this.getUIContext().px2vp(height) : 0;
         if (inset === 0 && this.store.draft.trim().length === 0 && this.store.attachments.length === 0
           && this.store.uploadError.length === 0) {
           this.expanded = false;
@@ -446,6 +450,7 @@ export struct AgentQuickInput {
         height: SheetSize.FIT_CONTENT,
         dragBar: true,
         showClose: false,
+        systemMaterial: SpatialMaterial.sheet(),
         backgroundColor: Theme.bg
       })
     }
@@ -701,8 +706,10 @@ export struct AgentQuickInput {
     .padding({ left: 10, right: 10, top: 10, bottom: 10 })
     .onClick((): void => {
       this.showComposerSheet = false;
-      const context: common.UIAbilityContext = getContext(this) as common.UIAbilityContext;
-      this.store.addImages(source, context);
+      const context: common.Context | undefined = this.getUIContext().getHostContext();
+      if (context !== undefined) {
+        this.store.addImages(source, context);
+      }
     })
   }
 
@@ -903,11 +910,14 @@ export struct AgentComposerPanel {
   private keyboardWindow: window.Window | null = null;
 
   aboutToAppear(): void {
-    const context: common.UIAbilityContext = getContext(this) as common.UIAbilityContext;
+    const context: common.Context | undefined = this.getUIContext().getHostContext();
+    if (context === undefined) {
+      return;
+    }
     window.getLastWindow(context).then((win: window.Window): void => {
       this.keyboardWindow = win;
       win.on('keyboardHeightChange', (height: number): void => {
-        this.keyboardInset = height > 0 ? px2vp(height) : 0;
+        this.keyboardInset = height > 0 ? this.getUIContext().px2vp(height) : 0;
       });
     }).catch((): void => {
     });
@@ -1058,6 +1068,7 @@ export struct AgentComposerPanel {
           height: SheetSize.FIT_CONTENT,
           dragBar: true,
           showClose: false,
+          systemMaterial: SpatialMaterial.sheet(),
           backgroundColor: Theme.bg
         })
       }
@@ -1209,8 +1220,10 @@ export struct AgentComposerPanel {
     .padding({ left: 10, right: 10, top: 10, bottom: 10 })
     .onClick((): void => {
       this.showPanel = false;
-      const context: common.UIAbilityContext = getContext(this) as common.UIAbilityContext;
-      this.store.addImages(source, context);
+      const context: common.Context | undefined = this.getUIContext().getHostContext();
+      if (context !== undefined) {
+        this.store.addImages(source, context);
+      }
     })
   }
 

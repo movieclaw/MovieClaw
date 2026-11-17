@@ -23,6 +23,25 @@ export class AVPlayerEngine implements PlayerEngine {
   private completeOpen: (() => void) | null = null;
   private rejectOpen: ((error: EngineFailure) => void) | null = null;
   private timeUpdates: number = 0;
+  // ---- 首帧后停滞看门狗 ------------------------------------------------
+  // histreamer 的 HTTP 下载器在 Range 中途取消后可整体楔死（复用连接上旧响应
+  // 未排空、后续请求被压在后面，2026-11-17 NAS 现场取证）：解码器吐完首帧后
+  // 时钟停走、状态机仍报 playing 且不再回调 error——表象是黑屏无声、进度条
+  // 钉死、恢复无门。首帧后轮询 currentTime，状态 playing 而连续多拍静止即发
+  // frozen 事件；宿主 recoverFrozen 会就此重开接管（mpv）。起播前黑屏由宿主
+  // 的启动超时兜底，这里只在 startRenderFrame 后武装。
+  // 2026-11-17 深夜实测：续播/暂停恢复的 Range 重取常被网盘 CDN 派成停顿/低速
+  // （15~120KB/s）的坏连接；服务端中继已改为窗口测速+换连接续传（一条请求最
+  // 多 3 条上游连接，最坏 ~25 秒才续上流）。触发线必须盖过服务端重连窗口，
+  // 让 AVP 吃到救回来的流自己续播，而不是半路掐掉换 mpv。
+  private static readonly stallSampleIntervalMs: number = 2000;
+  private static readonly stallSamplesToFire: number = 15;
+  private static readonly stallMinAdvanceMs: number = 50;
+  private stallTimer: number = -1;
+  private stallSamples: number = 0;
+  private stallFired: boolean = false;
+  private stallLastClockMs: number = -1;
+  private stallSeekActive: boolean = false;
 
   async open(source: EngineSource, surfaceId: string): Promise<void> {
     const player = await media.createAVPlayer();
@@ -92,6 +111,7 @@ export class AVPlayerEngine implements PlayerEngine {
     });
     player.on('startRenderFrame', (): void => {
       const event = new EngineEvent(); event.type = 'firstFrame'; this.onEvent(event);
+      this.startStallWatchdog();
     });
     player.on('subtitleUpdate', (info: media.SubtitleInfo): void => {
       const event = new EngineEvent(); event.type = 'subtitle'; event.text = info.text ?? '';
@@ -196,37 +216,95 @@ export class AVPlayerEngine implements PlayerEngine {
     // come back down, a forward seek must climb past the target), and only a
     // timeUpdate that arrived after this command makes currentTime trustworthy —
     // a bare seekDone with stale pre-seek ticks proves nothing.
-    const seekWasBackward = positionMs < player.currentTime;
-    const updatesBeforeSeek = this.timeUpdates;
-    await new Promise<void>((resolve, reject): void => {
-      this.rejectSeek = reject;
-      const done = (): void => {
-        player.off('seekDone', done); this.rejectSeek = null; resolve();
-      };
-      player.on('seekDone', done);
-      try { player.seek(Math.round(positionMs), media.SeekMode.SEEK_CLOSEST); }
-      catch (error) {
-        player.off('seekDone', done); this.rejectSeek = null;
-        reject(new EngineFailure('internal', 0, '系统播放器跳转失败'));
-      }
-    });
-    if (this.released || player !== this.player || player.state !== 'playing') { return; }
-    const tolerance = AVPlayerEngine.seekVerifyToleranceMs;
-    const delivered = (): boolean => this.timeUpdates !== updatesBeforeSeek
-      && (seekWasBackward ? player.currentTime <= positionMs + tolerance
-        : player.currentTime >= positionMs - tolerance);
-    if (delivered()) { return; }
-    const deadline = Date.now() + AVPlayerEngine.seekVerifyWindowMs;
-    while (Date.now() < deadline && !this.released && this.player === player) {
-      await new Promise<void>((resolve): void => {
-        setTimeout((): void => { resolve(); }, AVPlayerEngine.seekVerifyPollMs);
+    // 在途 seek（含落地校验窗口）期间 currentTime 静止是常态，停滞计数一律
+    // 暂停并在结束时重置；seek 超时由本方法自己的校验窗口负责上报。
+    this.stallSeekActive = true;
+    try {
+      const seekWasBackward = positionMs < player.currentTime;
+      const updatesBeforeSeek = this.timeUpdates;
+      await new Promise<void>((resolve, reject): void => {
+        this.rejectSeek = reject;
+        const done = (): void => {
+          player.off('seekDone', done); this.rejectSeek = null; resolve();
+        };
+        player.on('seekDone', done);
+        try { player.seek(Math.round(positionMs), media.SeekMode.SEEK_CLOSEST); }
+        catch (error) {
+          player.off('seekDone', done); this.rejectSeek = null;
+          reject(new EngineFailure('internal', 0, '系统播放器跳转失败'));
+        }
       });
+      if (this.released || player !== this.player || player.state !== 'playing') { return; }
+      const tolerance = AVPlayerEngine.seekVerifyToleranceMs;
+      const delivered = (): boolean => this.timeUpdates !== updatesBeforeSeek
+        && (seekWasBackward ? player.currentTime <= positionMs + tolerance
+          : player.currentTime >= positionMs - tolerance);
       if (delivered()) { return; }
+      const deadline = Date.now() + AVPlayerEngine.seekVerifyWindowMs;
+      while (Date.now() < deadline && !this.released && this.player === player) {
+        await new Promise<void>((resolve): void => {
+          setTimeout((): void => { resolve(); }, AVPlayerEngine.seekVerifyPollMs);
+        });
+        if (delivered()) { return; }
+      }
+      if (this.released || this.player !== player) { return; }
+      hilog.warn(0x0000, 'MCSub', 'avplayer seek 未到位判停滞: target=%{public}d current=%{public}d',
+        positionMs, player.currentTime);
+      throw new EngineFailure('timeout', 0, '系统播放器跳转无响应');
+    } finally {
+      this.stallSeekActive = false;
+      this.stallLastClockMs = -1;
+      this.stallSamples = 0;
     }
-    if (this.released || this.player !== player) { return; }
-    hilog.warn(0x0000, 'MCSub', 'avplayer seek 未到位判停滞: target=%{public}d current=%{public}d',
-      positionMs, player.currentTime);
-    throw new EngineFailure('timeout', 0, '系统播放器跳转无响应');
+  }
+  /** 首帧后武装：只盯「状态机说 playing 而时钟停走」的楔死（mpv 的判据相反）。 */
+  private startStallWatchdog(): void {
+    if (this.stallTimer >= 0 || this.released) { return; }
+    this.stallSamples = 0;
+    this.stallFired = false;
+    this.stallLastClockMs = -1;
+    this.stallTimer = setInterval((): void => { this.sampleStall(); }, AVPlayerEngine.stallSampleIntervalMs);
+    hilog.info(0x0000, 'MCSub', 'avplayer 停滞看门狗启动: interval=%{public}d ms 触发=%{public}d 拍',
+      AVPlayerEngine.stallSampleIntervalMs, AVPlayerEngine.stallSamplesToFire);
+  }
+
+  private stopStallWatchdog(): void {
+    if (this.stallTimer >= 0) {
+      clearInterval(this.stallTimer);
+      this.stallTimer = -1;
+    }
+  }
+
+  private sampleStall(): void {
+    const player = this.player;
+    if (this.released || this.stallFired || player === null) { return; }
+    if (this.stallSeekActive || player.state !== 'playing') {
+      this.stallLastClockMs = -1;
+      this.stallSamples = 0;
+      return;
+    }
+    const clockMs = player.currentTime;
+    if (this.stallLastClockMs < 0 || clockMs - this.stallLastClockMs > AVPlayerEngine.stallMinAdvanceMs) {
+      this.stallLastClockMs = clockMs;
+      this.stallSamples = 0;
+      return;
+    }
+    this.stallSamples++;
+    // 停滞过半（约 15 秒）先留痕：便于事后区分正常缓冲与逼近触发线的楔死。
+    if (this.stallSamples === Math.floor(AVPlayerEngine.stallSamplesToFire / 2)) {
+      hilog.warn(0x0000, 'MCSub', 'avplayer 时钟疑似停滞: current=%{public}d 已静止 %{public}d 拍',
+        clockMs, this.stallSamples);
+    }
+    if (this.stallSamples < AVPlayerEngine.stallSamplesToFire) { return; }
+    this.stallFired = true;
+    this.stopStallWatchdog();
+    hilog.error(0x0000, 'MCSub',
+      'avplayer 时钟停滞: current=%{public}d 状态 playing 静止约 %{public}d 毫秒，通知宿主接管',
+      clockMs, AVPlayerEngine.stallSamplesToFire * AVPlayerEngine.stallSampleIntervalMs);
+    const event = new EngineEvent();
+    event.type = 'frozen';
+    event.positionMs = Math.round(clockMs);
+    this.onEvent(event);
   }
   async setRate(rate: number): Promise<void> {
     const player = this.player;
@@ -273,6 +351,7 @@ export class AVPlayerEngine implements PlayerEngine {
   async release(): Promise<void> {
     if (this.released) { return; }
     this.released = true;
+    this.stopStallWatchdog();
     this.completeFailure?.(null);
     this.rejectSeek?.(new EngineFailure('internal', 0, '播放已取消'));
     this.rejectSeek = null;

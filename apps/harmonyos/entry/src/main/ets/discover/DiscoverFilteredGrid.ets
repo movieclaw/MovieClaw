@@ -15,6 +15,7 @@ import {
 } from '../api/Models';
 import { DiscoverDetailParams } from './DiscoverDetailPage';
 import { DiscoverFilterSheet, DiscoverGenreCatalog, DiscoveryFilters } from './DiscoverFilter';
+import { SpatialMaterial } from '../common/SpatialMaterial';
 
 /**
  * 组合筛选结果网格（对应 iOS `DiscoverFilteredGrid`）：TMDB discover 原生分页，
@@ -377,6 +378,7 @@ export struct DiscoverFilteredGrid {
       height: SheetSize.LARGE,
       dragBar: true,
       showClose: false,
+      systemMaterial: SpatialMaterial.sheet(),
       backgroundColor: Theme.bg
     })
   }

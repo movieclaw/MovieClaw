@@ -11,6 +11,7 @@ import { DiscoverPage } from './DiscoverPage';
 import { DiscoveryFilters, DiscoverFilterSheet } from './DiscoverFilter';
 import { SearchMode } from '../search/SearchResultsPage';
 import { SearchLaunchParams } from '../search/SearchPage';
+import { SpatialMaterial } from '../common/SpatialMaterial';
 
 /**
  * 发现页签的导航宿主（对应 iOS 端发现页所在的 NavigationStack）。
@@ -152,6 +153,7 @@ export struct DiscoverNavHost {
       height: SheetSize.LARGE,
       dragBar: true,
       showClose: false,
+      systemMaterial: SpatialMaterial.sheet(),
       backgroundColor: Theme.bg
     })
   }

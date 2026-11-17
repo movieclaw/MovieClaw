@@ -63,7 +63,7 @@ export class AgentAttachments {
   }
 
   /** 选取文件（沙盒外文件） */
-  static async pickFiles(context: common.UIAbilityContext, max: number): Promise<string[]> {
+  static async pickFiles(context: common.Context, max: number): Promise<string[]> {
     const documentPicker = new picker.DocumentViewPicker(context);
     const options = new picker.DocumentSelectOptions();
     options.maxSelectNumber = max;
@@ -72,7 +72,7 @@ export class AgentAttachments {
   }
 
   /** 拍照 */
-  static async capture(context: common.UIAbilityContext): Promise<string> {
+  static async capture(context: common.Context): Promise<string> {
     const result = await cameraPicker.pick(context, [cameraPicker.PickerMediaType.PHOTO], {
       cameraPosition: camera.CameraPosition.CAMERA_POSITION_BACK
     });
@@ -80,7 +80,7 @@ export class AgentAttachments {
   }
 
   /** 读 → 压缩 → 上传，返回服务端给的附件编号 */
-  static async prepareAndUpload(client: ApiClient, context: common.UIAbilityContext, uri: string,
+  static async prepareAndUpload(client: ApiClient, context: common.Context, uri: string,
     fallbackName: string): Promise<AgentAttachment> {
     const prepared: AgentPreparedImage = await AgentAttachments.prepare(uri, fallbackName);
     const url: string = `${client.origin}/api/v1/sessions/attachments`;
@@ -155,7 +155,7 @@ export class AgentAttachments {
       };
       const pixelMap: image.PixelMap = await source.createPixelMap({ desiredSize: target });
       const packer: image.ImagePacker = image.createImagePacker();
-      const jpeg: ArrayBuffer = await packer.packing(pixelMap, { format: 'image/jpeg', quality: 85 });
+      const jpeg: ArrayBuffer = await packer.packToData(pixelMap, { format: 'image/jpeg', quality: 85 });
       packer.release();
       pixelMap.release();
       return new AgentPreparedImage(jpeg, AgentAttachments.fileName(uri, fallbackName, 'jpg'),
