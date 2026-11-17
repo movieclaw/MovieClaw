@@ -193,13 +193,17 @@ class EgressTransport(httpx.AsyncBaseTransport):
         # reset_all_breakers()（配置保存/测试隔离）清空注册表后，
         # 已存在的 transport 必须立刻跟随新状态，不能攥着旧熔断器不放
         breaker: CircuitBreaker | None = get_breaker(self._service) if self._use_breaker else None
-        if breaker is not None:
-            breaker.before_request()
+        is_probe = breaker.before_request() if breaker is not None else False
         try:
             response = await inner.handle_async_request(request)
         except _NETWORK_FAILURES:
             if breaker is not None:
                 breaker.record_failure()
+            raise
+        except BaseException:
+            # 包含任务取消；只有持有探测槽的请求才能归还，且不改变失败统计。
+            if breaker is not None and is_probe:
+                breaker.release_probe()
             raise
         if breaker is not None:
             breaker.record_success()
