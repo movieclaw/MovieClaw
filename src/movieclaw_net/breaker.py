@@ -60,43 +60,44 @@ class CircuitBreaker:
         self._cooldown = cooldown_seconds
         self._consecutive_failures = 0
         self._opened_at: float | None = None  # None = closed
-        self._probing = False  # half-open 期间是否已有探测请求在途
+        self._probing: object | None = None  # half-open 当前探测的唯一 token
 
     # ------------------------------------------------------------------
     # 请求前检查
     # ------------------------------------------------------------------
-    def before_request(self) -> bool:
-        """请求前检查；返回是否占用探测槽，不可放行时抛 CircuitOpenError。"""
+    def before_request(self) -> object | None:
+        """请求前检查；探测返回唯一 token，closed 返回 None，不可放行时抛异常。"""
         if self._opened_at is None:
-            return False
+            return None
         elapsed = time.monotonic() - self._opened_at
         if elapsed < self._cooldown:
             raise CircuitOpenError(self._service, self._cooldown - elapsed)
         # 冷却期已过：half-open，只放行一个探测请求
         if self._probing:
             raise CircuitOpenError(self._service, 0.0)
-        self._probing = True
-        return True
+        self._probing = object()
+        return self._probing
 
     # ------------------------------------------------------------------
     # 请求结果回报
     # ------------------------------------------------------------------
-    def release_probe(self) -> None:
-        """探测未得出线路结论时归还槽位，保留失败计数与原冷却起点。"""
-        self._probing = False
+    def release_probe(self, token: object) -> None:
+        """仅归还 token 仍匹配的探测槽，保留失败计数与原冷却起点。"""
+        if self._probing is token:
+            self._probing = None
 
     def record_success(self) -> None:
         """任意 HTTP 响应（含 4xx/5xx）都算线路通，闭合熔断。"""
         self._consecutive_failures = 0
         self._opened_at = None
-        self._probing = False
+        self._probing = None
 
     def record_failure(self) -> None:
         """网络级失败一次；连续达到阈值（或探测失败）时打开/重开熔断。"""
         self._consecutive_failures += 1
         if self._probing or self._consecutive_failures >= self._failure_threshold:
             self._opened_at = time.monotonic()
-            self._probing = False
+            self._probing = None
 
     def reset(self) -> None:
         """人工闭合（连通性测试成功后调用），让业务请求立刻恢复放行。"""

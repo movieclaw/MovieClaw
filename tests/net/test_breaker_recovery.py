@@ -225,6 +225,83 @@ async def test_closed_request_error_does_not_release_another_requests_probe(cloc
 
 
 @pytest.mark.parametrize("outcome", ["cancel", "protocol"])
+async def test_replaced_probe_cannot_release_current_probe(clock, outcome):
+    entered = {name: asyncio.Event() for name in ("old", "probe_a", "probe_b")}
+    release = {name: asyncio.Event() for name in entered}
+    calls = []
+    error = httpx.RemoteProtocolError("probe A aborted")
+
+    async def handler(request):
+        name = request.url.path.strip("/")
+        calls.append(name)
+        if name == "v1/models":
+            raise httpx.ConnectError("offline", request=request)
+        if name == "third":
+            return httpx.Response(200)
+        entered[name].set()
+        await release[name].wait()
+        if name == "old":
+            raise httpx.ReadError("late failure from closed state", request=request)
+        if name == "probe_a":
+            raise error
+        return httpx.Response(200)
+
+    tasks = []
+    async with httpx.AsyncClient(transport=_transport(handler)) as client:
+
+        async def start(name):
+            task = asyncio.create_task(client.get(f"https://llm.invalid/{name}"))
+            tasks.append(task)
+            await asyncio.wait_for(entered[name].wait(), timeout=2)
+            return task
+
+        try:
+            old = await start("old")
+            await _open(client)
+            clock.now += 60
+            first = await start("probe_a")
+            # 旧 closed 请求的网络失败依原策略重开熔断，清除 A 的槽。
+            release["old"].set()
+            with pytest.raises(httpx.ReadError):
+                await old
+            breaker = get_breaker("llm")
+            assert breaker._opened_at == clock.now
+            assert breaker._consecutive_failures == 4
+            clock.now += 60
+            second = await start("probe_b")
+            with pytest.raises(CircuitOpenError):
+                await client.get("https://llm.invalid/third")
+
+            if outcome == "cancel":
+                first.cancel()
+                with pytest.raises(asyncio.CancelledError):
+                    await first
+            else:
+                release["probe_a"].set()
+                with pytest.raises(httpx.RemoteProtocolError) as caught:
+                    await first
+                assert caught.value is error
+
+            assert not second.done()
+            assert breaker._consecutive_failures == 4
+            assert breaker._opened_at == clock.now - 60
+            # A 退出后，B 仍独占槽；第三个请求不得进入 transport。
+            with pytest.raises(CircuitOpenError) as caught:
+                await client.get("https://llm.invalid/third")
+            assert caught.value.retry_after == 0
+            assert "third" not in calls
+            release["probe_b"].set()
+            assert (await second).status_code == 200
+            assert breaker._consecutive_failures == 0
+            assert breaker._opened_at is None
+            assert (await client.get("https://llm.invalid/third")).status_code == 200
+        finally:
+            for task in tasks:
+                task.cancel()
+            await asyncio.gather(*tasks, return_exceptions=True)
+
+
+@pytest.mark.parametrize("outcome", ["cancel", "protocol"])
 async def test_llm_recovers_through_real_http_after_aborted_probe(clock, outcome):
     """真实 SDK → httpx → 出口 → 本地 HTTP；不访问供应商、不人工 reset。"""
     from movieclaw_llm import ChatMessage, ChatRequest, LlmConnectError, LlmProviderConfig
