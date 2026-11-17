@@ -20,7 +20,7 @@
 | #1269，55dc714c8 | MCP API 配置工具排除，发现与直调、紧凑命令同样生效；未知名称拒绝保存 | 其他新功能；明确网页编辑器暂不暴露 | `services/mcp_endpoints.py`、`movieclaw_mcp/tools.py`、`schemas/mcp.py` |
 | #1268，4d3a0c2eb / 895913eff | 未看完筛选不再把已看但带续播点的作品算未完 | 修复；旧版同时要求 played=true 与 position_ms=0 | `services/library/items.py`；`tests/api/test_library_filter.py` |
 | #1273，43eacf65d / 7c7361787 / 7b7aa3759 | 全设备在线上报与离线补传共用已看阈值，80–100%；剧集可优先有效直达结尾片尾；部分配置保存并发安全 | 主亮点；90% / 片尾关闭为默认，原短片规则保留；非追溯修改 | `components/playback-completion-section.tsx`、`settings/playback.py`、`services/playback/completion.py`、`movieclaw_playback/progress.py`、`settings/store.py`；`tests/api/test_playback_completion.py` |
-| #1273 | 消失的显式片源使用自己的历史片长，无片长保留进度，避免借用另一版本已看判定 | 与新判定配套的周期内修正，不声称上一版存在新的配置功能 | `completion_runtime_ms`；`test_replaced_version_uses_its_own_duration` |
+| #1273 | 消失的显式片源使用自己的历史片长，无片长保留进度，避免借用另一版本已看判定 | 列为进度处理改进，不声称上一版已有新的配置功能 | `completion_runtime_ms`；`test_replaced_version_uses_its_own_duration` |
 | #1284，926cc411c / f61b187e9 / c9e8adeec / a96c944a7 / da28fc14a / e43f070ae | Web 新增 de，浏览器协商、日期数字、德语元数据快捷选项；服务器消息回落英文 | 主亮点，明确 Web 与服务器语言范围；翻译校对和测试注释不单列修复 | `components/language-picker.tsx`、`lib/i18n/*`、`locales/de/*`、`components/scrape-settings-section.tsx`、`movieclaw_api/i18n/*` |
 | #1286，e942e3545 | App 带 subtitle_track=off 请求时仍返回同剧记忆，关字幕后下一集不被默认字幕顶回 | 修复；旧版在显式给轨时屏蔽返回的同剧记忆 | `api/routes/playback.py:_with_series_memory`；`test_subtitle_turned_off_stays_off_across_episodes` |
 | #1287，50fab91b4 | 交互绑定并行确认串行落库 | 修复；旧版 `_apply_flow` 无锁 | `services/channel_hub.py`；`tests/channel/test_channel_hub.py` |
@@ -66,6 +66,21 @@
 Web 全量回归暴露德语 PR 新增 `withUiLocale` 导入而旧 mock 缺失，SSE 预期错误被重试分支的 `window is not defined` 覆盖。仅给 `auxiliary-i18n.test.mjs` 的 HTTP mock 补一项，原用例不改断言，修后全量通过。
 
 macOS 默认 bsdtar 会把扩展属性打成 AppleDouble `._*.py`，初次本地包冷启动时 Alembic 扫描这些元数据报 null bytes。用 `COPYFILE_DISABLE=1` 重新执行完整构建后，归档无 AppleDouble、哈希检查与上述解包冷启动均通过。正式工作流在 Linux / GNU tar 构建，不上传本地初次生成的包；最终仍须下载正式附件验收。
+
+### 额外全量回归的未通过项
+
+在上述重点验证之后，本地完整执行 `pytest -m 'not integration' -n 4 --dist loadfile --timeout=180`，结果为 **8823 通过、12 失败、20 跳过、7 xfailed**，耗时 547.64 秒，不能记为全量通过。
+
+- `test_signal_constants_are_the_expected_ones` 硬编码 Linux SIGSTOP=19 / SIGCONT=18，Darwin 分别为 17 / 19，属于已确认平台差异。
+- 两个 `test_probing_specs_reaches_the_server_with_the_token` 参数用例在本地有 ffprobe 时执行，但回源 `127.0.0.1:8000` 没有真实监听，探测失败。
+- 五个 `test_stream_activity` 用例在真实 TCP 的 PlaybackInfo 请求上超时。
+- `test_playback_info_direct_play_no_transcode` 的旧断言要求忽略 DeviceProfile，但服务端按其低码率要求协商转码。
+- `test_factory_search_promotion_detail_download_profile_flow` 的嵌套 CSS 选择器在本机旧 cssselect 1.5.0 下无法解析。
+- `test_job_wait_timeout_and_cancellation_keep_parent_lock_and_release_capacity` 未在期望时间观察到等待登记；`test_weixin_package_replaces_the_bundled_one_and_uninstall_restores_it` 未观察到替换为进程插件后的回复。
+
+这些测试文件与对应 jobs / tracker / Jellyfin 等模块在 `v0.50.0..HEAD` 未修改，不能据此断言本轮引入了缺陷，也不能据此忽略失败。已只读检查成功的 Linux CI run `44006895889`：三片 Python 全绿，使用 Python 3.11、cssselect 1.6.0、pytest-asyncio 1.5.0；本机共享环境为 Python 3.14、cssselect 1.5.0、pytest-asyncio 1.4.0。
+
+随后用机器已有 Python 3.11 创建独立临时 venv，重新安装仓库依赖（未修改用户共享 venv），串行核查五个代表用例：jobs 与 HDWing 通过；微信插件替换、Jellyfin direct-play 旧断言、Rex 预缓存的 PlaybackInfo 超时仍失败。后面三类仍需本发布 PR 的 Linux CI 复核；没有修改无关生产模块、删除用例或降低门禁来掩盖它们。新发布 PR 的必需检查与全量 CI 尚未运行时，不能把旧 run 当作本次发布的放行证据。
 
 - 发布必须经过 PR 与分支规则集，`ci-ok` / `apple-ok` / `android-ok` 为必需检查，全量 CI 通过后合入；不直推 main，不强推、不删 tag。传统 branch protection API 返回 404，但分支 rules API 已确认上述规则，不能因此视为无保护。
 - 两处版本为 0.51.0，`scripts/export-spec.sh` 同时导出服务器 / CLI 基线；spec 是忽略的构建产物。
