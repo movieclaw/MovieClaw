@@ -309,7 +309,9 @@ struct MorePage: View {
         .listRowInsets(EdgeInsets(top: 0, leading: 20, bottom: 0, trailing: 20))
         .accessibilityIdentifier("more-session-row")
         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-            Button(role: .destructive) { Task { await remove(item) } } label: { Image(systemName: "trash") }
+            // 不用 role: .destructive：那会让系统先把行从列表里删掉，而这里还要等确认框和删除请求，
+            // 之后数据再删一次时行数对不上，UICollectionView 断言闪退（TestFlight 0.13.0 删除会话闪退）
+            Button { Task { await remove(item) } } label: { Image(systemName: "trash") }
                 .tint(.red)
                 .accessibilityLabel(String(localized: .navSessionsDelete))
             Button { Task { await rename(item) } } label: { Image(systemName: "pencil") }
