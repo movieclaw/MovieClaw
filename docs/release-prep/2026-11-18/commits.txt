@@ -1,0 +1,67 @@
+9dd11c106ddb76f2e711deef26494c89167ec4f4 fix(ios): 修复「我的」页左滑删除 AI 会话闪退
+358b4a816a83f97115b24f2431f5cd88cf72471d fix(plugins): accept custom event subscriptions in process SDK
+8b5a11d159f01db3dece211c58b6289d5d976043 fix(net): validate half-open probe ownership on release
+f088df0a809b909682157f97a3254818ba5450f0 fix(net): release inconclusive half-open probes
+ca1118d0f2500afaa31d88742c7f18dfc2193782 fix(playback): 修复看门狗评审指出的冻结恢复与字幕换轨缺陷
+d5a2a315cf8cccddc267d841afe0f245666c4312 fix(library): keep recovery poll for network dirs that lose their mount; clear subscription completion key on regression
+7b6ceb8c6ef07151ef91898079839bea54d31ad0 fix(library): keep network poll armed on every sweep path; dedupe completion per downloader
+effbdb94ded42b12d00ee42cd35e27628bd2bec8 fix(download): trigger import-watch sweep when the downloader reports completion
+d1463458049fe3947bb07af3b7169eb82f73ca85 fix(library): poll import-watch dirs on network mounts instead of trusting watch events
+e43f070aec7893c1ce987f759b45aee9b5d772b9 docs(i18n): scope English fallback in README.de to the web UI
+da28fc14ad12dc22ccf484889be125c4981ab086 test(i18n): shorten comment to satisfy ruff E501
+a96c944a730cd469dc27f5684dc6835fda1173d5 fix(i18n): add metadata entry for scrape.germanLanguage
+c9e8adeec41f82ab75fb7e5ed2f4ff6ad71d6339 feat(scrape): add German to metadata language quick picks
+f61b187e93abdc2f4bb4156aa35738ff50e70e3d fix(i18n): address review on German locale
+926cc411c825defbe5b394a095641889894181e2 Add German (de) translation for the web UI and README
+a74efdc82baa2eaf52d07c0b8c707a0200115fd5 chore(deps): node-forge 1.4.2 → 1.4.3（安全修复）
+7b7aa3759661ef1c11d44d438dcd978e0c5cd71e test(llm): match fake-protocol failure markers by key prefix
+7c73617873e7ee2cf81f1983b6bfad73f2ae2e66 fix(playback): preserve version durations and serialize policy updates
+43eacf65dea4c38385c78fd4fb4d4afc6ee02cd1 feat(playback): configure server watched completion policy
+50fab91b411b57bb73c03f146c42764d47540e76 fix(channel): 交互式绑定两路同时确认时串行落库
+e942e3545d6065486a6ed480f566cb7d358fae1f fix(playback): App 显式带 subtitle_track=off 时同剧字幕沿用失效
+ff99d8598ec411e295b92e85192cf6541107843f fix(androidtv): 多季剧从分集横排往上停在选季，不越过去回首屏
+b437f4fd16d98e9423d3c16fe47de11a5ef2ba38 fix(harmony): 为 mpv 补齐 CA 信任库，修复外网 https 部分影片无法播放
+895913eff82a53cb0933c01d38baf229106809dd docs(library): align unfinished completion semantics
+4d3a0c2ebfce1c7ce3408972fbf58c24cda65291 fix(library): respect watched marks in unfinished filter
+c777a9e7f3a72847db9d0066f9c8ded43c955a1c docs(design): 小艺方案两项确认与一项拍板落地
+7cfce345dbfb8f6964423a9856505d80e46f6b88 docs(design): 小艺方案按评审意见收紧四条
+2f9a565e9db80448e8ec5de04f32e6db1fc2b271 docs(design): 小艺集成技术方案——意图框架/小艺建议/小艺智能体（鸿蒙端）
+5c481d5fa00202fdf7d6492b49d3952183ba2a69 fix(harmony): 看门狗评审四点落实——启用门槛从严、冻结位置不回退、旁挂重开补挂、会话级重开上限
+260adbc33ddd99dd2591896c2363af7dd6ce2b83 fix(harmony): mpv 视频冻结看门狗与在播旁挂字幕就地换轨——按需 HLS 坏段 404 跳段后视频 demux 死亡，time-pos 照走画面永停；采 video-out-pts 判冻结、8 秒确认就地重开（上限 3 次转失败）；旁挂字幕 sub-add 差集换轨不重开流，杜绝 seek-after-open 把 demuxer 打进 EOF 死区
+9a37f66fb125f5d0599ed8223be93ef76e1e0c5c fix(harmony): 首帧等待装设前再验代次——play/pause 未应答期间 release，旧 continuation 不得给新会话装 waiter
+76c61ffa53b6807f1d6e999696a91241a5f57950 fix(harmony): avplayer 评审第 5 轮收口——暂停/打断打开改走暂停路径，延迟恢复窗口内拖动选轨静默记账、恢复任务排进命令尾不并发；远程直连流不误拒（isHls 下探引擎源，HLS 才转 mpv）；seek 落点分方向校验、只认命令后新 timeUpdate；切换中打断锁存待 RESUME 恢复；类型闸指纹带上首页排除/可见范围/整库刷新三位
+b79e78ccdf6a02b01e7ddc6755b0dce257b11238 fix(harmony): avplayer 拒绝远程流内必要跳转直接回退 mpv——histreamer HLS seek 假成功骗过全部可见信号，位置校验判不了冻结；开场/延迟恢复/拖动三处同口径
+413eff4c4e31a22062ff2ec152734a7945239fa2 fix(harmony): avplayer seek 加落点校验——seekDone 只认命令不认送达，假成功让停滞管线永久冻结；延迟恢复选轨补 35s 死线
+ef5530f27e0c16326760a1bb43045b329ce71b10 fix(harmony): avplayer 起播先 play 后补 seek/选轨——prepared 态 resume-seek 卡死视频管线；打断仅认显式 PAUSE，切换中忽略 pause/stop
+1385e41312cdd06d054a943d958baab51b59f63c fix(harmony): 类型闸指纹带上库扫描状态；PGS 防重入升级为在途请求对账
+f0efd897b3dc9984b58652e9c847acc7f7d00ad4 fix(harmony): PGS 并发预载按代次作废——旧请求晚完成只删自己那份；类型分布拆独立指纹闸
+ea289e661957e2a1a602f51a7ac2aa965201043a fix(harmony): 整屏页监听盯栈本体——@Monitor 盯 getter 从未触发；活动时间线代数键
+027cfcbf5c7042c0aa03c797942ea0021bf7cfda feat(harmony): 四页签搜索入口门控对齐 iOS canOpenSearch——退根页轻刷「接下来继续」
+02d44b6e709e1c178d782671fb80b8c6def73f80 test(harmony): PGS 旁挂预载完成三分判定直测化——直测与设备套件同源注册
+2b3a26a3f98fdf5fdeef04be8c79b75aa4d57bba fix(harmony): 类型墙连点排序旧响应防线——StaleLoadGuard 代次对账
+6ce3c756f33a72a299d6f7ddc02614fb79b67477 fix(harmony): 首页行取数口径对齐 Web——类型行同闸重拉、unfinished 严格语义
+dc00ced58a18f55ca9662ab7b203777bd1c1e778 fix(harmony): 标记已看后集卡角标实时刷新
+c2f44f4a29e99a36884f8045353d2013a52b3cac feat(harmony): 各页签搜索入口预选分区——对齐 iOS preferredSearchMode
+e384a3cc4a059469bf50743983d549488b08e935 feat(harmony): 首页「按类型」行——类型色块行、全部电影/剧集跨库行与类型墙
+6c535ab56530010ad5e284aba60568333cbfbb0e fix(harmony): 「接下来继续」卡片按续播进度重渲染——ForEach 键并入内容字段
+a5f848f6cb5a850f80b22322c9f3a8d47710e6ee fix(harmony): 内核固定「仅 AVPlayer」时引擎优先——记忆/默认轨跳过 PGS 不自动套用，手动选 PGS 才按次切 MPV 并提示
+7bc184b4c7640a69d1b136ca23fb8803b97fbfe3 feat(harmony): PGS 客户端渲染融合主线预检申报、外网档位重试、清除播放记录、字幕真实格式标签、底部页签华为规范优化
+7c30b0599b22c7b0aa277b815304f2b42a2876ba feat(harmony): 剧集季选择改下拉，起始季落有片源的季
+d7478782691cc7595654a95d908fd1a5e15f74a4 fix(harmony): 轨道区「全部轨道」挪进行尾并修横向滚动内容居中
+1378a6c3d4f80d46196a0aa93f8b7a9a9c92e9dd fix(harmony): 通知后台任务冷启动自愈——开关开着就幂等重注册
+55dc714c812c8e8e721322a229e3ccebfc0ebaf6 feat(mcp): 端点支持工具级排除清单——不进 tools/list、直调被拒
+9b23196fc880f9ffdc1943aab9cdfdb491cfe98c chore(release): prepare 2026-11-12 client releases
+40e3163ae631743368b2fa5d4b62c05a29e594c3 fix(android): 防止选集让位弹簧越界导致闪退
+1d625c7f856cc074a08af27fd328ab2bf0416d29 fix(playback): VAAPI/QSV/NVENC 全 GPU 链关掉自动缩放，修 seek 补片重启以 218 退出
+7d7bb737661ae45096a66055595f23018fe4b29d refactor(harmonyos): 单库页路由参数挪到 LibraryRouteParams.ets，去掉库墙与条目详情页的互相 import
+0a4546bf77cef47be9910f5e48dfe2338de39b4a fix(harmonyos): Endpoints.ets 补齐与 Swift 一致的 actor 参数，与生成器输出对齐
+f711f73827a723f56073a11ff65abb4c0211e2d1 test(android-tv): 演员墙摘掉演员后切页签再回来仍是整库
+4c9a7c4e32cb3b20e6d4f761ebbde9f638b80ab4 fix(android): 摘掉演员条件后切页签 / 进程重建不再把它带回来
+8a854661a1cbe4cf176d4412a73381e80f078255 feat(desktop): 本地/NFO 库点演员跳到同库按演员筛的海报墙
+5ffef5d6aba35e99e2e74fbc4e3116370cbb5c0b feat(harmonyos): 本地/NFO 库点演员跳到同库按演员筛的海报墙（手机与电视）
+3e4aacae16084627bb7b39314bec7d636af17682 feat(apple): 本地/NFO 库点演员跳到同库按演员筛的海报墙（iPhone / iPad / Apple TV / Mac）
+483d1de99f9a5ffd2b40e344b9d6cf4f40795978 feat(android): 本地/NFO 库点演员跳到同库按演员筛的海报墙（#1193 的手机与电视版）
+533579e8b196d01932eb96d8c595c781c41cbde2 fix(playback): lock up-next dismiss on SQLite and merge it as an event on reanchor
+36ce446680b82cf16fa25de3753b9878efd6a686 fix(playback): serialise up-next dismiss per title and only let landed dismisses win
+1c4a88c76b3509da78ab0fca7b6175fcfd6472cd fix(playback): make up-next dismiss title-level and time-aware
+2cc398651ae313dc92b0fd9b20c3bef3eaaa0fe8 feat(playback): let sync writes dismiss a title from up-next without faking watched
