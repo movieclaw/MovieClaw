@@ -1226,18 +1226,26 @@ for (const engine of ['avplayer', 'mpv']) {
       const { PhoneMedia } = load('entry/src/main/ets/playback/PhoneMedia.ets');
       const media = new PhoneMedia(30000, 100000, '', '/movie.mp4', 'https://signed.invalid/sub?token=secret', '', '/cache');
       const lease = await media.acquire(engine);
-      assert.equal(lease.source.fd, 10); assert.equal(lease.source.subtitleUrl, ''); assert.equal(destroyed, 1);
-      assert.equal(options.connectTimeout, 10000); assert.equal(options.readTimeout, 60000);
-      const available = status === 200 || (status === 'bitmap' && engine === 'mpv');
+      assert.equal(lease.source.fd, 10); assert.equal(lease.source.subtitleUrl, '');
+      // 1ada1ad43 起 avplayer 的文本旁挂一律由宿主自下载解析自绘，acquire 不碰
+      // 网络与文件；mpv 照旧走 acquire 内下载（HTTP 客户端用完即毁）。
+      const fetched = engine === 'mpv';
+      assert.equal(destroyed, fetched ? 1 : 0);
+      if (fetched) {
+        assert.equal(options.connectTimeout, 10000); assert.equal(options.readTimeout, 60000);
+      }
+      const available = fetched && (status === 200 || status === 'bitmap');
       assert.equal(lease.source.subtitleFd, available ? 20 : -1);
-      if (status === 200) {
+      if (status === 200 && fetched) {
         const content = files.get(30);
         assert.ok((typeof content === 'string' ? content : new TextDecoder().decode(content))
-          .startsWith(engine === 'avplayer' ? '00:00:02,500' : '00:00:32,500'));
-        assert.equal(lease.source.subtitleOffsetMs, engine === 'mpv' ? 30000 : 0);
+          .startsWith('00:00:32,500'));
+        assert.equal(lease.source.subtitleOffsetMs, 30000);
       } else if (available) {
         assert.deepEqual([...new Uint8Array(files.get(30))], [0x50, 0x47, 0, 0xff]);
-      } else { assert.equal(warnings.length, 1); assert.ok(!warnings[0].includes('secret')); }
+      } else if (fetched) {
+        assert.equal(warnings.length, 1); assert.ok(!warnings[0].includes('secret'));
+      } else { assert.equal(warnings.length, 0); }
       const { PlaybackController, PlaybackIntent } = load('playback/Index.ets');
       const controller = new PlaybackController({ create: async () => ({ id: engine, onEvent() {},
         open: async () => {}, setRate: async () => {}, setGain: async () => {}, setSubtitleStyle: async () => {},
