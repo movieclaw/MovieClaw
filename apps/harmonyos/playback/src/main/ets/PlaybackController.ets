@@ -171,11 +171,6 @@ export class PlaybackController {
       lease = await media.acquire(id);
       if (!this.valid(generation, attempt)) { await engine.release(); await lease.close(); return; }
       this.engine = engine; this.lease = lease; this.engineSurface = this.surface;
-      if (this.intent.positionMs > media.originMs && this.remoteAvplayerSeek(engine)) {
-        hilog.info(0x0000, 'MCSub', 'avplayer 远程流需跳转，拒绝打开: position=%{public}d origin=%{public}d',
-          this.intent.positionMs, media.originMs);
-        throw new EngineFailure('unsupported', 0, '系统播放器不支持流媒体内跳转');
-      }
       engine.onEvent = (event: EngineEvent): void => {
         if (this.valid(generation, attempt)) { this.receive(event, generation); }
       };
@@ -188,7 +183,9 @@ export class PlaybackController {
       // 所以远程直链的续播 seek 提前到 open() 刚返回的 prepared 态做掉（此刻
       // 缓存里只有 moov，seek 拉流有空间可进），起播直接落在续播点。fd 本地源
       // 没有该死锁，维持首帧后延迟 seek 的老路径；轨选择也统一延迟到首帧后的
-      // restore（prepared 态选轨的老坑一并避开）。HLS 在上面已整体拒绝。
+      // restore（prepared 态选轨的老坑一并避开）。远程 HLS 的流内跳转在 seek 与
+      // 延迟恢复两处全拒——打开本身不拒：timeline='file' 的落点由会话起播点
+      // （EXT-X-START）保证，宿主负责把会话开在目标位置。
       // MPV has no such hazard and keeps seeking at open.
       const resumeTargetMs = this.intent.positionMs;
       const deferUntilRunning = id === 'avplayer';
@@ -279,8 +276,9 @@ export class PlaybackController {
   }
   // histreamer acknowledges seeks inside remote HLS streams with seekDone and
   // a jumped currentTime while the decoder never renders again: every observable
-  // signal lies, so AVPlayer refuses required seeks on remote HLS sources outright
-  // and recover() hands the session to MPV instead of freezing on a dead pipeline.
+  // signal lies, so in-player seeks on remote HLS are refused outright — the
+  // host reopens the session at the target instead (timeline='file' 的落点由
+  // 会话起播点/EXT-X-START 保证), never freezing on a dead pipeline.
   // Plain remote URLs (/stream) stay seekable: 首帧后的续播死锁由 startAttempt
   // 的 prepared 态 seek 绕开，in-session 拖动走正常 seek 路径。isHls absent
   // = conservative HLS = refuse, so old media implementations cannot regress
@@ -492,14 +490,11 @@ export class PlaybackController {
         hilog.info(0x0000, 'MCSub', 'avplayer 延迟恢复: seek=%{public}d 取代=%{public}s',
           resumeMs, `${this.startupSeekSuperseded}`);
         // prepared 态已 seek 且窗口内无拖动：跳过重复 seek（缓存已满，原地重
-        // seek 即死锁）。拖动过则按最新位置补一次。
+        // seek 即死锁）。拖动过则按最新位置补一次。远程 HLS 不走流内恢复 seek：
+        // timeline='file' 的落点由会话起播点（EXT-X-START）决定，histreamer 的
+        // 流内 seek 是假 seekDone 真冻结的禁区，这里只确认落地与轨恢复。
         const alreadySought = this.deferredSeekIssued && !this.startupSeekSuperseded;
-        if (resumeMs > media.originMs && !alreadySought) {
-          if (this.remoteAvplayerSeek(engine)) {
-            hilog.info(0x0000, 'MCSub', 'avplayer 远程流延迟恢复需跳转，拒绝: position=%{public}d origin=%{public}d',
-              resumeMs, media.originMs);
-            throw new EngineFailure('unsupported', 0, '系统播放器不支持流媒体内跳转');
-          }
+        if (!this.remoteAvplayerSeek(engine) && resumeMs > media.originMs && !alreadySought) {
           this.deferredSeekIssued = true;
           await this.deadline(engine.seek(Math.max(0, resumeMs - media.originMs)), PlaybackController.seekTimeoutMs);
         }
@@ -571,19 +566,20 @@ export class PlaybackController {
     this.intent.positionMs = Math.max(0, fileMs); this.snapshot.positionMs = this.intent.positionMs; this.publish();
     const originMs = this.media?.originMs ?? 0;
     if (fileMs < originMs) { this.onSeekOutsideWindow(fileMs); return; }
+    // 系统播放器不能在远程 HLS 里原地内跳（histreamer 一跳就假 seekDone 真冻结）。
+    // 向前拖出起播窗口不再「拒绝换 MPV」，改交宿主按目标位置重开会话——服务端
+    // 从新位置起转，播放器永远只从窗口头起播，系统播放器全程保得住。
+    const liveEngine = this.engine;
+    if (liveEngine !== null && fileMs >= originMs && this.remoteAvplayerSeek(liveEngine)) {
+      hilog.info(0x0000, 'MCSub', 'avplayer 远程流拖动出窗，按目标重开会话: position=%{public}d origin=%{public}d',
+        fileMs, originMs);
+      this.onSeekOutsideWindow(fileMs);
+      return;
+    }
     // Before the first frame a drag merges into the deferred resume target (the
-    // restore task reads intent.positionMs when it runs). Remote HLS is the
-    // exception: the drag must refuse straight away and hand the session to MPV
-    // instead of waiting for a frame that may never come.
-    const engine = this.engine;
-    if (this.deferredResumePending && !this.deferredSeekIssued
-      && !(engine !== null && fileMs > originMs && this.remoteAvplayerSeek(engine))) { return; }
+    // restore task reads intent.positionMs when it runs).
+    if (this.deferredResumePending && !this.deferredSeekIssued) { return; }
     await this.command((engine: PlayerEngine): Promise<void> => {
-      if (fileMs > originMs && this.remoteAvplayerSeek(engine)) {
-        hilog.info(0x0000, 'MCSub', 'avplayer 远程流拖动跳转，拒绝: position=%{public}d origin=%{public}d',
-          fileMs, originMs);
-        throw new EngineFailure('unsupported', 0, '系统播放器不支持流媒体内跳转');
-      }
       return this.deadline(engine.seek(Math.max(0, fileMs - originMs)), PlaybackController.seekTimeoutMs);
     });
   }

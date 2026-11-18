@@ -411,51 +411,63 @@ export default function playbackControllerTest() {
       expect(factory.mpv.calls.indexOf('seek:42000') < factory.mpv.calls.indexOf('play')).assertTrue();
       await controller.release();
     });
-    it('remote_resume_opens_mpv_directly_without_touching_avplayer', 0, async () => {
+    it('remote_hls_resume_lands_via_session_start_without_in_player_seek', 0, async () => {
       const factory = new FakeFactory(); const controller = new PlaybackController(factory);
       const intent = new PlaybackIntent(); intent.positionMs = 42000;
       await controller.open(new FakeRemoteMedia(factory.order), 'surface', intent);
-      expect(factory.created.join(',')).assertEqual('avplayer,mpv');
-      expect(factory.avp.calls.join(',')).assertEqual('release');
-      expect(factory.mpv.calls.includes('open:surface')).assertTrue();
-      expect(factory.mpv.calls.includes('seek:42000')).assertTrue();
-      expect(controller.current().engine).assertEqual('mpv');
+      // timeline='file'（v0.51 copyts 全片绝对列表）：续播落点由会话起播点
+      // （EXT-X-START）决定——avplayer 直接打开、流内零 seek、不换 mpv。
+      expect(factory.created.join(',')).assertEqual('avplayer');
+      expect(factory.avp.calls.includes('open:surface')).assertTrue();
+      expect(factory.avp.calls.filter((call: string): boolean => call.startsWith('seek:')).length)
+        .assertEqual(0);
+      expect(factory.mpv.calls.length).assertEqual(0);
+      expect(controller.current().engine).assertEqual('avplayer');
       expect(controller.current().playing).assertTrue();
       await controller.release();
-      expect(factory.order.join(',')).assertEqual('avplayer:release,lease:1:close,mpv:release,lease:2:close');
     });
-    it('remote_user_seek_swaps_to_mpv_keeping_the_target', 0, async () => {
+    it('remote_hls_user_seek_reopens_the_session_at_the_target', 0, async () => {
       const factory = new FakeFactory(); const controller = new PlaybackController(factory);
+      let reopenedAt = -1;
+      controller.onSeekOutsideWindow = (ms: number): void => { reopenedAt = ms; };
       await controller.open(new FakeRemoteMedia(factory.order), 'surface', new PlaybackIntent());
       expect(factory.created.join(',')).assertEqual('avplayer');
       await controller.seek(70000);
-      expect(factory.created.join(',')).assertEqual('avplayer,mpv');
-      expect(factory.order.join(',')).assertEqual('avplayer:release,lease:1:close');
-      expect(factory.mpv.calls.includes('seek:70000')).assertTrue();
-      expect(controller.current().engine).assertEqual('mpv');
+      // 流内跳转全拒（histreamer 假 seekDone 真冻结）：拖动交宿主按目标重开
+      // 会话——不换 mpv、不发流内 seek。
+      expect(reopenedAt).assertEqual(70000);
+      expect(factory.created.join(',')).assertEqual('avplayer');
+      expect(factory.avp.calls.filter((call: string): boolean => call.startsWith('seek:')).length)
+        .assertEqual(0);
+      expect(factory.mpv.calls.length).assertEqual(0);
       expect(controller.current().positionMs).assertEqual(70000);
       await controller.release();
     });
-    it('remote_seek_during_opening_defers_the_refusal_until_first_frame', 0, async () => {
+    it('remote_hls_seek_during_opening_reopens_immediately', 0, async () => {
       const factory = new FakeFactory(); const gate = new Gate(); factory.avp.gate = gate.promise;
       const controller = new PlaybackController(factory);
+      let reopenedAt = -1;
+      controller.onSeekOutsideWindow = (ms: number): void => { reopenedAt = ms; };
       const opening = controller.open(new FakeRemoteMedia(factory.order), 'surface', new PlaybackIntent());
       await microtasks();
       await controller.seek(50000);
+      // 打开中的拖动不等首帧、也不并入延迟目标：流内跳转全拒，立即按目标重开。
+      expect(reopenedAt).assertEqual(50000);
       gate.release(); await opening;
       expect(factory.created.join(',')).assertEqual('avplayer');
-      factory.avp.frame(); await microtasks(); await microtasks();
-      expect(factory.created.join(',')).assertEqual('avplayer,mpv');
-      expect(factory.mpv.calls.includes('seek:50000')).assertTrue();
+      expect(factory.mpv.calls.length).assertEqual(0);
       await controller.release();
     });
-    it('remote_fixed_avplayer_preference_fails_cleanly_instead_of_freezing', 0, async () => {
+    it('remote_hls_fixed_avplayer_preference_stays_on_avplayer', 0, async () => {
       const factory = new FakeFactory(); const controller = new PlaybackController(factory);
       const intent = new PlaybackIntent(); intent.positionMs = 42000;
       await controller.open(new FakeRemoteMedia(factory.order), 'surface', intent, 'avplayer');
+      // 不再「拒开保平安」：落点由会话起播点保证，流内零跳转即零冻结面。
       expect(factory.created.join(',')).assertEqual('avplayer');
-      expect(controller.current().phase).assertEqual('failed');
-      expect(controller.current().failure?.kind).assertEqual('unsupported');
+      expect(controller.current().playing).assertTrue();
+      expect(factory.avp.calls.filter((call: string): boolean => call.startsWith('seek:')).length)
+        .assertEqual(0);
+      expect(factory.mpv.calls.length).assertEqual(0);
       await controller.release();
     });
     it('remote_fresh_start_stays_on_avplayer', 0, async () => {

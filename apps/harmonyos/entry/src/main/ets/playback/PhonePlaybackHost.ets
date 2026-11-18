@@ -203,6 +203,13 @@ export class TrickplayTiles {
  * - 按住 500ms 不动 = 2 倍速（抬手恢复；暂停时不起）。
  */
 
+/** AVP 远程 HLS 的落点吸附容差（毫秒）：与服务端一个分片等长（SEGMENT_SECONDS=4）。
+ * 期望落点与会话起播点差在这以内就视作对齐（吸附重开都不做），以外才按目标重开会话。 */
+const HLS_ALIGN_TOLERANCE_MS: number = 4000;
+/** AVP 远程 HLS 落点错位时的重开预算（次）：连续错位重开超过它就放行直接挂，
+ * 由 open 守卫拒开、按既有回退切 mpv——服务端始终不认 start_ms 时绝不能无限重开。 */
+const HLS_REOPEN_BUDGET: number = 2;
+
 @ObservedV2
 export class PhonePlaybackHost implements PlaybackTestHost {
 
@@ -246,6 +253,8 @@ export class PhonePlaybackHost implements PlaybackTestHost {
   failedTiers: number[] = [];
   /** 已经重试过几次，避免无限循环 */
   retryCount: number = 0;
+  /** AVP 远程 HLS 落点重开预算的当前余量（对齐成功即回满，见 makeIntent） */
+  hlsReopenBudget: number = HLS_REOPEN_BUDGET;
 
   // —— 本机副本（离线下载的播放路径，对应 iOS startLocal 一节）——
   /** 正在放的本机单元（有它就不建服务端会话，进度记 OfflineViewingRecorder） */
@@ -874,7 +883,6 @@ export class PhonePlaybackHost implements PlaybackTestHost {
     if (this.surfaceId.length === 0 || this.disposed) { return; }
     const view = this.session;
     if (view === null) { return; }
-    const origin = view.timeline === 'file' || view.decision.tier === 0 ? 0 : view.start_ms;
     const plans = view.decision.subtitles;
     // mpv 直连档选内封轨走原生 sid，不下旁挂字幕（旁挂首抽要通读整个容器，太慢）；
     // 已烧进画面的轨同样不旁挂——它没有独立可解的流，下载 .sup 只会失败。
@@ -901,10 +909,37 @@ export class PhonePlaybackHost implements PlaybackTestHost {
       && this.pgsSidecarFile.ref === currentRef) {
       pgsPath = this.pgsSidecarFile.path;
     }
+    // 服务端交付契约：tier 0 = 直连（/files/{id}/stream 或 /disc 目录清单，HTTP
+    // Range 可 seek），tier ≥ 1 = HLS（/sessions/{id}/index.m3u8，histreamer 的 HLS
+    // seek 会假 seekDone 真冻结）。PhoneMedia 按此标注 isHls，AVPlayer 只拒 HLS 跳
+    // 转，直连远程流照常续播。
+    const isHls: boolean = (view.decision.tier ?? 0) > 0;
+    // 位置基准看会话视图的 timeline（服务端契约，与 Android 端同款）：
+    // 'file' = 全片文件绝对时间轴（v0.51 起转码 HLS 带 copyts：全片绝对列表 +
+    // EXT-X-START 标起播点）——引擎实报的就是文件绝对位置，origin 必须为 0，
+    // 再叠 start_ms 就是双重计入（真机实测：拖到 11 分钟进度条跳到 23 分钟）；
+    // 'session' = 会话相对时间轴（无 copyts 的老服务端），引擎报窗口内位置，
+    // origin 取 start_ms 由控制器加回还原成文件绝对位置。直连恒 0。
+    const origin: number = view.timeline === 'file' || !isHls ? 0 : view.start_ms;
+    // 落点对齐（choke point）：期望落点（pendingSeek：恢复/切轨/重挂带入的位置）
+    // 与服务端实际起播点错开超过一个分片时，先按期望位置重开会话再挂——系统
+    // 播放器的流内跳是禁区，位置只能靠「会话从那里起播」。预算封顶防死循环。
+    const desiredMs: number = this.pendingSeekMs > 0 ? this.pendingSeekMs : view.start_ms;
+    if (enginePref !== 'mpv' && isHls && Math.abs(desiredMs - view.start_ms) > HLS_ALIGN_TOLERANCE_MS
+      && this.hlsReopenBudget > 0) {
+      this.hlsReopenBudget--;
+      hilog.info(0x0000, 'MCSub', 'avplayer 远程流落点错位，按目标重开会话: desired=%{public}d start=%{public}d',
+        desiredMs, view.start_ms);
+      this.startMs = desiredMs;
+      this.resumeExplicit = true;
+      this.negotiate().catch((): void => { });
+      return;
+    }
     const intent = this.makeIntent(enginePref);
     hilog.info(0x0000, 'MCSub', '%{public}s', `attach: engine=${enginePref} tier=${view.decision.tier}` +
       ` subIndex=${this.subtitleIndex} ref=${currentRef.length > 0 ? currentRef : '-'}` +
-      ` nativeOrdinal=${nativeOrdinal ?? '-'} sidecar=${subtitleUrl.length > 0} pgs=${pgsPath.length > 0}`);
+      ` nativeOrdinal=${nativeOrdinal ?? '-'} sidecar=${subtitleUrl.length > 0} pgs=${pgsPath.length > 0}` +
+      ` origin=${origin} desired=${desiredMs}`);
     // AVP 文本旁挂不进内核（histreamer 挂外挂字幕高概率楔死主流，见 PhoneMedia
     // acquire 的 avplayer 例外）：宿主下载解析成 cue，onSnapshot 按位置自绘。
     // 后台预备不阻塞起播——旁挂抽取首次要通读容器，服务端可能很久才回包；
@@ -913,14 +948,14 @@ export class PhonePlaybackHost implements PlaybackTestHost {
     if (enginePref !== 'mpv' && subtitleUrl.length > 0) {
       this.prepareAvpSidecarCues(subtitleUrl, origin).catch((): void => { });
     }
-    // 服务端交付契约：tier 0 = 直连（/files/{id}/stream 或 /disc 目录清单，HTTP
-    // Range 可 seek），tier ≥ 1 = HLS（/sessions/{id}/index.m3u8，histreamer 的 HLS
-    // seek 会假 seekDone 真冻结）。PhoneMedia 按此标注 isHls，AVPlayer 只拒 HLS 跳
-    // 转，直连远程流照常续播。
-    const isHls: boolean = (view.decision.tier ?? 0) > 0;
+    // from=start 只给 avplayer 的 HLS 会话：让服务端把列表从起播段截断——
+    // histreamer 认不认 EXT-X-START 无文档可考，截断后播放器的第一个请求就落在
+    // 起播段，不赌标签解析。mpv 要全片列表做任意位置的流内 seek，不带这个参数。
+    const openUrl: string = enginePref !== 'mpv' && isHls
+      ? (url.indexOf('?') >= 0 ? `${url}&from=start` : `${url}?from=start`) : url;
     // 会话 key 按文件：同文件换引擎/换档共用（冻结重开上限跨 open 累计），换集才换 key。
     await this.controller.open(new PhoneMedia(origin, view.watch?.duration_ms ?? 0,
-      PlaybackTestProbe.mediaUrl(playbackUrl(AppModel.origin(), url)), '', subtitleUrl, pgsPath,
+      PlaybackTestProbe.mediaUrl(playbackUrl(AppModel.origin(), openUrl)), '', subtitleUrl, pgsPath,
       this.getUIContext().getHostContext()?.cacheDir ?? '', isHls,
       `file:${view.decision.file_id ?? 0}`), this.surfaceId, intent, enginePref);
     // 需要客户端渲染又没有现成文件：起后台预备（不阻塞起播；首抽可能要几分钟）
@@ -1085,6 +1120,16 @@ export class PhonePlaybackHost implements PlaybackTestHost {
     const intent = new PlaybackIntent();
     intent.positionMs = this.pendingSeekMs >= 0 ? this.pendingSeekMs : (this.session?.start_ms ?? this.startMs);
     this.pendingSeekMs = -1;
+    // 远程 HLS + 系统播放器：起播位置吸附到会话起播点——流从那里开始，整个窗口
+    // 内零跳转（流内跳是 histreamer 的禁区）。误差在一个分片内的直接对齐；错得更
+    // 远的保持原值照常挂上（落点如实显示，用户一拖即按目标重开自愈）。对齐成功
+    // 即回满重开预算：下一次真正的落点错位还有得重开。
+    const alignView = this.session;
+    if (engine !== 'mpv' && alignView !== null && (alignView.decision.tier ?? 0) > 0
+      && Math.abs(intent.positionMs - alignView.start_ms) <= HLS_ALIGN_TOLERANCE_MS) {
+      intent.positionMs = alignView.start_ms;
+      this.hlsReopenBudget = HLS_REOPEN_BUDGET;
+    }
     intent.paused = this.pausedIntent;
     intent.rate = this.holdSpeedActive ? 2 : this.playbackRate;
     intent.subtitlesOff = this.subtitleIndex < 0;
@@ -1728,6 +1773,9 @@ export class PhonePlaybackHost implements PlaybackTestHost {
       return;
     }
     if (this.liveNativeSubtitleSwitch()) { return; }
+    // AVP 在播：文本字幕本来就是宿主自绘 cue，切轨只换 cue 数据源——不碰引擎、
+    // 不重开流，画面零打断（新旁挂下载的几秒里字幕暂时空着）。
+    if (this.hotSwapAvpSidecar(view, index, burnedRef)) { return; }
     // mpv 在播时旁挂轨（转码档文本 / PGS .sup）就地 sub-add 换轨：旧路径把字幕切换
     // 当引擎切换走 attachPlayer——engine=auto 先定 avplayer，远程流必被守卫拒绝再
     // 回退 mpv 整段重开（2–5 秒重载、.srt 双份下载、PGS 缓存作废），连续快切时同一
@@ -1886,6 +1934,45 @@ export class PhonePlaybackHost implements PlaybackTestHost {
       if (this.surfaceId.length > 0) { this.toast('字幕加载失败，可稍后重新选择这条字幕重试'); }
       hilog.warn(0x0000, 'MCSub', '文本旁挂就地挂载失败: %{public}s', `${error}`);
     }
+    return true;
+  }
+
+  /**
+   * AVP 在播时就地换自绘字幕（远程 HLS / 直连 / 本机副本同一条路）：字幕 cue
+   * 全在宿主手里（avpSubtitleCues + onSnapshot tick 自绘），换轨只是换数据源——
+   * 不动引擎、不重挂、画面零打断。文本旁挂下载需要几秒，期间字幕暂时空着（与
+   * open 时「旁挂晚到只是字幕晚出」同口径）。返回是否已就地完成；false 走原重挂。
+   */
+  private hotSwapAvpSidecar(view: PlaybackSessionView, index: number, burnedRef: string | null): boolean {
+    const snapshot: PlaybackSnapshot = this.controller.current();
+    const live: boolean = snapshot.phase === 'ready' || snapshot.phase === 'playing'
+      || snapshot.phase === 'paused' || snapshot.phase === 'buffering';
+    if (snapshot.engine !== 'avplayer' || !live) { return false; }
+    const plan: SubtitlePlanView | null = index >= 0 && index < view.decision.subtitles.length
+      ? view.decision.subtitles[index] : null;
+    // PGS（AVP 渲不了）与已烧录轨不走这里：按次 mpv / 撤烧录重开各有各的路
+    if (plan !== null && (plan.kind === 'pgs' || plan.track_ref === burnedRef)) { return false; }
+    this.subtitleCue = '';
+    if (plan === null) {
+      this.resetAvpSubtitleCues();
+      hilog.info(0x0000, 'MCSub', '%{public}s', 'avp liveSwitch: 关闭自绘字幕');
+      return true;
+    }
+    const spec: OfflinePlaybackSpec | null = this.localSpec;
+    if (spec !== null) {
+      if (index >= spec.subtitles.length) { return false; }
+      const directory: string = this.localMediaPath.substring(0, this.localMediaPath.lastIndexOf('/'));
+      this.resetAvpSubtitleCues();
+      this.parseLocalSubtitleCues(`${directory}/subs/${spec.subtitles[index].fileName}`);
+      hilog.info(0x0000, 'MCSub', '%{public}s', `avp liveSwitch: 本机字幕就地换 index=${index}`);
+      return true;
+    }
+    const subUrl: string = index < view.subtitle_urls.length ? view.subtitle_urls[index] : '';
+    if (subUrl.length === 0) { return false; }
+    const origin: number = view.timeline === 'file' || (view.decision.tier ?? 0) === 0 ? 0 : view.start_ms;
+    this.resetAvpSubtitleCues();
+    this.prepareAvpSidecarCues(playbackUrl(AppModel.origin(), subUrl), origin).catch((): void => { });
+    hilog.info(0x0000, 'MCSub', '%{public}s', `avp liveSwitch: 旁挂 cue 就地换 index=${index}`);
     return true;
   }
 
