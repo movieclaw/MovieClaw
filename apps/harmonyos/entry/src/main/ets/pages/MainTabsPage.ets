@@ -305,15 +305,21 @@ export struct MainTabsPage {
   }
 
   /**
-   * 滚动收起/放回：悬浮胶囊走官方「上下布局」状态机——收起 = `applyMiniBarStyle(EXPAND)`
-   * 切滑动后（页签栏收成官方圆钮、minibar 展开成左右一行；没有「接着看」时 minibar
-   * 行为空，胶囊就收成一颗圆钮），放回 = COLLAPSE 回滑动前。经典贴底栏不参与。
+   * 滚动收起/放回：有「接着看」时悬浮胶囊走官方「上下布局」状态机——收起 =
+   * `applyMiniBarStyle(EXPAND)` 切滑动后（页签栏收成官方圆钮、minibar 展开成左右
+   * 一行）；没有「接着看」时官方胶囊没配 minibar、状态机不存在，收起退回整条
+   * `applyHideAnimation` 滑出画面（下滑放回）。放回 = COLLAPSE 回滑动前 +
+   * SHOW 滑回。经典贴底栏不参与。
    */
   @Monitor('collapse.collapsed', 'tabBarStyle.floating')
   onTabBarCollapsed(): void {
     if (this.chrome.immersive) { return; }
     if (this.compactTabs()) {
-      this.tabsController.applyMiniBarStyle(HdsBarStyle.EXPAND);
+      if (this.resumeItem() !== null) {
+        this.tabsController.applyMiniBarStyle(HdsBarStyle.EXPAND);
+      } else {
+        this.tabsController.applyHideAnimation(HdsAnimationMode.SCROLL_ANIMATION);
+      }
     } else {
       this.tabsController.applyMiniBarStyle(HdsBarStyle.COLLAPSE);
       this.tabsController.applyShowAnimation(HdsAnimationMode.SCROLL_ANIMATION);
