@@ -1,0 +1,153 @@
+{
+  "sourceCommit": "4a559e7bc3e4bebfbaa82d298fd2e511df68fab0",
+  "appleTree": "6388e539bbc326e8735c93c05adc6cddad81c6c0",
+  "engineRevision": "25f11f23e2359c01337a1d5f4c654e9316bcba4b",
+  "version": "0.14.1",
+  "build": "202611180130",
+  "xcode": "27.2 (27B52)",
+  "platforms": {
+    "ios": {
+      "platform": "IOS",
+      "ipa": "apps/apple/build-release/MovieClaw-0.14.1-202611180130/MovieClaw.ipa",
+      "sha256": "a709cc428ec2430f040dcdb3de42edb4588c5e7afd447de4e54aa9f4035910e9",
+      "bundles": [
+        {
+          "bundleId": "io.movieclaw.app",
+          "platform": [
+            "iPhoneOS"
+          ],
+          "version": "0.14.1",
+          "build": "202611180130",
+          "signature_verified": true,
+          "profileExpires": "2027-09-29 03:42:06",
+          "profileAppStore": true,
+          "entitlementKeys": [
+            "application-identifier",
+            "aps-environment",
+            "beta-reports-active",
+            "com.apple.developer.team-identifier",
+            "com.apple.developer.usernotifications.time-sensitive",
+            "com.apple.security.application-groups",
+            "get-task-allow"
+          ]
+        },
+        {
+          "bundleId": "io.movieclaw.app.notification-content",
+          "platform": [
+            "iPhoneOS"
+          ],
+          "version": "0.14.1",
+          "build": "202611180130",
+          "signature_verified": true,
+          "profileExpires": "2027-09-29 03:42:06",
+          "profileAppStore": true,
+          "entitlementKeys": [
+            "application-identifier",
+            "beta-reports-active",
+            "com.apple.developer.team-identifier",
+            "com.apple.security.application-groups",
+            "get-task-allow"
+          ]
+        },
+        {
+          "bundleId": "io.movieclaw.app.notification-service",
+          "platform": [
+            "iPhoneOS"
+          ],
+          "version": "0.14.1",
+          "build": "202611180130",
+          "signature_verified": true,
+          "profileExpires": "2027-09-29 03:42:06",
+          "profileAppStore": true,
+          "entitlementKeys": [
+            "application-identifier",
+            "beta-reports-active",
+            "com.apple.developer.team-identifier",
+            "com.apple.security.application-groups",
+            "get-task-allow"
+          ]
+        }
+      ],
+      "exportSignature": "Apple Distribution",
+      "uploaded": false
+    },
+    "tvos": {
+      "platform": "TV_OS",
+      "ipa": "apps/apple/build-release/MovieClawTV-0.14.1-202611180130/MovieClawTV.ipa",
+      "sha256": "1880170ca7b123bdcacbe019f2f48dff346fae6178039703a81d4247ce397260",
+      "bundleId": "io.movieclaw.app",
+      "version": "0.14.1",
+      "build": "202611180130",
+      "signature_verified": true,
+      "deviceFamily": [
+        3
+      ],
+      "profileExpires": "2027-09-29 03:42:06",
+      "profileAppStore": true,
+      "entitlementKeys": [
+        "application-identifier",
+        "beta-reports-active",
+        "com.apple.developer.team-identifier",
+        "com.apple.developer.user-management",
+        "com.apple.security.application-groups",
+        "get-task-allow"
+      ],
+      "exportSignature": "Apple Distribution",
+      "uploaded": false
+    },
+    "macos": {
+      "platform": "MAC_OS",
+      "pkg": "apps/apple/build-release/MovieClawMac-0.14.1-202611180130/MovieClaw.pkg",
+      "sha256": "e26326067a555b89d2df5c9935147291248c56851513285e1733332a262c0bf0",
+      "bundleId": "io.movieclaw.app",
+      "version": "0.14.1",
+      "build": "202611180130",
+      "signature_verified": true,
+      "packageSignatureVerified": true,
+      "architectures": [
+        "x86_64",
+        "arm64"
+      ],
+      "profileExpires": "2027-09-29 03:42:06",
+      "profileAppStore": true,
+      "noSparkleInStoreBuild": true,
+      "signingAuthorities": [
+        "Apple Distribution",
+        "Apple Worldwide Developer Relations Certification Authority",
+        "Apple Root CA"
+      ],
+      "entitlementKeys": [
+        "com.apple.application-identifier",
+        "com.apple.developer.team-identifier",
+        "com.apple.security.app-sandbox",
+        "com.apple.security.network.client",
+        "com.apple.security.network.server"
+      ],
+      "exportSignature": "Apple Distribution",
+      "uploaded": false
+    }
+  },
+  "tests": {
+    "iphone": {
+      "result": "Passed",
+      "totalTestCount": 1,
+      "passedTests": 1,
+      "failedTests": 0,
+      "skippedTests": 0
+    },
+    "ipad": {
+      "result": "Passed",
+      "totalTestCount": 1,
+      "passedTests": 1,
+      "failedTests": 0,
+      "skippedTests": 0
+    },
+    "actor": {
+      "result": "Passed",
+      "totalTestCount": 8,
+      "passedTests": 8,
+      "failedTests": 0,
+      "skippedTests": 0
+    }
+  }
+}
