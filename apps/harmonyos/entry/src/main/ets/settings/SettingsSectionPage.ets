@@ -3,6 +3,7 @@ import { pasteboard } from '@kit.BasicServicesKit';
 import { HdsNavDestination, HdsNavDestinationTitleMode } from '@kit.UIDesignKit';
 import { Theme } from '../theme/AppTheme';
 import { GlassButtonModifier, GlassTone } from '../common/GlassControls';
+import { NativeDialog } from '../common/NativeDialog';
 import { AppNavBar } from '../common/AppNavBar';
 import { AppModel } from '../common/AppModel';
 import { Permissions } from '../common/Permissions';
@@ -759,23 +760,13 @@ export struct SettingsSectionPage {
     .alignItems(HorizontalAlign.Start)
   }
 
-  /** 拉起原生弹窗：底部对齐（卡片贴底）、宽度随屏幕、输入法避让、点遮罩可关 */
+  /** 拉起原生弹窗：居中系统式（定宽、圆角 24）、输入法避让、点遮罩可关 */
   private openApproval(): void {
-    // 宽度自适应：占满屏宽、左右各留 16vp（同 iOS 卡片 12pt 外边距的手感），不写死数字
     const screenWidthVp: number = this.getUIContext().px2vp(display.getDefaultDisplaySync().width);
-    const options: promptAction.CustomDialogOptions = {
-      builder: (): void => {
+    const options: promptAction.CustomDialogOptions =
+      NativeDialog.options((): void => {
         this.ApprovalCard();
-      },
-      width: Math.round(screenWidthVp - 32),
-      alignment: DialogAlignment.Bottom,
-      // 弹窗自带的输入法避让（全局枚举只有 DEFAULT / NONE；DEFAULT = 跟着键盘让位）
-      keyboardAvoidMode: KeyboardAvoidMode.DEFAULT,
-      autoCancel: true,
-      maskColor: 'rgba(0,0,0,0.6)',
-      backgroundColor: Theme.surfaceRaised,
-      cornerRadius: Theme.cardRadius
-    };
+      }, screenWidthVp);
     this.getUIContext().getPromptAction().openCustomDialog(options)
       .then((id: number): void => {
         this.approvalDialogId = id;
