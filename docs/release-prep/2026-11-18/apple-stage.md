@@ -38,4 +38,8 @@ Completed locally on source commit `4a559e7bc` (Apple tree `6388e539bbc326e8735c
 - Sanitized artifact hashes and validation summary: `apple-build-validation.json`.
 - Existing test.sh prematurely ended a combined unit/UI run after unit summary; that incomplete result was discarded. Direct xcodebuild runs above completed with valid result bundles. No unrelated script change.
 
-Pending: preparation branch review/merge, final main/source equivalence check, official upload, build-specific bilingual test notes, and ASC VALID/internal availability verification. No user-installed app was installed or restarted; UI tests used only newly created dedicated simulators.
+Completed after PR #1298 was rebase-merged into `fa23d2369d0c5db6de88397479116d0cbe0c462e`: root tree `69e8a838aa8cc661dedc1f6dd476fc378cd096f9` and Apple input tree matched the reviewed preparation. Original signed IPA/PKG hashes matched the committed preflight evidence; no rebuild/re-export. Archive manifests were hashed before upload and rechecked afterward; executable/dSYM UUIDs match.
+
+All three original packages were uploaded through Xcode's official altool using the existing authorized local ASC key. Final official ASC readback confirms all three are **VALID / IN_BETA_TESTING**, unexpired and without encryption-compliance blockers. Each platform's en-US/zh-Hans test notes were written and read back. External state remains READY_FOR_BETA_SUBMISSION; no review or group changes. No user-installed app was installed or restarted; UI tests used only newly created dedicated simulators.
+
+Final build IDs, delivery receipts, immutable artifact/archive hashes, notes, UTC verification time and bounded diagnostics are recorded in `apple-testflight-results.json`. The optional group-relationship query returned 403 and was stopped without requesting permissions; internal availability is independently established by each official buildBetaDetail record. **No remaining Apple blocker.**

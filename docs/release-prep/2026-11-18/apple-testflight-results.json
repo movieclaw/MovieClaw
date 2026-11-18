@@ -1,0 +1,177 @@
+{
+  "checkedAtUTC": "2026-11-18T01:50:34.760615+00:00",
+  "appId": "6816792312",
+  "bundleId": "io.movieclaw.app",
+  "mergedPR": 1298,
+  "mergedCommit": "fa23d2369d0c5db6de88397479116d0cbe0c462e",
+  "mergedRootTree": "69e8a838aa8cc661dedc1f6dd476fc378cd096f9",
+  "appleInputTree": "6388e539bbc326e8735c93c05adc6cddad81c6c0",
+  "originalBuildSourceCommit": "4a559e7bc3e4bebfbaa82d298fd2e511df68fab0",
+  "reuse": "Original signed IPA/PKG uploaded without rebuild or re-export; SHA-256 matched committed pre-upload validation and remained unchanged after upload. Archive manifest hashes recorded immediately before upload and rechecked unchanged afterward; executable/dSYM UUIDs match.",
+  "uploadTool": "Xcode bundled official altool --upload-package, existing local ASC API credentials; explicit app ID for tvOS/macOS",
+  "boundaries": {
+    "appStoreReviewSubmitted": false,
+    "externalBetaReviewSubmitted": false,
+    "testGroupsChanged": false,
+    "userAppsInstalledOrRestarted": false,
+    "extraPermissionsRequested": false,
+    "githubReleaseWorkflowTriggered": false
+  },
+  "diagnostics": [
+    "tvOS first attempt failed before transfer while auto-resolving the app record (altool error 19); after verifying no duplicate ASC build, explicit app ID 6816792312 resolved the lookup and the original IPA was accepted.",
+    "tvOS/macOS uploader emitted a local resume-file message, then returned exit 0 and a successful delivery receipt; ASC subsequently confirmed both VALID. No repeat upload was performed for that message.",
+    "Optional GET build betaGroups returned 403; stopped that optional query without requesting additional permissions or changing groups. Internal availability verified directly from buildBetaDetail.internalBuildState=IN_BETA_TESTING for every platform."
+  ],
+  "builds": [
+    {
+      "platform": "IOS",
+      "version": "0.14.1",
+      "buildNumber": "202611180130",
+      "ascBuildId": "231c7543-1da8-4b1c-ad60-d75b6e694427",
+      "processingState": "VALID",
+      "internalBuildState": "IN_BETA_TESTING",
+      "externalBuildState": "READY_FOR_BETA_SUBMISSION",
+      "buildAudienceType": "APP_STORE_ELIGIBLE",
+      "usesNonExemptEncryption": false,
+      "expired": false,
+      "uploadedDate": "2026-11-17T17:44:18-08:00",
+      "betaTestNotesLocalesVerified": [
+        "en-US",
+        "zh-Hans"
+      ],
+      "betaTestNotes": {
+        "en-US": "0.14.1: Find an actor’s work in local libraries and fix a crash when deleting conversations.\n\nIn a local or NFO library, open an item and tap an actor without an online person page. Check that the same library opens with Actor: Name applied; remove the actor condition or clear filters to return to all titles. Actor filtering requires MovieClaw Server 0.48.0 or later. Actors with an online person page still open that page; directors without one remain static.\n\nOn iPhone, open Me; on iPad, open your account name in the sidebar. Test cancelling and confirming a swipe deletion, long-press deletion, deletion from the conversation menu, and deleting the last conversation in a date group. The app should remain running.\n\nMinimum server version remains 0.28.0, as in 0.13.0.",
+        "zh-Hans": "0.14.1：从本地演员找到同库作品，并修复删除会话闪退。\n\n在本地库或 NFO 库的条目详情中，点没有在线影人页的演员，检查是否打开同一媒体库的「演员：姓名」作品墙；移除演员条件或清空筛选后应回到整库。演员筛选需要 MovieClaw 服务器 0.48.0 或更新版本。带在线影人页的演员仍打开影人页，没有影人页的导演不可点。\n\niPhone 从「我的」进入会话列表；iPad 从侧边栏账号名进入个人空间。请检查左滑删除时取消与确认、长按删除、会话页菜单删除，以及删除某个日期分组最后一条时 App 保持正常运行。\n\n最低服务器要求与 0.13.0 相同：0.28.0。"
+      },
+      "artifactAndArchiveVerification": {
+        "deliveryId": "231c7543-1da8-4b1c-ad60-d75b6e694427",
+        "successMessage": "No errors uploading archive at 'apps/apple/build-release/MovieClaw-0.14.1-202611180130/MovieClaw.ipa'.",
+        "transfer": "47642431 bytes in 53.946 seconds (883.15KB/s, 7.065Mbps)",
+        "toolVersion": "27.10.4 (2.2)",
+        "artifactHashUnchanged": true,
+        "archiveHashUnchanged": true,
+        "artifactSHA256": "a709cc428ec2430f040dcdb3de42edb4588c5e7afd447de4e54aa9f4035910e9",
+        "archiveManifestSHA256": "17b5c200c516afc1dfc7dc5e356ecd0c9e8893eea471997f6366e69056529b22",
+        "archiveFileCount": 134,
+        "archiveSignatureVerified": true,
+        "bundleId": "io.movieclaw.app",
+        "version": "0.14.1",
+        "build": "202611180130"
+      },
+      "binaryUUIDVerification": {
+        "archiveExportUUIDsMatch": true,
+        "dSYMUUIDsMatch": true,
+        "uuids": [
+          [
+            "UUID:",
+            "93C5A725-A2D9-3D98-8368-8989346A4E27",
+            "(arm64)"
+          ]
+        ]
+      },
+      "officialBuildResource": "https://api.appstoreconnect.apple.com/v1/builds/231c7543-1da8-4b1c-ad60-d75b6e694427"
+    },
+    {
+      "platform": "MAC_OS",
+      "version": "0.14.1",
+      "buildNumber": "202611180130",
+      "ascBuildId": "74407e9c-2845-4e8d-809f-795415fe56be",
+      "processingState": "VALID",
+      "internalBuildState": "IN_BETA_TESTING",
+      "externalBuildState": "READY_FOR_BETA_SUBMISSION",
+      "buildAudienceType": "APP_STORE_ELIGIBLE",
+      "usesNonExemptEncryption": false,
+      "expired": false,
+      "uploadedDate": "2026-11-17T17:47:32-08:00",
+      "betaTestNotesLocalesVerified": [
+        "en-US",
+        "zh-Hans"
+      ],
+      "betaTestNotes": {
+        "en-US": "0.14.1: Follow a local actor into the library.\n\nIn a local or NFO library, open an item and select an actor without an online person page. Check that the same library opens with Actor: Name below its title. Remove the condition from the library menu to return to all titles. Actors with an online person page still open that page; directors without one remain static.\n\nActor filtering requires MovieClaw Server 0.48.0 or later. Minimum server version remains 0.31.0, as in 0.13.0. Also check sidebar navigation, window resizing, and normal playback.",
+        "zh-Hans": "0.14.1：从本地演员找到同库作品。\n\n在本地库或 NFO 库的条目详情中，点没有在线影人页的演员，检查是否打开同一媒体库的演员作品墙，库名下应显示「演员：姓名」。从媒体库菜单移除该条件后应回到全部条目。带在线影人页的演员仍打开影人页，没有影人页的导演不可点。\n\n演员筛选需要 MovieClaw 服务器 0.48.0 或更新版本；最低服务器要求仍为 0.31.0，与 0.13.0 相同。请一并检查侧边栏导航、窗口调整和正常播放。"
+      },
+      "artifactAndArchiveVerification": {
+        "deliveryId": "74407e9c-2845-4e8d-809f-795415fe56be",
+        "successMessage": "No errors uploading archive at 'apps/apple/build-release/MovieClawMac-0.14.1-202611180130/MovieClaw.pkg'.",
+        "transfer": "53558733 bytes in 16.770 seconds (3.2MB/s, 25.550Mbps)",
+        "toolVersion": "27.10.4 (2.2)",
+        "artifactHashUnchanged": true,
+        "archiveHashUnchanged": true,
+        "artifactSHA256": "e26326067a555b89d2df5c9935147291248c56851513285e1733332a262c0bf0",
+        "archiveManifestSHA256": "3e3d9f42be3deb424ec9d51d39b5b64e759fd4d9a8b77727c2bcce52fc2708f1",
+        "archiveFileCount": 141,
+        "archiveSignatureVerified": true,
+        "bundleId": "io.movieclaw.app",
+        "version": "0.14.1",
+        "build": "202611180130"
+      },
+      "binaryUUIDVerification": {
+        "archiveExportUUIDsMatch": true,
+        "dSYMUUIDsMatch": true,
+        "uuids": [
+          [
+            "UUID:",
+            "068578B0-2550-349D-9791-63E16EBCD1F7",
+            "(x86_64)"
+          ],
+          [
+            "UUID:",
+            "889B524D-CBC0-3BD0-B4BD-A71FA8033448",
+            "(arm64)"
+          ]
+        ]
+      },
+      "officialBuildResource": "https://api.appstoreconnect.apple.com/v1/builds/74407e9c-2845-4e8d-809f-795415fe56be"
+    },
+    {
+      "platform": "TV_OS",
+      "version": "0.14.1",
+      "buildNumber": "202611180130",
+      "ascBuildId": "fb73ce9a-42a6-40f0-96b9-08fcc931b7e9",
+      "processingState": "VALID",
+      "internalBuildState": "IN_BETA_TESTING",
+      "externalBuildState": "READY_FOR_BETA_SUBMISSION",
+      "buildAudienceType": "APP_STORE_ELIGIBLE",
+      "usesNonExemptEncryption": false,
+      "expired": false,
+      "uploadedDate": "2026-11-17T17:47:23-08:00",
+      "betaTestNotesLocalesVerified": [
+        "en-US",
+        "zh-Hans"
+      ],
+      "betaTestNotes": {
+        "zh-Hans": "0.14.1：用遥控器找到本地演员的同库作品。\n\n在本地库或 NFO 库的条目详情中，把焦点移到没有在线影人页的演员并按遥控器，检查是否打开同一媒体库的演员作品墙，摘要应显示「演员：姓名」。从排序与筛选菜单移除演员后应回到全部条目。带在线影人页的演员仍打开影人页，没有影人页的导演不可点。\n\n演员筛选需要 MovieClaw 服务器 0.48.0 或更新版本；最低服务器要求仍为 0.28.0，与 0.13.0 相同。请一并检查海报墙焦点、返回导航和正常播放。",
+        "en-US": "0.14.1: Browse a local actor’s work with the remote.\n\nIn a local or NFO library, open an item, focus an actor without an online person page, and select the card. Check that the same library opens with Actor: Name in the wall summary. Remove the actor from the sort and filter menu to return to all titles. Actors with an online person page still open that page; directors without one remain static.\n\nActor filtering requires MovieClaw Server 0.48.0 or later. Minimum server version remains 0.28.0, as in 0.13.0. Also check poster-wall focus, back navigation, and normal playback."
+      },
+      "artifactAndArchiveVerification": {
+        "deliveryId": "fb73ce9a-42a6-40f0-96b9-08fcc931b7e9",
+        "successMessage": "No errors uploading archive at 'apps/apple/build-release/MovieClawTV-0.14.1-202611180130/MovieClawTV.ipa'.",
+        "transfer": "26395846 bytes in 16.964 seconds (1.6MB/s, 12.448Mbps)",
+        "toolVersion": "27.10.4 (2.2)",
+        "artifactHashUnchanged": true,
+        "archiveHashUnchanged": true,
+        "artifactSHA256": "1880170ca7b123bdcacbe019f2f48dff346fae6178039703a81d4247ce397260",
+        "archiveManifestSHA256": "7841f256db787904d0f40ca9fde9ee877d114bd4fe6e4ff0de4043b4e5d486c3",
+        "archiveFileCount": 116,
+        "archiveSignatureVerified": true,
+        "bundleId": "io.movieclaw.app",
+        "version": "0.14.1",
+        "build": "202611180130"
+      },
+      "binaryUUIDVerification": {
+        "archiveExportUUIDsMatch": true,
+        "dSYMUUIDsMatch": true,
+        "uuids": [
+          [
+            "UUID:",
+            "497A9988-EAA9-35A7-B15D-E833B97EA43A",
+            "(arm64)"
+          ]
+        ]
+      },
+      "officialBuildResource": "https://api.appstoreconnect.apple.com/v1/builds/fb73ce9a-42a6-40f0-96b9-08fcc931b7e9"
+    }
+  ],
+  "remainingAppleBlockers": []
+}
