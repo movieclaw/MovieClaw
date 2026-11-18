@@ -519,18 +519,23 @@ export default function playbackControllerTest() {
       expect(controller.current().positionMs).assertEqual(60000);
       await controller.release();
     });
-    it('remote_direct_out_resume_stays_on_avplayer_and_lands_after_the_first_frame', 0, async () => {
+    it('remote_direct_out_resume_seeks_in_prepared_state_and_lands_once', 0, async () => {
       const factory = new FakeFactory(); const controller = new PlaybackController(factory);
       const intent = new PlaybackIntent(); intent.positionMs = 42000;
       await controller.open(new FakeDirectRemoteMedia(factory.order), 'surface', intent);
-      // 直连远程流（Range 可 seek）不再一刀切转 mpv。
+      // 直连远程流（Range 可 seek）不转 mpv；续播 seek 提前到 open 刚返回的
+      // prepared 态发出（起播后前读塞满缓存再 seek 会楔死 histreamer），先于 play。
       expect(factory.created.join(',')).assertEqual('avplayer');
       expect(factory.mpv.calls.length).assertEqual(0);
-      expect(factory.avp.calls.includes('seek:42000')).assertFalse();
-      factory.avp.frame(); await microtasks(); await microtasks();
       expect(factory.avp.calls.includes('seek:42000')).assertTrue();
+      expect(factory.avp.calls.indexOf('seek:42000') < factory.avp.calls.indexOf('play')).assertTrue();
+      // 首帧落地后不原地补 seek（prepared 态已 seek 且窗口内无拖动）。
+      factory.avp.frame(); await microtasks(); await microtasks();
+      expect(factory.avp.calls.filter((call: string): boolean => call === 'seek:42000').length)
+        .assertEqual(1);
       expect(factory.created.join(',')).assertEqual('avplayer');
       expect(controller.current().engine).assertEqual('avplayer');
+      expect(controller.current().positionMs).assertEqual(42000);
       await controller.release();
     });
     it('remote_direct_out_user_seek_stays_on_avplayer', 0, async () => {
