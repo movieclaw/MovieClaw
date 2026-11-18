@@ -3,6 +3,7 @@ import { pasteboard } from '@kit.BasicServicesKit';
 import { HdsNavDestination, HdsNavDestinationTitleMode } from '@kit.UIDesignKit';
 import { Theme } from '../theme/AppTheme';
 import { GlassButtonModifier, GlassTone } from '../common/GlassControls';
+import { NativeDialog } from '../common/NativeDialog';
 import { AppNavBar } from '../common/AppNavBar';
 import { AppModel } from '../common/AppModel';
 import { Permissions } from '../common/Permissions';
@@ -319,21 +320,13 @@ export struct DeviceGroupListPage {
 
   // MARK: 弹窗
 
-  /** 拉起改名弹窗（底部对齐、宽度随屏、遮罩、输入法避让） */
+  /** 拉起改名弹窗（居中系统式：遮罩、输入法避让、点遮罩可关） */
   private openRenameDialog(): void {
     const screenWidthVp: number = this.getUIContext().px2vp(display.getDefaultDisplaySync().width);
-    const options: promptAction.CustomDialogOptions = {
-      builder: (): void => {
+    const options: promptAction.CustomDialogOptions =
+      NativeDialog.options((): void => {
         this.RenameCard();
-      },
-      width: Math.round(screenWidthVp - 32),
-      alignment: DialogAlignment.Bottom,
-      keyboardAvoidMode: KeyboardAvoidMode.DEFAULT,
-      autoCancel: true,
-      maskColor: 'rgba(0,0,0,0.6)',
-      backgroundColor: Theme.surfaceRaised,
-      cornerRadius: Theme.cardRadius
-    };
+      }, screenWidthVp);
     this.getUIContext().getPromptAction().openCustomDialog(options)
       .then((id: number): void => {
         this.renameDialogId = id;
@@ -822,18 +815,10 @@ export struct DeviceDetailPage {
 
   private openRenameDialog(): void {
     const screenWidthVp: number = this.getUIContext().px2vp(display.getDefaultDisplaySync().width);
-    const options: promptAction.CustomDialogOptions = {
-      builder: (): void => {
+    const options: promptAction.CustomDialogOptions =
+      NativeDialog.options((): void => {
         this.RenameCard();
-      },
-      width: Math.round(screenWidthVp - 32),
-      alignment: DialogAlignment.Bottom,
-      keyboardAvoidMode: KeyboardAvoidMode.DEFAULT,
-      autoCancel: true,
-      maskColor: 'rgba(0,0,0,0.6)',
-      backgroundColor: Theme.surfaceRaised,
-      cornerRadius: Theme.cardRadius
-    };
+      }, screenWidthVp);
     this.getUIContext().getPromptAction().openCustomDialog(options)
       .then((id: number): void => {
         this.renameDialogId = id;

@@ -2,7 +2,7 @@ import { common } from '@kit.AbilityKit';
 import { BusinessError } from '@kit.BasicServicesKit';
 import { scanBarcode, scanCore } from '@kit.ScanKit';
 import { Theme } from '../theme/AppTheme';
-import { GlassButtonModifier, GlassTone } from '../common/GlassControls';
+import { DialogButtonRow } from '../common/NativeDialog';
 import { AppModel } from '../common/AppModel';
 import { Permissions } from '../common/Permissions';
 import { DeviceText, GrantText } from '../common/DeviceText';
@@ -19,6 +19,9 @@ const SCAN_USER_CANCEL: number = 1000500002;
  * 配对码的格子布局：**8 个字符位 + 中间一个固定的 `-`**（服务端码形 `MCLW-XXXX`）。
  * 8 个字符位都由用户输入（MCLW 也不是预置的，得照设备上显示的敲），
  * 下标 4 是那个分隔符，输入流到那里会自动跳过。
+ *
+ * 宽度预算：格子 30 × 8 + 中缝 10 + 间隙 3 × 8 = 274vp，
+ * 刚好放进居中弹窗的内容宽（336 - 左右 24 × 2 = 288vp），改格子宽度前先算这笔账。
  */
 /** 分隔符占的下标 */
 const CODE_DASH_CELL: number = 4;
@@ -42,16 +45,16 @@ enum ApprovalPhase {
 /**
  * 批准设备登录的**弹窗内容**（对齐 iOS `DeviceApprovalFlow`）。
  *
- * 用**华为原生的自定义弹窗**呈现：宿主 `SettingsSectionPage` 调
- * `UIContext.getPromptAction().openCustomDialog({ builder: …, alignment: Bottom, keyboardAvoidMode })`，
+ * 用**华为原生的自定义弹窗**呈现：宿主调 `NativeDialog.options` 拉起
+ * `UIContext.getPromptAction().openCustomDialog`（居中、定宽、大圆角），
  * 系统负责遮罩、进出场动效、点遮罩关闭，以及**输入法避让**（`keyboardAvoidMode`）。
  * 本组件只画卡片里的东西——不再自绘星空底、不再自己算键盘高度、不再自带关闭圆钮
  * （点遮罩即可关）。批准 / 拒绝**都是一按到底**：不再插一层二次确认，
  * 按「批准登录」直接进结果卡「已批准」，按「拒绝」直接进「已拒绝」。
  *
- * **为什么批准 / 拒绝放在卡片里、不放导航栏**（iOS 的注释说得很清楚，照做）：
+ * **为什么批准 / 拒绝放在按钮行里、不放导航栏**（iOS 的注释说得很清楚，照做）：
  * 导航栏的「取消 / 完成」是编辑类表单的确认；这里是一个**有安全后果的决定**，
- * 所以用卡片里的大按钮——看完信息顺手按。
+ * 所以放在底部按钮行里——看完信息顺手按（拒绝红色在左、批准在右）。
  *
  * **查到码也不自动批准**：人必须看过卡片再按，这是防钓鱼的那道闸。
  *
@@ -287,7 +290,7 @@ export struct DeviceApprovalDialog {
   // MARK: 视图
 
   build() {
-    Column({ space: 20 }) {
+    Column() {
       if (this.phase === ApprovalPhase.looking) {
         this.LookingContent()
       } else if (this.phase === ApprovalPhase.reviewing) {
@@ -300,131 +303,112 @@ export struct DeviceApprovalDialog {
     }
     .width('100%')
     .alignItems(HorizontalAlign.Start)
-    .padding(24)
   }
 
   /** 输入配对码（对应 iOS `inputContent`） */
   @Builder
   InputContent() {
-    Column({ space: 6 }) {
-      Text('批准设备登录')
-        .fontSize(24)
-        .fontWeight(FontWeight.Bold)
-        .fontColor(Theme.text)
-      Text('输入 Apple TV、Mac、命令行或转码器上显示的配对码，或者扫它旁边的二维码。')
-        .fontSize(13)
-        .fontColor(Theme.textMuted)
-    }
-    .width('100%')
-    .alignItems(HorizontalAlign.Start)
-
-    Column({ space: 8 }) {
-      /*
-       * 配对码拆成格子：`M C L W -` 五格固定灰显 + 后四格可输。
-       * 上面铺一个**透明的真输入框**收键盘——不要用四个 TextInput（中文输入法会先出候选词，
-       * 一格一字符的焦点跳转在这种输入法下很难做稳）；这样退格、粘贴、英文键盘都还是系统行为。
-       */
-      Stack() {
-        /*
-         * 九格**写死，不用 ForEach**：ForEach 按 key 缓存条目，键不变就不会重建，
-         * 而这里每格显示的是组件状态（`chars`）——实测用 ForEach 时输入后格子一直是空的。
-         */
-        Row({ space: 4 }) {
-          CodeCell({ ch: this.cellChar(0), isDash: false, caret: this.caretCell() === 0 })
-          CodeCell({ ch: this.cellChar(1), isDash: false, caret: this.caretCell() === 1 })
-          CodeCell({ ch: this.cellChar(2), isDash: false, caret: this.caretCell() === 2 })
-          CodeCell({ ch: this.cellChar(3), isDash: false, caret: this.caretCell() === 3 })
-          CodeCell({ ch: '-', isDash: true, caret: false })
-          CodeCell({ ch: this.cellChar(5), isDash: false, caret: this.caretCell() === 5 })
-          CodeCell({ ch: this.cellChar(6), isDash: false, caret: this.caretCell() === 6 })
-          CodeCell({ ch: this.cellChar(7), isDash: false, caret: this.caretCell() === 7 })
-          CodeCell({ ch: this.cellChar(8), isDash: false, caret: this.caretCell() === 8 })
-        }
-        .width('100%')
-        .height(52)
-        .justifyContent(FlexAlign.Center)
-
-        TextInput({ text: this.chars })
-          .key(CODE_INPUT_KEY)
-          .width('100%')
-          .height('100%')
-          // 不能是 0：opacity(0) 在部分版本上不参与命中，点上去拿不到焦点（实测）
-          .opacity(0.01)
-          .maxLength(CODE_CHAR_COUNT)
-          .enterKeyType(EnterKeyType.Go)
-          .onChange((value: string): void => {
-            this.chars = this.sanitize(value);
-            this.errorMessage = '';
-          })
-          .onSubmit(() => {
-            this.lookup();
-          })
-      }
-      .width('100%')
-      .height(52)
-      .onClick(() => {
-        focusControl.requestFocus(CODE_INPUT_KEY);
-      })
-      if (this.errorMessage.length > 0) {
-        Text(this.errorMessage)
-          .fontSize(12)
-          .fontColor(Theme.danger)
-          .width('100%')
-      }
-      if (this.scanHint.length > 0) {
-        Text(this.scanHint)
-          .fontSize(12)
-          .fontColor(Theme.warning)
-          .width('100%')
-      }
-    }
-    .width('100%')
-
-    Column({ space: 10 }) {
-      Button() {
-        Text(this.busy ? '正在查…' : '继续')
-          .fontSize(16)
-          .fontWeight(FontWeight.Medium)
-          .fontColor(this.chars.length === 0 ? Theme.textFaint : '#0b0d12')
-          .textAlign(TextAlign.Center)
-      }
-      .attributeModifier(new GlassButtonModifier(this.chars.length === 0 ? GlassTone.Secondary : GlassTone.Primary))
-      .width('100%')
-      .padding({ top: 15, bottom: 15 })
-      .borderRadius(18)
-      .onClick(() => {
-        if (this.chars.length > 0) {
-          this.lookup();
-        }
-      })
-      Button() {
-        Row({ space: 8 }) {
-          SymbolGlyph($r('sys.symbol.qrcode'))
-            .fontSize(18)
-            .fontColor([Theme.text])
-          Text(this.scanning ? '正在打开相机…' : '扫描二维码')
-            .fontSize(16)
-            .fontWeight(FontWeight.Medium)
+    Column() {
+      Column({ space: 20 }) {
+        Column({ space: 6 }) {
+          Text('批准设备登录')
+            .fontSize(20)
+            .fontWeight(FontWeight.Bold)
             .fontColor(Theme.text)
+          Text('输入 Apple TV、Mac、命令行或转码器上显示的配对码，或者扫它旁边的二维码。')
+            .fontSize(14)
+            .fontColor(Theme.textMuted)
         }
         .width('100%')
-        .height(50)
-        .justifyContent(FlexAlign.Center)
+        .alignItems(HorizontalAlign.Center)
+
+        Column({ space: 8 }) {
+          /*
+           * 配对码拆成格子：`M C L W -` 五格固定灰显 + 后四格可输。
+           * 上面铺一个**透明的真输入框**收键盘——不要用四个 TextInput（中文输入法会先出候选词，
+           * 一格一字符的焦点跳转在这种输入法下很难做稳）；这样退格、粘贴、英文键盘都还是系统行为。
+           */
+          Stack() {
+            /*
+             * 九格**写死，不用 ForEach**：ForEach 按 key 缓存条目，键不变就不会重建，
+             * 而这里每格显示的是组件状态（`chars`）——实测用 ForEach 时输入后格子一直是空的。
+             */
+            Row({ space: 3 }) {
+              CodeCell({ ch: this.cellChar(0), isDash: false, caret: this.caretCell() === 0 })
+              CodeCell({ ch: this.cellChar(1), isDash: false, caret: this.caretCell() === 1 })
+              CodeCell({ ch: this.cellChar(2), isDash: false, caret: this.caretCell() === 2 })
+              CodeCell({ ch: this.cellChar(3), isDash: false, caret: this.caretCell() === 3 })
+              CodeCell({ ch: '-', isDash: true, caret: false })
+              CodeCell({ ch: this.cellChar(5), isDash: false, caret: this.caretCell() === 5 })
+              CodeCell({ ch: this.cellChar(6), isDash: false, caret: this.caretCell() === 6 })
+              CodeCell({ ch: this.cellChar(7), isDash: false, caret: this.caretCell() === 7 })
+              CodeCell({ ch: this.cellChar(8), isDash: false, caret: this.caretCell() === 8 })
+            }
+            .height(52)
+            .justifyContent(FlexAlign.Center)
+
+            TextInput({ text: this.chars })
+              .key(CODE_INPUT_KEY)
+              .width('100%')
+              .height('100%')
+              // 不能是 0：opacity(0) 在部分版本上不参与命中，点上去拿不到焦点（实测）
+              .opacity(0.01)
+              .maxLength(CODE_CHAR_COUNT)
+              .enterKeyType(EnterKeyType.Go)
+              .onChange((value: string): void => {
+                this.chars = this.sanitize(value);
+                this.errorMessage = '';
+              })
+              .onSubmit(() => {
+                this.lookup();
+              })
+          }
+          .width('100%')
+          .height(52)
+          .onClick(() => {
+            focusControl.requestFocus(CODE_INPUT_KEY);
+          })
+          if (this.errorMessage.length > 0) {
+            Text(this.errorMessage)
+              .fontSize(12)
+              .fontColor(Theme.danger)
+              .width('100%')
+              .textAlign(TextAlign.Center)
+          }
+          if (this.scanHint.length > 0) {
+            Text(this.scanHint)
+              .fontSize(12)
+              .fontColor(Theme.warning)
+              .width('100%')
+              .textAlign(TextAlign.Center)
+          }
+        }
+        .width('100%')
+
+        this.AccountLine()
       }
-      .attributeModifier(new GlassButtonModifier(GlassTone.Secondary))
-      .padding(0)
-      .clip(true)
-      .borderRadius(18)
-      .onClick(() => {
-        this.scan();
+      .width('100%')
+      .alignItems(HorizontalAlign.Start)
+      .padding({ left: 24, right: 24, top: 24, bottom: 16 })
+
+      DialogButtonRow({
+        leftLabel: this.scanning ? '正在打开相机…' : '扫描二维码',
+        rightLabel: this.busy ? '正在查…' : '继续',
+        rightColor: this.chars.length === 0 ? Theme.textFaint : Theme.accentStrong,
+        onLeft: (): void => {
+          this.scan();
+        },
+        onRight: (): void => {
+          if (this.chars.length > 0) {
+            this.lookup();
+          }
+        }
       })
     }
     .width('100%')
-
-    this.AccountLine()
   }
 
-  /** 查询中（对应 iOS `lookingContent`） */
+  /** 查询中（对应 iOS `lookingContent`）：转圈占住卡片，查完自动切下一阶段 */
   @Builder
   LookingContent() {
     Row({ space: 14 }) {
@@ -437,127 +421,122 @@ export struct DeviceApprovalDialog {
         .fontColor(Theme.textMuted)
     }
     .width('100%')
-    .height(80)
+    .height(120)
     .justifyContent(FlexAlign.Center)
+    .padding({ left: 24, right: 24 })
   }
 
   /** 审批卡（对应 iOS `requestContent`） */
   @Builder
   RequestContent() {
     if (this.request !== null) {
-      // 设备：图标 + 名字 + 平台
-      Row({ space: 14 }) {
-        Stack({ alignContent: Alignment.Center }) {
-          SymbolGlyph(DeviceText.symbol((this.request as DeviceRequestView).client_type))
-            .fontSize(24)
-            .fontColor([Theme.text])
-        }
-        .width(52)
-        .height(52)
-        .backgroundColor('rgba(255,255,255,0.10)')
-        .borderRadius(26)
-        Column({ space: 2 }) {
-          Text((this.request as DeviceRequestView).client_name)
-            .fontSize(18)
-            .fontWeight(FontWeight.Medium)
-            .fontColor(Theme.text)
-            .maxLines(1)
-            .textOverflow({ overflow: TextOverflow.Ellipsis })
-          Text((this.request as DeviceRequestView).platform
-            ?? DeviceText.clientType((this.request as DeviceRequestView).client_type))
-            .fontSize(13)
-            .fontColor(Theme.textMuted)
-        }
-        .layoutWeight(1)
-        .alignItems(HorizontalAlign.Start)
-      }
-      .width('100%')
-
-      // 配对码是这张卡真正的安全控制：大号等宽字，让人真的去和设备屏幕逐字比对
-      Column({ space: 4 }) {
-        Text((this.request as DeviceRequestView).user_code)
-          .fontSize(30)
-          .fontWeight(FontWeight.Medium)
-          .fontFamily('monospace')
-          .fontColor(Theme.accentStrong)
-        Text('先核对与设备屏幕上显示的配对码完全一致')
-          .fontSize(12)
-          .fontColor(Theme.textMuted)
-      }
-      .width('100%')
-      .alignItems(HorizontalAlign.Start)
-
-      this.GrantBlock((this.request as DeviceRequestView).client_type,
-        this.isAdmin())
-
-      // 来源地址认得出时才写；桥接网络的容器只看得到网桥网关，那时不如不写，判断依据就是配对码
-      if ((this.request as DeviceRequestView).source_ip.length > 0) {
-        Text(`来源 ${(this.request as DeviceRequestView).source_ip}`)
-          .fontSize(12)
-          .fontFamily('monospace')
-          .fontColor(Theme.textFaint)
-          .width('100%')
-      }
-
-      if (this.blocked()) {
-        Text('转码器只能由管理员批准：请把这个配对码告诉管理员，让他在网页或 App 的批准页输入。')
-          .fontSize(12)
-          .fontColor(Theme.warning)
-          .width('100%')
-      }
-      if (this.errorMessage.length > 0) {
-        Text(this.errorMessage)
-          .fontSize(12)
-          .fontColor(Theme.danger)
-          .width('100%')
-      }
-
-      Column({ space: 10 }) {
-        if (!this.blocked()) {
-          Button() {
-            Row({ space: 8 }) {
-              SymbolGlyph($r('sys.symbol.checkmark'))
-                .fontSize(17)
-                .fontColor([this.busy ? Theme.textFaint : '#0b0d12'])
-              Text(this.busy ? '正在处理…' : '批准登录')
-                .fontSize(16)
-                .fontWeight(FontWeight.Medium)
-                .fontColor(this.busy ? Theme.textFaint : '#0b0d12')
+      Column() {
+        Column({ space: 20 }) {
+          // 设备：图标 + 名字 + 平台
+          Row({ space: 14 }) {
+            Stack({ alignContent: Alignment.Center }) {
+              SymbolGlyph(DeviceText.symbol((this.request as DeviceRequestView).client_type))
+                .fontSize(24)
+                .fontColor([Theme.text])
             }
-            .width('100%')
+            .width(52)
             .height(52)
-            .justifyContent(FlexAlign.Center)
+            .backgroundColor('rgba(255,255,255,0.10)')
+            .borderRadius(26)
+            Column({ space: 2 }) {
+              Text((this.request as DeviceRequestView).client_name)
+                .fontSize(18)
+                .fontWeight(FontWeight.Medium)
+                .fontColor(Theme.text)
+                .maxLines(1)
+                .textOverflow({ overflow: TextOverflow.Ellipsis })
+              Text((this.request as DeviceRequestView).platform
+                ?? DeviceText.clientType((this.request as DeviceRequestView).client_type))
+                .fontSize(13)
+                .fontColor(Theme.textMuted)
+            }
+            .layoutWeight(1)
+            .alignItems(HorizontalAlign.Start)
           }
-          .attributeModifier(new GlassButtonModifier(this.busy ? GlassTone.Secondary : GlassTone.Primary))
-          .padding(0)
-          .clip(true)
-          .borderRadius(18)
-          .onClick(() => {
-            if (!this.busy) {
+          .width('100%')
+
+          // 配对码是这张卡真正的安全控制：大号等宽字，让人真的去和设备屏幕逐字比对
+          Column({ space: 4 }) {
+            Text((this.request as DeviceRequestView).user_code)
+              .fontSize(30)
+              .fontWeight(FontWeight.Medium)
+              .fontFamily('monospace')
+              .fontColor(Theme.accentStrong)
+            Text('先核对与设备屏幕上显示的配对码完全一致')
+              .fontSize(12)
+              .fontColor(Theme.textMuted)
+          }
+          .width('100%')
+          .alignItems(HorizontalAlign.Start)
+
+          this.GrantBlock((this.request as DeviceRequestView).client_type,
+            this.isAdmin())
+
+          // 来源地址认得出时才写；桥接网络的容器只看得到网桥网关，那时不如不写，判断依据就是配对码
+          if ((this.request as DeviceRequestView).source_ip.length > 0) {
+            Text(`来源 ${(this.request as DeviceRequestView).source_ip}`)
+              .fontSize(12)
+              .fontFamily('monospace')
+              .fontColor(Theme.textFaint)
+              .width('100%')
+          }
+
+          if (this.blocked()) {
+            Text('转码器只能由管理员批准：请把这个配对码告诉管理员，让他在网页或 App 的批准页输入。')
+              .fontSize(12)
+              .fontColor(Theme.warning)
+              .width('100%')
+          }
+          if (this.errorMessage.length > 0) {
+            Text(this.errorMessage)
+              .fontSize(12)
+              .fontColor(Theme.danger)
+              .width('100%')
+          }
+
+          this.AccountLine()
+        }
+        .width('100%')
+        .alignItems(HorizontalAlign.Start)
+        .padding({ left: 24, right: 24, top: 24, bottom: 16 })
+
+        // 处理中：按钮行收成一颗灰的「正在处理…」，两个决定都进不去（同 iOS 的 disabled）
+        if (this.busy) {
+          DialogButtonRow({
+            rightLabel: '正在处理…',
+            rightColor: Theme.textFaint,
+            onRight: (): void => {
+            }
+          })
+        } else if (this.blocked()) {
+          // 转码器只能由超管批准：成员看到时只给拒绝
+          DialogButtonRow({
+            rightLabel: '拒绝',
+            rightColor: Theme.danger,
+            onRight: (): void => {
+              this.decide(false);
+            }
+          })
+        } else {
+          DialogButtonRow({
+            leftLabel: '拒绝',
+            leftColor: Theme.danger,
+            rightLabel: '批准登录',
+            onLeft: (): void => {
+              this.decide(false);
+            },
+            onRight: (): void => {
               this.decide(true);
             }
           })
         }
-        Button() {
-          Text('拒绝')
-            .fontSize(16)
-            .fontColor(Theme.danger)
-            .textAlign(TextAlign.Center)
-        }
-        .attributeModifier(new GlassButtonModifier(GlassTone.Secondary))
-        .width('100%')
-        .padding({ top: 15, bottom: 15 })
-        .borderRadius(18)
-        .opacity(this.busy ? 0.5 : 1)
-        .onClick(() => {
-          if (!this.busy) {
-            this.decide(false);
-          }
-        })
       }
       .width('100%')
-
-      this.AccountLine()
     }
   }
 
@@ -586,38 +565,33 @@ export struct DeviceApprovalDialog {
   /** 结果（对应 iOS `resultContent`） */
   @Builder
   ResultContent() {
-    Column({ space: 12 }) {
-      SymbolGlyph(this.resultOk ? $r('sys.symbol.checkmark_circle_fill') : $r('sys.symbol.xmark_circle_fill'))
-        .fontSize(48)
-        .fontColor([this.resultOk ? Theme.ok : Theme.danger])
-      Text(this.resultOk ? '已批准' : '已拒绝')
-        .fontSize(24)
-        .fontWeight(FontWeight.Bold)
-        .fontColor(Theme.text)
-      Text(this.resultText)
-        .fontSize(13)
-        .fontColor(Theme.textMuted)
-        .textAlign(TextAlign.Center)
-        .width('100%')
-    }
-    .width('100%')
-    .alignItems(HorizontalAlign.Center)
-    .padding({ top: 8 })
+    Column() {
+      Column({ space: 12 }) {
+        SymbolGlyph(this.resultOk ? $r('sys.symbol.checkmark_circle_fill') : $r('sys.symbol.xmark_circle_fill'))
+          .fontSize(48)
+          .fontColor([this.resultOk ? Theme.ok : Theme.danger])
+        Text(this.resultOk ? '已批准' : '已拒绝')
+          .fontSize(20)
+          .fontWeight(FontWeight.Bold)
+          .fontColor(Theme.text)
+        Text(this.resultText)
+          .fontSize(13)
+          .fontColor(Theme.textMuted)
+          .textAlign(TextAlign.Center)
+          .width('100%')
+      }
+      .width('100%')
+      .alignItems(HorizontalAlign.Center)
+      .padding({ left: 24, right: 24, top: 28, bottom: 20 })
 
-    Button() {
-      Text('完成')
-        .fontSize(16)
-        .fontWeight(FontWeight.Medium)
-        .fontColor('#0b0d12')
-        .textAlign(TextAlign.Center)
+      DialogButtonRow({
+        rightLabel: '完成',
+        onRight: (): void => {
+          this.onClose();
+        }
+      })
     }
-    .attributeModifier(new GlassButtonModifier(GlassTone.Primary))
     .width('100%')
-    .padding({ top: 15, bottom: 15 })
-    .borderRadius(18)
-    .onClick(() => {
-      this.onClose();
-    })
   }
 
   /** 「以谁的身份批准」：批准的后果是设备登录成这个账号，必须写明 */
@@ -654,7 +628,7 @@ struct CodeCell {
         .fontWeight(this.isDash ? FontWeight.Normal : FontWeight.Medium)
         .fontColor(this.isDash ? Theme.textFaint : Theme.text)
     }
-    .width(this.isDash ? 10 : 34)
+    .width(this.isDash ? 10 : 30)
     .height(48)
     .backgroundColor(this.isDash
       ? Color.Transparent

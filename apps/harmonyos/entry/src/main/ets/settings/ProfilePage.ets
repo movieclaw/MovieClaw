@@ -6,6 +6,7 @@ import { request } from '@kit.BasicServicesKit';
 import { HdsNavDestination, HdsNavDestinationTitleMode } from '@kit.UIDesignKit';
 import { Theme } from '../theme/AppTheme';
 import { GlassButtonModifier, GlassTone, GlassSwitchModifier } from '../common/GlassControls';
+import { NativeDialog } from '../common/NativeDialog';
 import { AppNavBar } from '../common/AppNavBar';
 import { AppModel } from '../common/AppModel';
 import { Permissions } from '../common/Permissions';
@@ -352,18 +353,10 @@ export struct ProfilePage {
   /** 打开切换账号弹窗（与长按底栏头像同一个弹窗、同一套样式） */
   private openSwitcher(): void {
     const screenWidthVp: number = this.getUIContext().px2vp(display.getDefaultDisplaySync().width);
-    const options: promptAction.CustomDialogOptions = {
-      builder: (): void => {
+    const options: promptAction.CustomDialogOptions =
+      NativeDialog.options((): void => {
         this.SwitcherCard();
-      },
-      width: Math.round(screenWidthVp - 32),
-      alignment: DialogAlignment.Bottom,
-      keyboardAvoidMode: KeyboardAvoidMode.DEFAULT,
-      autoCancel: true,
-      maskColor: 'rgba(0,0,0,0.6)',
-      backgroundColor: Theme.surfaceRaised,
-      cornerRadius: Theme.cardRadius
-    };
+      }, screenWidthVp);
     this.getUIContext().getPromptAction().openCustomDialog(options)
       .then((id: number): void => {
         this.switcherDialogId = id;

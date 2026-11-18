@@ -1,5 +1,5 @@
 import { Theme } from '../theme/AppTheme';
-import { GlassButtonModifier, GlassTone } from '../common/GlassControls';
+import { DialogButtonRow } from '../common/NativeDialog';
 import { AppModel } from '../common/AppModel';
 import { ApiError } from '../api/ApiClient';
 import { MovieClawApi } from '../api/Endpoints';
@@ -8,9 +8,9 @@ import { RenameDeviceRequest } from '../api/Models';
 /**
  * 设备改名的**弹窗内容**（与 `DeviceApprovalDialog` 同一套样式与呈现方式）。
  *
- * 由宿主 `SettingsSectionPage` 调
- * `UIContext.getPromptAction().openCustomDialog({ builder: …, alignment: Bottom, keyboardAvoidMode })` 拉起：
- * 系统负责遮罩、进出场动效、点遮罩关闭，以及**输入法避让**。本组件只画卡片里的东西。
+ * 由宿主调 `NativeDialog.options` 拉起居中的系统式弹窗
+ * （`UIContext.getPromptAction().openCustomDialog`）：系统负责遮罩、进出场动效、
+ * 点遮罩关闭，以及**输入法避让**。本组件只画标题/说明/输入区和底部按钮行。
  *
  * **本组件是 V1 `@Component`**（宿主是 V2，V1 子组件可嵌入；内部只用 `@State`，
  * 只往外回 `onClose` / `onRenamed`）——与批准弹窗保持一致。
@@ -66,80 +66,64 @@ export struct DeviceRenameDialog {
   }
 
   build() {
-    Column({ space: 20 }) {
-      Column({ space: 6 }) {
-        Text('给设备改名')
-          .fontSize(24)
-          .fontWeight(FontWeight.Bold)
-          .fontColor(Theme.text)
-        Text('名字会显示在「正在播放」和「最近播放」里，帮你自己认出是哪台设备。')
-          .fontSize(13)
-          .fontColor(Theme.textMuted)
+    Column() {
+      Column({ space: 20 }) {
+        Column({ space: 6 }) {
+          Text('给设备改名')
+            .fontSize(20)
+            .fontWeight(FontWeight.Bold)
+            .fontColor(Theme.text)
+          Text('名字会显示在「正在播放」和「最近播放」里，帮你自己认出是哪台设备。')
+            .fontSize(14)
+            .fontColor(Theme.textMuted)
+        }
+        .width('100%')
+        .alignItems(HorizontalAlign.Center)
+
+        Column({ space: 8 }) {
+          TextInput({ text: this.name, placeholder: '设备名' })
+            .width('100%')
+            .height(52)
+            .fontSize(17)
+            .fontColor(Theme.text)
+            .backgroundColor(Theme.surface)
+            .borderRadius(12)
+            .border({ width: 1, color: Theme.line })
+            .maxLength(64)
+            .enterKeyType(EnterKeyType.Done)
+            .onChange((value: string): void => {
+              this.name = value;
+              this.error = '';
+            })
+            .onSubmit((): void => {
+              this.save();
+            })
+          if (this.error.length > 0) {
+            Text(this.error)
+              .fontSize(12)
+              .fontColor(Theme.danger)
+              .width('100%')
+              .textAlign(TextAlign.Center)
+          }
+        }
+        .width('100%')
       }
       .width('100%')
       .alignItems(HorizontalAlign.Start)
+      .padding({ left: 24, right: 24, top: 24, bottom: 16 })
 
-      Column({ space: 8 }) {
-        TextInput({ text: this.name, placeholder: '设备名' })
-          .width('100%')
-          .height(52)
-          .fontSize(17)
-          .fontColor(Theme.text)
-          .backgroundColor(Theme.surfaceRaised)
-          .borderRadius(12)
-          .maxLength(64)
-          .enterKeyType(EnterKeyType.Done)
-          .onChange((value: string): void => {
-            this.name = value;
-            this.error = '';
-          })
-          .onSubmit((): void => {
-            this.save();
-          })
-        if (this.error.length > 0) {
-          Text(this.error)
-            .fontSize(12)
-            .fontColor(Theme.danger)
-            .width('100%')
-        }
-      }
-      .width('100%')
-
-      // 保存 / 取消 水平并排（各占一半，同 MorePage 的重命名弹层）
-      Row({ space: 10 }) {
-        Button() {
-          Text('取消')
-            .fontSize(16)
-            .fontWeight(FontWeight.Medium)
-            .fontColor(Theme.text)
-            .textAlign(TextAlign.Center)
-        }
-        .attributeModifier(new GlassButtonModifier(GlassTone.Secondary))
-        .layoutWeight(1)
-        .padding({ top: 15, bottom: 15 })
-        .borderRadius(18)
-        .onClick((): void => {
+      DialogButtonRow({
+        leftLabel: '取消',
+        rightLabel: this.busy ? '保存中…' : '保存',
+        rightColor: this.canSave() ? Theme.accentStrong : Theme.textFaint,
+        onLeft: (): void => {
           this.onClose();
-        })
-        Button() {
-          Text(this.busy ? '保存中…' : '保存')
-            .fontSize(16)
-            .fontWeight(FontWeight.Medium)
-            .fontColor(this.canSave() ? '#0b0d12' : Theme.textFaint)
-            .textAlign(TextAlign.Center)
-        }
-        .attributeModifier(new GlassButtonModifier(this.canSave() ? GlassTone.Primary : GlassTone.Secondary))
-        .layoutWeight(1)
-        .padding({ top: 15, bottom: 15 })
-        .borderRadius(18)
-        .onClick((): void => {
+        },
+        onRight: (): void => {
           this.save();
-        })
-      }
-      .width('100%')
+        }
+      })
     }
     .width('100%')
-    .alignItems(HorizontalAlign.Start)
-    .padding(24)
   }
 }

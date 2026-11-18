@@ -4,6 +4,7 @@ import { Theme } from '../theme/AppTheme';
 import { TabBarCollapse } from '../common/TabBarCollapse';
 import { AccountSwitcherSheet } from '../common/AccountSwitcherSheet';
 import { GlassButtonModifier, GlassTone } from '../common/GlassControls';
+import { NativeDialog } from '../common/NativeDialog';
 import { DeviceApprovalDialog } from '../settings/DeviceApprovalDialog';
 import { AppModel, AppPhase, SavedAccount } from '../common/AppModel';
 import { ServerRoutes } from '../common/ServerRoutes';
@@ -526,18 +527,10 @@ export struct MorePage {
 
   private openScanApproval(): void {
     const screenWidthVp: number = this.getUIContext().px2vp(display.getDefaultDisplaySync().width);
-    const options: promptAction.CustomDialogOptions = {
-      builder: (): void => {
+    const options: promptAction.CustomDialogOptions =
+      NativeDialog.options((): void => {
         this.ApprovalCard();
-      },
-      width: Math.round(screenWidthVp - 32),
-      alignment: DialogAlignment.Bottom,
-      keyboardAvoidMode: KeyboardAvoidMode.DEFAULT,
-      autoCancel: true,
-      maskColor: 'rgba(0, 0, 0, 0.6)',
-      backgroundColor: Theme.surfaceRaised,
-      cornerRadius: Theme.cardRadius
-    };
+      }, screenWidthVp);
     this.getUIContext().getPromptAction().openCustomDialog(options)
       .then((id: number): void => {
         this.approvalDialogId = id;
@@ -555,21 +548,13 @@ export struct MorePage {
     this.approvalDialogId = -1;
   }
 
-  /** 打开「切换账号」：系统原生自定义弹窗（同一套贴底圆角卡片），内容见 `AccountSwitcherSheet` */
+  /** 打开「切换账号」：系统原生自定义弹窗（同一套居中圆角卡片），内容见 `AccountSwitcherSheet` */
   private openAccountSwitcher(): void {
     const screenWidthVp: number = this.getUIContext().px2vp(display.getDefaultDisplaySync().width);
-    const options: promptAction.CustomDialogOptions = {
-      builder: (): void => {
+    const options: promptAction.CustomDialogOptions =
+      NativeDialog.options((): void => {
         this.AccountSwitcherCard();
-      },
-      width: Math.round(screenWidthVp - 32),
-      alignment: DialogAlignment.Bottom,
-      keyboardAvoidMode: KeyboardAvoidMode.DEFAULT,
-      autoCancel: true,
-      maskColor: 'rgba(0,0,0,0.6)',
-      backgroundColor: Theme.surfaceRaised,
-      cornerRadius: Theme.cardRadius
-    };
+      }, screenWidthVp);
     this.getUIContext().getPromptAction().openCustomDialog(options)
       .then((id: number): void => {
         this.accountDialogId = id;
@@ -650,7 +635,7 @@ export struct MorePage {
       .scrollBar(BarState.Off)
       // 向下滚累计到阈值：底栏收成圆形按钮（往回滑立刻放回）
       .onDidScroll((xOffset: number, yOffset: number) => {
-        TabBarCollapse.shared().onScroll(this.scroller.currentOffset().yOffset);
+        TabBarCollapse.shared().onScroll(this.scroller.currentOffset().yOffset, this.scroller.isAtEnd());
       })
       // 内容不够一屏时也给点回弹反馈（不然会觉得「不能滑」）
       .edgeEffect(EdgeEffect.Spring)
