@@ -203,6 +203,8 @@ export struct LibraryItemDetailPage {
   @State private favorite: boolean | null = null;
   /** 标记请求在途：防连点 */
   @State private marking: boolean = false;
+  /** loadResume 请求代数：选集快速变化时丢弃过期响应，上一集的进度不盖到新集上 */
+  private resumeSeq: number = 0;
 
   /** 当前季的集列表（null = 还没拿到） */
   @State private episodes: SeasonEpisodesView | null = null;
@@ -291,6 +293,20 @@ export struct LibraryItemDetailPage {
   private playUnitEpisodeNumber(): number {
     const picked: EpisodeView | null = this.selectedEpisode;
     return !this.isMovie() && picked !== null ? picked.episode_number : 0;
+  }
+
+  /** 当前播放单元有没有可播的文件：剧集选中缺集（库里还没资源）或条目文件全没
+   *  了时，整行播放/收藏/标已看按钮直接隐藏（2026-11-18 用户定：缺集不给标记） */
+  private playUnitMissing(): boolean {
+    const detail: LibraryItemDetailView | null = this.detail;
+    if (detail === null) {
+      return false;
+    }
+    if (this.isMovie()) {
+      return detail.files.length === 0;
+    }
+    const picked: EpisodeView | null = this.selectedEpisode;
+    return picked !== null && this.currentFiles().length === 0;
   }
 
   /** 简介：剧集优先用当前集的 overview，退回本体的 plot（同 iOS） */
@@ -936,14 +952,16 @@ export struct LibraryItemDetailPage {
   private pickEpisode(view: SeasonEpisodesView, previousAnchor: number | null): void {
     const list: EpisodeView[] = view.episodes;
     if (list.length === 0) {
-      this.selectedEpisode = null;
-      this.episodeRangeIndex = null;
+      this.lockEpisode(null);
       return;
     }
     const wanted: number | null = this.initialEpisode;
     if (wanted !== null) {
       for (const episode of list) {
         if (episode.episode_number === wanted) {
+          // 路由带的集只认一次：消费掉，之后刷新/回页按锚点走，
+          // 看完自动跳的下一集不会被路由集拽回去
+          this.initialEpisode = null;
           this.lockEpisode(episode);
           return;
         }
@@ -961,10 +979,17 @@ export struct LibraryItemDetailPage {
     }
   }
 
-  /** 选中一集并把段锁到它所在的段（对齐 iOS `lock`） */
+  /** 选中一集并把段锁到它所在的段（对齐 iOS `lock`）。选中集变了联动重拉播放/已
+   *  看状态——入口落锚点、宫格选集、标已看后的跳集、手动换段都走这里，播放键与
+   *  已看对勾不再停在上一集的状态上 */
   private lockEpisode(episode: EpisodeView | null): void {
+    const previousNumber: number = this.selectedEpisode === null ? -1 : this.selectedEpisode.episode_number;
+    const nextNumber: number = episode === null ? -1 : episode.episode_number;
     this.selectedEpisode = episode;
     this.episodeRangeIndex = episode === null ? null : EpisodeRanges.indexOf(episode.episode_number);
+    if (previousNumber !== nextNumber) {
+      this.loadResume();
+    }
   }
 
   /** 本季的段：不分段时为空 */
@@ -1156,9 +1181,11 @@ export struct LibraryItemDetailPage {
 
   /**
    * 当前单元的观看进度（播放键文案用）。只读模式 / 服务器要不到时取本机进度
-   * （同 iOS `loadResume`：先服务器，拿不到回落 `localWatched`）。
+   * （同 iOS `loadResume`：先服务器，拿不到回落 `localWatched`）。选集变化由
+   * `lockEpisode` 联动重拉；连点换集以最后一次为准，过期响应直接丢弃。
    */
   private async loadResume(): Promise<void> {
+    const seq: number = ++this.resumeSeq;
     const season: number = this.playUnitSeasonNumber();
     const episode: number = this.playUnitEpisodeNumber();
     if (this.localOnly) {
@@ -1170,8 +1197,15 @@ export struct LibraryItemDetailPage {
       return;
     }
     try {
-      this.watched = await api.playbackResume(this.mediaItemId, season, episode);
+      const state: PlaybackStateView = await api.playbackResume(this.mediaItemId, season, episode);
+      if (seq !== this.resumeSeq) {
+        return;
+      }
+      this.watched = state;
     } catch (error) {
+      if (seq !== this.resumeSeq) {
+        return;
+      }
       this.watched = this.localWatched(season, episode);
     }
   }
@@ -1959,7 +1993,10 @@ export struct LibraryItemDetailPage {
       // 媒体轨道区（iOS MediaTrackSection，位于元数据行下、播放键上）：
       // 只认在位文件（state == "in_place"，同 iOS availableFiles）
       MediaTrackSection({ files: this.inPlaceFiles(), onChanged: (): void => { this.reload(); } })
-      this.PlayAction(detail)
+      // 选中集库里还没资源：整行播放/收藏/标已看直接隐藏，不给播也不能标
+      if (!this.playUnitMissing()) {
+        this.PlayAction(detail)
+      }
     }
     .width('100%')
     .alignItems(HorizontalAlign.Start)
@@ -2117,10 +2154,13 @@ export struct LibraryItemDetailPage {
     return minutes >= 1 ? `剩余 ${minutes} 分钟` : '即将看完';
   }
 
-  /** 播放键文案：有进度就是「继续观看 mm:ss」，看完或没看过就是「播放」（同 iOS） */
+  /** 播放键文案：已看完是「重新播放」，有进度是「继续观看 mm:ss」，没看过是「播放」 */
   private playLabel(): string {
     const state: PlaybackStateView | null = this.watched;
-    if (state === null || state.played) {
+    if (state !== null && state.played) {
+      return '重新播放';
+    }
+    if (state === null) {
       return '播放';
     }
     const position: number = state.position_ms ?? 0;
