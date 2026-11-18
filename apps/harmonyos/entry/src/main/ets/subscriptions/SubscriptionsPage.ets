@@ -547,7 +547,7 @@ export struct SubscriptionsPage {
       .edgeEffect(EdgeEffect.None)
       // 向下滚累计到阈值：底栏收成圆形按钮（往回滑立刻放回）
       .onDidScroll((xOffset: number, yOffset: number) => {
-        TabBarCollapse.shared().onScroll(this.scroller.currentOffset().yOffset);
+        TabBarCollapse.shared().onScroll(this.scroller.currentOffset().yOffset, this.scroller.isAtEnd());
       })
     }
     .onRefreshing(() => {

@@ -615,7 +615,7 @@ export struct DiscoverPage {
     // 可视区上下各多缓存两行，快速滑动少建少销毁
     // 向下滚累计到阈值：底栏收成圆形按钮（往回滑立刻放回）
     .onDidScroll((xOffset: number, yOffset: number) => {
-      TabBarCollapse.shared().onScroll(this.scroller.currentOffset().yOffset);
+      TabBarCollapse.shared().onScroll(this.scroller.currentOffset().yOffset, this.scroller.isAtEnd());
     })
     .cachedCount(2)
     // 底部让位用 contentEndOffset：内容能滚到页签胶囊/手势条下面，胶囊背后不再是黑底
