@@ -29,4 +29,13 @@ Version 0.14.1 avoids reusing the already published 0.14.0 product versions. Sha
 
 ## Validation / delivery
 
-Pending: isolated simulator iPhone/iPad deletion regression, actor-filter tests, three Release archives and exports, signature/entitlement/identity verification, then upload and ASC VALID/internal availability verification. Never install or restart the user's installed apps. Use only dedicated test simulators.
+Completed locally on source commit `4a559e7bc` (Apple tree `6388e539bbc326e8735c93c05adc6cddad81c6c0`):
+
+- Dedicated iPhone 17 and iPad Pro 13-inch simulators: `PersonalSpaceUITests/testDeletingSessionsKeepsListConsistent`, each 1 passed / 0 failed / 0 skipped, complete xcresult and TEST SUCCEEDED. Includes cancel, swipe, long-press, conversation menu, emptying date section and exactly four server deletions.
+- `LibraryActorFilterTests`: 8 passed / 0 failed / 0 skipped, complete xcresult and TEST EXECUTE SUCCEEDED. Covers actor routing, deep links, filter persistence and request query parameters.
+- Xcode 27.2 (27B52), fixed dependency lock, all three Release archives and App Store Connect exports succeeded.
+- Exported IPA/PKG contents: strict deep signature verification; expected bundle/platform/version/build; App Store provisioning with no device list or debug entitlement. iOS includes both device families and two correctly signed notification extensions; tvOS device family 3; Mac universal arm64/x86_64, sandboxed store app without Sparkle, installer signature verified. No package installed.
+- Sanitized artifact hashes and validation summary: `apple-build-validation.json`.
+- Existing test.sh prematurely ended a combined unit/UI run after unit summary; that incomplete result was discarded. Direct xcodebuild runs above completed with valid result bundles. No unrelated script change.
+
+Pending: preparation branch review/merge, final main/source equivalence check, official upload, build-specific bilingual test notes, and ASC VALID/internal availability verification. No user-installed app was installed or restarted; UI tests used only newly created dedicated simulators.
