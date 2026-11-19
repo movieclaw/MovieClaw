@@ -2390,6 +2390,12 @@
   "downloader.trUrl": {
     "sourceHash": "a1510f905d53ab756930ff98aeddea1ecb8c385b4b33f3ce6f65d6688f0569cd"
   },
+  "downloader.verifyTimeout": {
+    "sourceHash": "5f62508d78f13ed23ee043a52baa835218d4e84c875145d11c6d599aa08ad791"
+  },
+  "downloader.verifyInterrupted": {
+    "sourceHash": "0f0b8cfab073cc7f0a61925d703f23aececfd193abb0b3bd4981d3e81852a90c"
+  },
   "downloader.verifyUnexpected": {
     "sourceHash": "cc4a8b4573b706f91c54bb3657ae824a7b69104606c97c5644962ca135616b19"
   },
