@@ -650,13 +650,69 @@ def test_rollback_to_restore_requires_backup(updates_dir, tmp_path, monkeypatch,
 def test_rollback_to_baseline_unlinks_current(updates_dir, tmp_path, monkeypatch, no_restart):
     app_update._apply_downloaded(_make_manifest(tmp_path / "d", "0.2.0"), tmp_path / "d")
     monkeypatch.setenv("MOVIECLAW_OVERLAY_VERSION", "0.2.0")
+    (updates_dir / "previous").symlink_to((updates_dir / "current").resolve())
     app_update.reset_progress_for_tests()
 
     message = app_update.rollback_to("baseline", restore_backup=False)
     assert "镜像内置" in message
     assert not (updates_dir / "current").exists()
-    assert Path(updates_dir / "previous").resolve().name == "v0.2.0"
+    assert not (updates_dir / "previous").is_symlink()
+    assert (updates_dir / "versions" / "v0.2.0").is_dir()
     assert no_restart == [43]
+
+
+@pytest.mark.parametrize("failure", [None, "snapshot", "links"])
+def test_baseline_rollback_pairs_database_and_boot_links(
+    updates_dir, tmp_path, monkeypatch, no_restart, failure
+):
+    root = tmp_path / "image"
+    package = root / "src" / "movieclaw_api"
+    package.mkdir(parents=True)
+    (package / "__init__.py").write_text('__version__ = "0.2.0"\n', encoding="utf-8")
+    migrations = root / "alembic" / "versions"
+    migrations.mkdir(parents=True)
+    (migrations / "old.py").write_text('revision = "rev-old"\n', encoding="utf-8")
+    monkeypatch.setenv("MOVIECLAW_APP_ROOT", str(root))
+    monkeypatch.setenv("MOVIECLAW_OVERLAY_VERSION", "0.3.0")
+    db = Path(get_settings().database_url.split(":///", 1)[1])
+    _make_db(db, "rev-live")
+    app_update._apply_downloaded(_make_manifest(tmp_path / "d", "0.3.0"), tmp_path / "d")
+    app_update.reset_progress_for_tests()
+    current = updates_dir / "current"
+    current_target = current.resolve()
+    previous = updates_dir / "previous"
+    previous.symlink_to(current_target)
+    backup = _make_backup(updates_dir, "0.2.0", "rev-old", "20260801-100000")
+
+    option = app_update._build_rollback_options("0.1.0", 5).targets[-1]
+    assert (option.kind, option.version, option.schema_action) == ("baseline", "0.2.0", "restore")
+    with pytest.raises(BadRequestException):
+        app_update.rollback_to("baseline", restore_backup=False)
+    app_update.rollback_to("baseline", restore_backup=True)
+    assert no_restart == [43]
+    assert current.resolve() == current_target and previous.resolve() == current_target
+    assert app_update._read_alembic_rev(db) == "rev-live"
+    if failure == "snapshot":
+        backup.write_bytes(b"Incomplete snapshot")
+    if failure == "links":
+        original_unlink = Path.unlink
+
+        def cannot_unlink_current(path, *args, **kwargs):
+            if path == current:
+                raise OSError("Could not remove the current link")
+            return original_unlink(path, *args, **kwargs)
+
+        monkeypatch.setattr(Path, "unlink", cannot_unlink_current)
+
+    app_update.execute_pending_restore()
+    if failure:
+        assert app_update._read_alembic_rev(db) == "rev-live"
+        assert current.resolve() == current_target and previous.resolve() == current_target
+    else:
+        assert app_update._read_alembic_rev(db) == "rev-old"
+        assert not current.is_symlink() and not previous.is_symlink()
+        assert current_target.is_dir()
+    assert not (updates_dir / "state" / "restore-pending.json").exists()
 
 
 def test_execute_pending_restore_swaps_db(updates_dir, tmp_path):
