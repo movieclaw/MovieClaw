@@ -18,6 +18,7 @@ from fastapi.testclient import TestClient
 from sqlmodel import select
 
 import movieclaw_api.services.downloader_config as downloader_service
+import movieclaw_db.repositories.downloader_repo as downloader_repo
 from movieclaw_api.core.config import get_settings
 from movieclaw_downloader import (
     DownloaderConnectError,
@@ -250,27 +251,59 @@ def test_verification_settles_after_probe_or_cleanup_failure(
     assert not close_completed
 
 
-def test_cancelled_verification_records_failure(client, monkeypatch) -> None:
+@pytest.mark.parametrize("stage", ["read", "probe", "close", "write", "committed"])
+def test_cancelled_verification_records_failure(client, monkeypatch, stage) -> None:
     from movieclaw_api.api.routes import downloaders
+    from movieclaw_db.models.site_credential import ConfigStatus
 
     c, _ = client
     started = asyncio.Event()
+    release_close = asyncio.Event()
     closed = []
+    original_get = downloader_repo.DownloaderRepository.get
+    original_update = downloader_repo.DownloaderRepository.update_status
+
+    async def pause():
+        started.set()
+        await asyncio.Event().wait()
+
+    async def read(self, downloader_id):
+        if stage == "read":
+            await pause()
+        return await original_get(self, downloader_id)
+
+    async def write(self, downloader_id, status, **kwargs):
+        if status == ConfigStatus.ACTIVE and stage == "write":
+            with monkeypatch.context() as patch:
+                patch.setattr(self._session, "commit", pause)
+                return await original_update(self, downloader_id, status, **kwargs)
+        result = await original_update(self, downloader_id, status, **kwargs)
+        if status == ConfigStatus.ACTIVE and stage == "committed":
+            await pause()
+        return result
 
     class InterruptedDownloader(_FakeDownloader):
         async def test_connection(self):
-            started.set()
-            await asyncio.Event().wait()
+            if stage == "probe":
+                await pause()
+            return await super().test_connection()
 
         async def close(self):
+            if stage == "close":
+                started.set()
+                await release_close.wait()
             closed.append(True)
 
-    async def cancel_verification(downloader_id):
-        task = asyncio.create_task(downloader_service.verify_downloader(downloader_id))
-        await asyncio.wait_for(started.wait(), timeout=2)
-        task.cancel()
-        with pytest.raises(asyncio.CancelledError):
-            await task
+    async def cancel_verification(*args):
+        with monkeypatch.context() as patch:
+            patch.setattr(downloader_repo.DownloaderRepository, "get", read)
+            patch.setattr(downloader_repo.DownloaderRepository, "update_status", write)
+            task = asyncio.create_task(downloader_service.verify_downloader(*args))
+            await asyncio.wait_for(started.wait(), timeout=2)
+            task.cancel()
+            release_close.set()
+            with pytest.raises(asyncio.CancelledError):
+                await task
 
     monkeypatch.setattr(downloader_service, "create_downloader", InterruptedDownloader)
     monkeypatch.setattr(downloaders, "verify_downloader", cancel_verification)
@@ -280,9 +313,13 @@ def test_cancelled_verification_records_failure(client, monkeypatch) -> None:
     detail = c.get(
         f"/api/v1/downloaders/{downloader_id}", headers={"Accept-Language": "en"}
     ).json()["data"]
-    assert detail["status"] == "failed"
-    assert "interrupted" in detail["last_error"]
-    assert closed == [True]
+    if stage == "committed":
+        assert detail["status"] == "active"
+        assert detail["last_error"] is None
+    else:
+        assert detail["status"] == "failed"
+        assert "interrupted" in detail["last_error"]
+    assert closed == ([] if stage == "read" else [True])
 
 
 def test_restart_recovers_interrupted_verification(downloader_app, monkeypatch) -> None:
@@ -291,7 +328,7 @@ def test_restart_recovers_interrupted_verification(downloader_app, monkeypatch) 
     with TestClient(downloader_app) as c:
         with monkeypatch.context() as patch:
             # Simulate shutdown after the API commits VERIFYING but before the worker runs.
-            patch.setattr(downloaders, "verify_downloader", lambda _: None)
+            patch.setattr(downloaders, "verify_downloader", lambda *_: None)
             created = c.post("/api/v1/downloaders", json=_TRANSMISSION)
             assert created.status_code == 200
             path = f"/api/v1/downloaders/{created.json()['data']['id']}"
@@ -305,6 +342,9 @@ def test_restart_recovers_interrupted_verification(downloader_app, monkeypatch) 
 
     calls_before_restart = len(_captured_configs)
     with TestClient(downloader_app, headers={"Accept-Language": "en"}) as c:
+        assert c.get(path).json()["data"]["status"] == "verifying"
+        now = downloader_repo.utcnow
+        monkeypatch.setattr(downloader_repo, "utcnow", lambda: now() + timedelta(minutes=2))
         detail = c.get(path).json()["data"]
         assert detail["status"] == "failed"
         assert "interrupted" in detail["last_error"]
@@ -320,6 +360,71 @@ def test_restart_recovers_interrupted_verification(downloader_app, monkeypatch) 
         assert c.patch(f"{path}/status", json={"enabled": False}).status_code == 200
         assert c.delete(path).status_code == 200
         assert c.get(path).status_code == 404
+
+
+def test_late_verification_cannot_overwrite_edited_config(client, monkeypatch) -> None:
+    from movieclaw_api.api.routes import downloaders
+
+    c, _ = client
+    queued = []
+    started = asyncio.Event()
+    release = asyncio.Event()
+
+    class SlowDownloader(_FakeDownloader):
+        async def test_connection(self):
+            if self.config.url == _TRANSMISSION["url"]:
+                started.set()
+                await release.wait()
+                return DownloaderInfo(type="transmission", version="old")
+            return DownloaderInfo(type="transmission", version="new")
+
+    async def wait_for_probe():
+        await asyncio.wait_for(started.wait(), timeout=2)
+
+    monkeypatch.setattr(downloader_service, "create_downloader", SlowDownloader)
+    with monkeypatch.context() as patch:
+        patch.setattr(downloaders, "verify_downloader", lambda *args: queued.append(args))
+        created = c.post("/api/v1/downloaders", json=_TRANSMISSION)
+    assert created.status_code == 200
+    path = f"/api/v1/downloaders/{created.json()['data']['id']}"
+    old_task = c.portal.start_task_soon(downloader_service.verify_downloader, *queued[0])
+    try:
+        c.portal.call(wait_for_probe)
+        now = downloader_repo.utcnow
+        monkeypatch.setattr(downloader_repo, "utcnow", lambda: now() + timedelta(minutes=2))
+        with monkeypatch.context() as patch:
+            patch.setattr(downloaders, "verify_downloader", lambda *args: queued.append(args))
+            updated = c.put(path, json={**_TRANSMISSION, "url": "http://new.invalid:9091"})
+        assert updated.status_code == 200
+        assert c.get(path).json()["data"]["status"] == "verifying"
+    finally:
+        c.portal.call(release.set)
+        old_task.result(timeout=2)
+    detail = c.get(path).json()["data"]
+    assert detail["status"] == "verifying"
+    assert detail["version"] is None
+    c.portal.call(downloader_service.verify_downloader, *queued[1])
+    detail = c.get(path).json()["data"]
+    assert detail["status"] == "active"
+    assert detail["version"] == "new"
+
+
+def test_legacy_verification_is_recovered_after_grace_period(client) -> None:
+    c, db_file = client
+    created = c.post("/api/v1/downloaders", json=_TRANSMISSION).json()["data"]
+    downloader_id = created["id"]
+    with sqlite3.connect(db_file) as conn:
+        # 旧版本的 VERIFYING 记录有更新时间，迁移新增列默认为 NULL。
+        conn.execute(
+            "UPDATE downloader_client SET status = 'VERIFYING', "
+            "updated_at = datetime('now', '-5 hours') WHERE id = ?",
+            (downloader_id,),
+        )
+    detail = c.get("/api/v1/downloaders", headers={"Accept-Language": "en"}).json()["data"][0]
+    assert detail["status"] == "failed"
+    assert "interrupted" in detail["last_error"]
+    assert detail["version"] == "v5.0.2"
+    assert detail["last_checked_at"] is not None
 
 
 def test_create_rejects_invalid_url(client) -> None:

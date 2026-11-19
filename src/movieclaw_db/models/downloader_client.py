@@ -97,6 +97,8 @@ class DownloaderClient(TimestampMixin, table=True):
 
     # 验证状态机（语义见 ConfigStatus）
     status: ConfigStatus = Field(default=ConfigStatus.PENDING, description="连接验证状态")
+    verification_token: str | None = Field(default=None)
+    verification_expires_at: datetime | None = Field(default=None)
     last_error: str | None = Field(default=None, description="最近一次测试失败原因（中文）")
     last_error_ref: dict | None = Field(default=None, sa_column=Column(JSON, nullable=True))
     last_checked_at: datetime | None = Field(default=None, description="最近一次测试时间")
