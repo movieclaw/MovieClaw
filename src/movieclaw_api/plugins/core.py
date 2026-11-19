@@ -24,7 +24,9 @@ logger = logging.getLogger("movieclaw_api.plugins.core")
 @plugin("core.database", title="数据库", provides=(DB,), critical=True)
 async def database(ctx: Context) -> None:
     """打开应用数据库，启动时自动升级表结构；几乎所有功能都依赖它。"""
+    from movieclaw_api.i18n.stored import stored_fields
     from movieclaw_db.engine import dispose_db, init_db, refresh_query_statistics
+    from movieclaw_db.repositories.downloader_repo import DownloaderRepository
 
     settings = ctx.settings
     # 先初始化引擎（会顺带创建 SQLite 文件所在目录），再执行迁移
@@ -42,6 +44,14 @@ async def database(ctx: Context) -> None:
     # Alembic 的 fileConfig 会按 alembic.ini 重置 root logger（级别、Handler 全换掉），
     # 迁移一跑完就重新应用一次应用日志配置，否则迁移之后的日志全部不落盘
     configure_logging(settings.log_level, settings.log_dir, settings.log_retention_days)
+    # 仅在数据库启动时恢复，避免热重载插件时打断仍在运行的验证。
+    interrupted = stored_fields("errors.downloader.verifyInterrupted")
+    async with db.session() as session:
+        count = await DownloaderRepository(session).fail_stale_verifying(
+            last_error=interrupted["message"], last_error_ref=interrupted
+        )
+    if count:
+        logger.info("已将 %d 条遗留的下载器验证标记为中断", count)
     ctx.provide(DB, db)
 
 

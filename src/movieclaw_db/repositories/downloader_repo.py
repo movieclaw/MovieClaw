@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from sqlalchemy import update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
@@ -161,18 +162,20 @@ class DownloaderRepository:
         await self._session.commit()
         return True
 
-    async def reset_stale_verifying(self) -> int:
-        """把残留在 VERIFYING 的记录重置为 PENDING（进程重启自愈），返回条数。"""
+    async def fail_stale_verifying(self, *, last_error: str, last_error_ref: dict) -> int:
+        """把重启前残留的验证标为失败，保留上次检查时间和版本。"""
         result = await self._session.execute(
-            select(DownloaderClient).where(DownloaderClient.status == ConfigStatus.VERIFYING)
+            update(DownloaderClient)
+            .where(DownloaderClient.status == ConfigStatus.VERIFYING)
+            .values(
+                status=ConfigStatus.FAILED,
+                last_error=last_error,
+                last_error_ref=last_error_ref,
+                updated_at=utcnow(),
+            )
         )
-        rows = list(result.scalars().all())
-        for row in rows:
-            row.status = ConfigStatus.PENDING
-            row.updated_at = utcnow()
-        if rows:
-            await self._session.commit()
-        return len(rows)
+        await self._session.commit()
+        return result.rowcount or 0
 
     async def set_enabled(self, downloader_id: int, enabled: bool) -> bool:
         """启用/停用某下载器。返回是否命中记录。"""

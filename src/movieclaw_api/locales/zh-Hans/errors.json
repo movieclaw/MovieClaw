@@ -989,6 +989,8 @@
     "trDelete": "删除 Transmission 任务失败，请检查下载器状态",
     "trRejected": "Transmission 拒绝了该请求（种子无效或下载器返回错误）",
     "trUrl": "Transmission 地址格式错误，应形如 http://主机:9091",
+    "verifyTimeout": "下载器连接测试在 {seconds} 秒后超时。",
+    "verifyInterrupted": "下载器连接测试已中断，请重新测试。",
     "verifyUnexpected": "测试时发生未知错误（{kind}）：{detail}",
     "pluginNotRunning": "下载器插件 {entry} 没在运行，稍后会自动重试"
   },
