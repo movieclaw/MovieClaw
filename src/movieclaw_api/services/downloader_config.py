@@ -1,7 +1,7 @@
 """下载器配置服务：用户接入的下载软件的增删改查与连接验证。
 
-与站点配置（site_config + verification）完全同构：
-- 写入前做业务校验（名称唯一），落库后状态置 PENDING；
+下载器配置写入时原子登记验证租约，后台任务持令牌写入结论：
+- 写入前做业务校验（名称唯一）；
 - 真正的连通性验证交给后台任务 ``verify_downloader``（测一次连接）；
 - VERIFYING 期间拒绝更新/删除/重复验证（409 并发守卫，原理见 SiteConfigService）。
 """
@@ -11,6 +11,7 @@ from __future__ import annotations
 import asyncio
 import logging
 
+from anyio import CancelScope
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from movieclaw_api.exceptions import BadRequestException, ConflictException, NotFoundException
@@ -23,6 +24,7 @@ from movieclaw_db.models.downloader_client import DownloaderClient
 from movieclaw_db.models.site_credential import ConfigStatus
 from movieclaw_db.repositories.downloader_repo import DownloaderRepository
 from movieclaw_downloader import (
+    BaseDownloader,
     DownloaderConfig,
     DownloaderException,
     DownloaderInfo,
@@ -37,6 +39,17 @@ _TEST_TIMEOUT = 10.0
 _VERIFY_TIMEOUT = 30
 
 
+async def recover_stale_downloader_verifications(
+    session: AsyncSession, downloader_id: int | None = None
+) -> None:
+    interrupted = stored_fields("errors.downloader.verifyInterrupted")
+    count = await DownloaderRepository(session).fail_stale_verifying(
+        last_error=interrupted["message"], last_error_ref=interrupted, downloader_id=downloader_id
+    )
+    if count:
+        logger.info("已将 %d 条过期的下载器验证标记为中断", count)
+
+
 class DownloaderConfigService:
     """下载器配置的业务服务。绑定一个数据库会话。"""
 
@@ -45,22 +58,25 @@ class DownloaderConfigService:
         self._repo = DownloaderRepository(session)
 
     @staticmethod
-    def _assert_not_verifying(row: DownloaderClient) -> None:
-        """若下载器正在测试连接，拒绝当前操作（409）。"""
-        if row.status == ConfigStatus.VERIFYING:
-            raise ConflictException(
-                message_key="errors.downloaders.testing", params={"name": row.name}
-            )
+    def _verification_conflict(name: str) -> ConflictException:
+        return ConflictException(message_key="errors.downloaders.testing", params={"name": name})
 
     # -- 查询 --------------------------------------------------------------
 
     async def list_all(self) -> list[DownloaderClient]:
         """返回所有已配置的下载器（含各自验证状态）。"""
-        return await self._repo.list_all()
+        rows = await self._repo.list_all()
+        if any(self._repo.verification_expired(row) for row in rows):
+            await recover_stale_downloader_verifications(self._session)
+            rows = await self._repo.list_all(refresh=True)
+        return rows
 
     async def get(self, downloader_id: int) -> DownloaderClient:
         """按 id 获取；不存在抛 404。"""
         row = await self._repo.get(downloader_id)
+        if row is not None and self._repo.verification_expired(row):
+            await recover_stale_downloader_verifications(self._session, downloader_id)
+            row = await self._repo.get(downloader_id, refresh=True)
         if row is None:
             raise NotFoundException(
                 message_key="errors.downloaders.missing", params={"id": downloader_id}
@@ -104,7 +120,7 @@ class DownloaderConfigService:
         path_mappings: list[dict[str, str]] | None = None,
         enabled: bool = True,
     ) -> DownloaderClient:
-        """新增下载器配置（状态置 PENDING，等待异步测试连接）。"""
+        """新增下载器配置并占位为 VERIFYING，等待异步测试连接。"""
         self._assert_type_known(client_type)
         await self._assert_name_available(name)
         return await self._repo.create(
@@ -116,6 +132,7 @@ class DownloaderConfigService:
             save_path=save_path,
             path_mappings=path_mappings,
             enabled=enabled,
+            verify=True,
         )
 
     async def update(
@@ -133,11 +150,12 @@ class DownloaderConfigService:
     ) -> DownloaderClient:
         """整体更新下载器配置；不存在抛 404，正在验证中抛 409。"""
         row = await self.get(downloader_id)
-        self._assert_not_verifying(row)
+        if row.status == ConfigStatus.VERIFYING:
+            raise self._verification_conflict(row.name)
         if client_type != row.client_type:
             self._assert_type_known(client_type)
         await self._assert_name_available(name, exclude_id=downloader_id)
-        updated = await self._repo.update(
+        updated = await self._repo.update_and_start_verification(
             downloader_id,
             name=name,
             client_type=client_type,
@@ -148,18 +166,19 @@ class DownloaderConfigService:
             path_mappings=path_mappings,
             enabled=enabled,
         )
-        assert updated is not None  # get() 已确认存在
+        if updated is None:
+            raise self._verification_conflict(row.name)
         return updated
 
     async def start_verification(self, downloader_id: int) -> DownloaderClient:
-        """同步占位为 VERIFYING 并返回，随后由调用方排队后台测试任务。
-
-        并发守卫原理见 SiteConfigService.start_verification。
-        """
+        """原子占位为 VERIFYING，交给请求所属进程的后台任务。"""
         row = await self.get(downloader_id)
-        self._assert_not_verifying(row)
-        await self._repo.update_status(downloader_id, ConfigStatus.VERIFYING)
-        return await self.get(downloader_id)
+        if row.status == ConfigStatus.VERIFYING:
+            raise self._verification_conflict(row.name)
+        claimed = await self._repo.start_verification(downloader_id)
+        if claimed is None:
+            raise self._verification_conflict(row.name)
+        return claimed
 
     async def set_enabled(self, downloader_id: int, enabled: bool) -> DownloaderClient:
         """启用/停用；与验证状态正交，不受 VERIFYING 守卫限制。"""
@@ -198,7 +217,8 @@ class DownloaderConfigService:
         from movieclaw_db.models.site_credential import SiteCredential
 
         row = await self.get(downloader_id)
-        self._assert_not_verifying(row)
+        if row.status == ConfigStatus.VERIFYING:
+            raise self._verification_conflict(row.name)
         boost_sites = (
             (
                 await self._session.execute(
@@ -231,6 +251,14 @@ class DownloaderConfigService:
 # ---------------------------------------------------------------------------
 
 
+async def _close_downloader(downloader: BaseDownloader) -> None:
+    try:
+        async with asyncio.timeout(_TEST_TIMEOUT):
+            await downloader.close()
+    except Exception:
+        logger.warning("关闭下载器测试连接失败", exc_info=True)
+
+
 async def _check_downloader(
     config: DownloaderConfig, path_mappings: list[dict[str, str]] | None
 ) -> tuple[DownloaderInfo, list[PathProbe]]:
@@ -242,79 +270,93 @@ async def _check_downloader(
             probes = await asyncio.to_thread(probe_mappings, path_mappings)
         return info, probes
     finally:
+        cleanup = asyncio.create_task(_close_downloader(downloader))
         try:
-            async with asyncio.timeout(_TEST_TIMEOUT):
-                await downloader.close()
-        except Exception:
-            logger.warning("关闭下载器测试连接失败", exc_info=True)
+            await asyncio.shield(cleanup)
+        except asyncio.CancelledError:
+            with CancelScope(shield=True):
+                await asyncio.shield(cleanup)
+            raise
 
 
-async def verify_downloader(downloader_id: int) -> None:
-    """异步测试某下载器的连通性与凭证，并把结论写回状态字段。
+async def verify_downloader(downloader_id: int, verification_token: str) -> None:
+    """执行已登记的验证，全程处理取消并按令牌写入结论。"""
+    try:
+        await _verify_owned_downloader(downloader_id, verification_token)
+    except asyncio.CancelledError:
+        # 原会话可能在读取或 COMMIT 时被取消。独立事务只标记仍归本任务的记录。
+        interrupted = stored_fields("errors.downloader.verifyInterrupted")
+        with CancelScope(shield=True):
+            try:
+                async with get_database().session() as session:
+                    await DownloaderRepository(session).update_status(
+                        downloader_id,
+                        ConfigStatus.FAILED,
+                        verification_token=verification_token,
+                        last_error=interrupted["message"],
+                        last_error_ref=interrupted,
+                    )
+            except Exception:
+                logger.exception("无法记录下载器验证中断：id=%s", downloader_id)
+        raise
 
-    验证判据：真实调用一次 ``test_connection()``，能拿到版本号即证明
-    地址、凭证均有效。
 
-    前置约定：调用前状态已被 start_verification 置为 VERIFYING。
-    探测失败写入 FAILED + last_error；取消时先记录中断，再继续传播取消。
-    """
-    async with get_database().session() as session:
-        repo = DownloaderRepository(session)
-        row = await repo.get(downloader_id)
-        if row is None:
-            logger.warning("测试连接时下载器已被删除：id=%s", downloader_id)
+async def _verify_owned_downloader(downloader_id: int, verification_token: str) -> None:
+    db = get_database()
+    async with db.session() as session:
+        row = await DownloaderRepository(session).get(downloader_id)
+        if row is None or not DownloaderRepository.owns_verification(row, verification_token):
             return
 
-        try:
-            config = DownloaderConfig(
-                type=row.client_type,
-                url=row.url,
-                username=row.username,
-                password=repo.decrypted_password(row),
-                timeout=_TEST_TIMEOUT,
-            )
-            info, probes = await _check_downloader(config, row.path_mappings)
-            path_health = [probe.as_dict() for probe in probes] or None
-        except asyncio.CancelledError:
-            interrupted = stored_fields("errors.downloader.verifyInterrupted")
-            await repo.update_status(
-                downloader_id,
-                ConfigStatus.FAILED,
-                last_error=interrupted["message"],
-                last_error_ref=interrupted,
-            )
-            raise
-        except DownloaderException as exc:
-            logger.info("下载器连接测试失败：%s（%s）", row.name, exc.message)
-            error, error_ref = exc.message, exc.message_ref
-        except TimeoutError:
-            logger.info("下载器连接测试超时：%s", row.name)
-            error_ref = stored_fields("errors.downloader.verifyTimeout", seconds=_VERIFY_TIMEOUT)
-            error = error_ref["message"]
-        except Exception as exc:
-            logger.exception("下载器连接测试发生未知错误：%s", row.name)
-            error_ref = stored_fields(
-                "errors.downloader.verifyUnexpected", kind=type(exc).__name__, detail=str(exc)
-            )
-            error = error_ref["message"]
-        else:
-            logger.info("下载器连接测试通过：%s（%s %s）", row.name, info.type, info.version)
-            await repo.update_status(
+    try:
+        config = DownloaderConfig(
+            type=row.client_type,
+            url=row.url,
+            username=row.username,
+            password=DownloaderRepository.decrypted_password(row),
+            timeout=_TEST_TIMEOUT,
+        )
+        info, probes = await _check_downloader(config, row.path_mappings)
+        path_health = [probe.as_dict() for probe in probes] or None
+    except DownloaderException as exc:
+        logger.info("下载器连接测试失败：%s（%s）", row.name, exc.message)
+        error, error_ref = exc.message, exc.message_ref
+    except TimeoutError:
+        logger.info("下载器连接测试超时：%s", row.name)
+        error_ref = stored_fields("errors.downloader.verifyTimeout", seconds=_VERIFY_TIMEOUT)
+        error = error_ref["message"]
+    except Exception as exc:
+        logger.exception("下载器连接测试发生未知错误：%s", row.name)
+        error_ref = stored_fields(
+            "errors.downloader.verifyUnexpected", kind=type(exc).__name__, detail=str(exc)
+        )
+        error = error_ref["message"]
+    else:
+        async with db.session() as session:
+            if not await DownloaderRepository(session).update_status(
                 downloader_id,
                 ConfigStatus.ACTIVE,
+                verification_token=verification_token,
                 version=info.version,
                 path_health=path_health,
-            )
+            ):
+                return
+            logger.info("下载器连接测试通过：%s（%s %s）", row.name, info.type, info.version)
             # 连接恢复，红灯熄灭
             from movieclaw_api.services.system_notice import resolve_notices
 
             await resolve_notices(session, dedupe_key=f"downloader:{downloader_id}")
             await _notify_paths(session, downloader_id, row.name, probes)
-            return
-        await repo.update_status(
-            downloader_id, ConfigStatus.FAILED, last_error=error, last_error_ref=error_ref
-        )
-        await _notify_failed(session, downloader_id, row.name, error_ref or error)
+        return
+    async with db.session() as session:
+        if await DownloaderRepository(session).update_status(
+            downloader_id,
+            ConfigStatus.FAILED,
+            verification_token=verification_token,
+            last_error=error,
+            last_error_ref=error_ref,
+        ):
+            await _notify_failed(session, downloader_id, row.name, error_ref or error)
 
 
 async def _notify_paths(

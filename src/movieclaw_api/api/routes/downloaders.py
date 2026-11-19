@@ -725,10 +725,10 @@ async def create_downloader_config(
     background_tasks: BackgroundTasks,
     session: AsyncSession = Depends(get_session),
 ) -> ApiResponse[DownloaderView]:
-    """保存下载器连接信息（状态置 pending），并在后台异步测试连通性。
+    """保存下载器连接信息，并在后台异步测试连通性。
 
     接口立即返回，调用方可轮询下载器详情（CLI：mclaw dl show <id>）观察 status 变化：
-    pending → verifying → active（可用）/ failed（见 last_error）。
+    verifying → active（可用）/ failed（见 last_error）。
     """
     service = DownloaderConfigService(session)
     row = await service.create(
@@ -741,9 +741,8 @@ async def create_downloader_config(
         path_mappings=_mappings_to_rows(payload),
         enabled=payload.enabled,
     )
-    assert row.id is not None  # 落库后必有主键
-    row = await service.start_verification(row.id)
-    background_tasks.add_task(verify_downloader, row.id)
+    assert row.id is not None and row.verification_token is not None
+    background_tasks.add_task(verify_downloader, row.id, row.verification_token)
     return ok(DownloaderView.from_model(row), message=t("settings.downloaders.created"))
 
 
@@ -760,7 +759,7 @@ async def update_downloader_config(
     session: AsyncSession = Depends(get_session),
 ) -> ApiResponse[DownloaderView]:
     service = DownloaderConfigService(session)
-    await service.update(
+    row = await service.update(
         downloader_id,
         name=payload.name,
         client_type=payload.client_type,
@@ -771,8 +770,8 @@ async def update_downloader_config(
         path_mappings=_mappings_to_rows(payload),
         enabled=payload.enabled,
     )
-    row = await service.start_verification(downloader_id)
-    background_tasks.add_task(verify_downloader, downloader_id)
+    assert row.verification_token is not None
+    background_tasks.add_task(verify_downloader, downloader_id, row.verification_token)
     return ok(DownloaderView.from_model(row), message=t("settings.downloaders.updated"))
 
 
@@ -827,7 +826,8 @@ async def reverify_downloader(
     并在后台重新测试。"""
     service = DownloaderConfigService(session)
     row = await service.start_verification(downloader_id)
-    background_tasks.add_task(verify_downloader, downloader_id)
+    assert row.verification_token is not None
+    background_tasks.add_task(verify_downloader, downloader_id, row.verification_token)
     return ok(DownloaderView.from_model(row), message=t("settings.downloaders.retested"))
 
 
