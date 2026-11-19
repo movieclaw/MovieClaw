@@ -807,6 +807,7 @@
     "builtinBackupMissing": "镜像内置版本没有可对时的自动备份，无法随回退恢复数据；如需恢复请在回退后从 data/updates/backup 手动恢复",
     "backupMissing": "没有找到离开 v{version} 时的自动备份，无法随回退恢复数据",
     "rollbackRequiresBackup": "目标版本不认识当前数据库结构。请使用对应版本的备份回退，或停机恢复升级前的配对快照。",
+    "rollbackDatabaseUnverified": "无法核对当前 SQLite 数据库或目标版本的迁移记录。请停机后核对版本和配对快照，再离线恢复。",
     "signatureDownloadFailed": "下载更新清单签名失败，请稍后重试"
   },
   "llm": {

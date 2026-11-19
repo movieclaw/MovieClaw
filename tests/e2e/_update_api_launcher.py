@@ -83,6 +83,9 @@ async def seed():
     for version in ("0.2.0", "0.3.0", "0.4.0", __version__, "0.6.0"):
         directory = versions / f"v{version}"
         directory.mkdir(exist_ok=True)
+        migrations = directory / "backend" / "alembic" / "versions"
+        migrations.mkdir(parents=True, exist_ok=True)
+        (migrations / "head.py").write_text(f"revision = {revision!r}\n", encoding="utf-8")
         (directory / "manifest.json").write_text(
             json.dumps({"version": version, "requires_runtime": 1})
         )

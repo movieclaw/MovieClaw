@@ -10,6 +10,7 @@ GitHub API 部分只测**失败路径的结论**（错误分类、退避重试�
 from __future__ import annotations
 
 import asyncio
+import errno
 import hashlib
 import io
 import json
@@ -315,9 +316,24 @@ def test_declared_revisions_match_alembic_on_real_migrations():
 # ---------------------------------------------------------------------------
 
 
-def test_rollback_swaps_current_and_previous(updates_dir, tmp_path, no_restart):
+@pytest.fixture
+def rollback_db(updates_dir, tmp_path, monkeypatch):
+    db = Path(get_settings().database_url.split(":///", 1)[1])
+    _make_db(db, "rev-live")
+    image = tmp_path / "image"
+    versions = image / "alembic" / "versions"
+    versions.mkdir(parents=True)
+    (versions / "live.py").write_text('revision = "rev-live"\n', encoding="utf-8")
+    monkeypatch.setenv("MOVIECLAW_APP_ROOT", str(image))
+    return db
+
+
+def test_rollback_swaps_current_and_previous(
+    updates_dir, tmp_path, monkeypatch, no_restart, rollback_db
+):
     app_update._apply_downloaded(_make_manifest(tmp_path / "d1", "0.2.0"), tmp_path / "d1")
     app_update._apply_downloaded(_make_manifest(tmp_path / "d2", "0.3.0"), tmp_path / "d2")
+    monkeypatch.setenv("MOVIECLAW_OVERLAY_VERSION", "0.3.0")
     app_update.reset_progress_for_tests()  # 直调 _apply_downloaded 会停在 applying 态
 
     app_update.rollback()
@@ -329,13 +345,35 @@ def test_rollback_swaps_current_and_previous(updates_dir, tmp_path, no_restart):
         app_update.rollback()
 
     # 再次回退 = 撤销回退，切回新版（真实场景中重启后进度自然复位）
+    monkeypatch.setenv("MOVIECLAW_OVERLAY_VERSION", "0.2.0")
     app_update.reset_progress_for_tests()
     app_update.rollback()
     assert Path(updates_dir / "current").resolve().name == "v0.3.0"
 
 
+def test_legacy_rollback_also_rejects_incompatible_previous(
+    updates_dir, tmp_path, monkeypatch, no_restart
+):
+    old = _make_manifest(tmp_path / "old", "0.2.0", revisions=("rev-old",))
+    newer = _make_manifest(tmp_path / "new", "0.3.0")
+    app_update._apply_downloaded(old, tmp_path / "old")
+    app_update._apply_downloaded(newer, tmp_path / "new")
+    db = Path(get_settings().database_url.split(":///", 1)[1])
+    _make_db(db, "rev-live")
+    monkeypatch.setenv("MOVIECLAW_OVERLAY_VERSION", "0.3.0")
+    app_update.reset_progress_for_tests()
+
+    with pytest.raises(BadRequestException) as rejected:
+        app_update.rollback()
+    assert rejected.value.message_key == "errors.appUpdate.rollbackRequiresBackup"
+    assert (updates_dir / "current").resolve().name == "v0.3.0"
+    assert (updates_dir / "previous").resolve().name == "v0.2.0"
+    assert app_update._read_alembic_rev(db) == "rev-live"
+    assert no_restart == []
+
+
 def test_rollback_without_previous_falls_back_to_baseline(
-    updates_dir, tmp_path, no_restart, monkeypatch
+    updates_dir, tmp_path, no_restart, monkeypatch, rollback_db
 ):
     app_update._apply_downloaded(_make_manifest(tmp_path / "d1", "0.2.0"), tmp_path / "d1")
     monkeypatch.setenv("MOVIECLAW_OVERLAY_VERSION", "0.2.0")  # 正在运行该 overlay
@@ -345,7 +383,9 @@ def test_rollback_without_previous_falls_back_to_baseline(
     assert no_restart == [app_update.FULL_RESTART_EXIT_CODE]
 
 
-def test_rollback_skips_unusable_previous(updates_dir, tmp_path, no_restart, monkeypatch):
+def test_rollback_skips_unusable_previous(
+    updates_dir, tmp_path, no_restart, monkeypatch, rollback_db
+):
     """previous 指向坏版本时视同不存在：回退直接落基线，绝不安排一次
     「entrypoint 会拒绝目标、什么都没变」的全量重启。"""
     app_update._apply_downloaded(_make_manifest(tmp_path / "d1", "0.2.0"), tmp_path / "d1")
@@ -604,7 +644,9 @@ def test_rollback_options_classifies_schema_action(updates_dir, tmp_path, monkey
     assert view.versions_dir_bytes > 0
 
 
-def test_rollback_to_specific_version_swaps_links(updates_dir, tmp_path, monkeypatch, no_restart):
+def test_rollback_to_specific_version_swaps_links(
+    updates_dir, tmp_path, monkeypatch, no_restart, rollback_db
+):
     for i, ver in enumerate(("0.2.0", "0.3.0", "0.4.0")):
         app_update._apply_downloaded(_make_manifest(tmp_path / f"d{i}", ver), tmp_path / f"d{i}")
     monkeypatch.setenv("MOVIECLAW_OVERLAY_VERSION", "0.4.0")
@@ -634,7 +676,9 @@ def test_rollback_to_with_restore_stages_pending(updates_dir, tmp_path, monkeypa
     assert no_restart == [43]
 
 
-def test_rollback_to_restore_requires_backup(updates_dir, tmp_path, monkeypatch, no_restart):
+def test_rollback_to_restore_requires_backup(
+    updates_dir, tmp_path, monkeypatch, no_restart, rollback_db
+):
     for i, ver in enumerate(("0.2.0", "0.3.0")):
         app_update._apply_downloaded(_make_manifest(tmp_path / f"d{i}", ver), tmp_path / f"d{i}")
     monkeypatch.setenv("MOVIECLAW_OVERLAY_VERSION", "0.3.0")
@@ -647,7 +691,9 @@ def test_rollback_to_restore_requires_backup(updates_dir, tmp_path, monkeypatch,
     assert no_restart == []
 
 
-def test_rollback_to_baseline_unlinks_current(updates_dir, tmp_path, monkeypatch, no_restart):
+def test_rollback_to_baseline_unlinks_current(
+    updates_dir, tmp_path, monkeypatch, no_restart, rollback_db
+):
     app_update._apply_downloaded(_make_manifest(tmp_path / "d", "0.2.0"), tmp_path / "d")
     monkeypatch.setenv("MOVIECLAW_OVERLAY_VERSION", "0.2.0")
     (updates_dir / "previous").symlink_to((updates_dir / "current").resolve())
@@ -715,19 +761,54 @@ def test_baseline_rollback_pairs_database_and_boot_links(
     assert not (updates_dir / "state" / "restore-pending.json").exists()
 
 
-def test_execute_pending_restore_swaps_db(updates_dir, tmp_path):
-    db = Path(get_settings().database_url.split(":///", 1)[1])
-    _make_db(db, "rev-new")
-    backup = _make_backup(updates_dir, "0.2.0", "rev-old", "20260801-100000")
-    app_update._stage_restore(updates_dir, backup, "v0.2.0")
+@pytest.mark.parametrize("failure", [None, "rename", "after_commit", "before_shutdown"])
+def test_execute_pending_restore_swaps_db(
+    updates_dir, tmp_path, monkeypatch, no_restart, rollback_db, failure
+):
+    for ver in ("0.2.0", "0.3.0"):
+        download = tmp_path / ver
+        app_update._apply_downloaded(_make_manifest(download, ver), download)
+    monkeypatch.setenv("MOVIECLAW_OVERLAY_VERSION", "0.3.0")
+    app_update.reset_progress_for_tests()
+    _make_backup(updates_dir, "0.2.0", "rev-old", "20260801-100000")
+    app_update.rollback_to("0.2.0", restore_backup=True)
 
-    app_update.execute_pending_restore()
-    assert app_update._read_alembic_rev(db) == "rev-old"  # 已换成备份内容
+    if failure == "before_shutdown":
+        monkeypatch.setattr(app_update, "_RESTORE_PROCESS_TOKEN", "another-process")
+    if failure == "rename":
+        replace = app_update.os.replace
+
+        def no_atomic_current(source, destination):
+            if destination == updates_dir / "current":
+                raise OSError(errno.EXDEV, "Atomic link replacement unavailable")
+            return replace(source, destination)
+
+        monkeypatch.setattr(app_update.os, "replace", no_atomic_current)
+    if failure == "after_commit":
+        with monkeypatch.context() as patch:
+            def stop():
+                raise SystemExit(86)
+
+            patch.setattr(app_update, "recover_interrupted_restore", stop)
+            with pytest.raises(SystemExit):
+                app_update.execute_pending_restore()
+        # The boot pointer already changed. A leftover journal must not undo the new database.
+        app_update.recover_interrupted_restore()
+    else:
+        app_update.execute_pending_restore()
+    expected = (
+        ("rev-live", "v0.3.0")
+        if failure in {"rename", "before_shutdown"}
+        else ("rev-old", "v0.2.0")
+    )
+    assert app_update._read_alembic_rev(rollback_db) == expected[0]
+    assert (updates_dir / "current").resolve().name == expected[1]
+    assert not (updates_dir / "state" / "restore-in-progress.json").exists()
     assert not (updates_dir / "state" / "restore-pending.json").exists()
     # 换库前把现库（rev-new）又归档了一份：恢复操作自身不是数据的单向门
     archived = [
         b for b in (updates_dir / "backup").glob("movieclaw-*.db")
-        if app_update._read_alembic_rev(b) == "rev-new"
+        if app_update._read_alembic_rev(b) == "rev-live"
     ]
     assert archived
 
@@ -739,13 +820,46 @@ def test_execute_pending_restore_ignores_stale(updates_dir, tmp_path):
     state_dir = updates_dir / "state"
     state_dir.mkdir(parents=True, exist_ok=True)
     (state_dir / "restore-pending.json").write_text(
-        json.dumps({"backup": str(backup), "target": "v0.2.0", "requested_at": 1000.0}),
+        json.dumps(
+            {
+                "backup": str(backup),
+                "target": "v0.2.0",
+                "requested_at": 1000.0,
+                "process": app_update._RESTORE_PROCESS_TOKEN,
+            }
+        ),
         encoding="utf-8",
     )
 
     app_update.execute_pending_restore()
     assert app_update._read_alembic_rev(db) == "rev-new"  # 陈旧暂存被忽略，库未动
     assert not (state_dir / "restore-pending.json").exists()  # 且已被消费清除
+
+
+def test_interrupted_restore_from_image_returns_to_image(
+    updates_dir, tmp_path, monkeypatch, no_restart, rollback_db
+):
+    download = tmp_path / "target"
+    app_update._apply_downloaded(_make_manifest(download, "0.2.0"), download)
+    current = updates_dir / "current"
+    current.unlink()
+    app_update.reset_progress_for_tests()
+    _make_backup(updates_dir, "0.2.0", "rev-old", "20260801-100000")
+    app_update.rollback_to("0.2.0", restore_backup=True)
+
+    def stop(*_, **__):
+        raise SystemExit(86)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(app_update, "_switch_rollback_links", stop)
+        with pytest.raises(SystemExit):
+            app_update.execute_pending_restore()
+
+    assert app_update._read_alembic_rev(rollback_db) == "rev-old"
+    app_update.recover_interrupted_restore()
+    assert app_update._read_alembic_rev(rollback_db) == "rev-live"
+    assert not current.is_symlink()
+    assert not (updates_dir / "state" / "restore-in-progress.json").exists()
 
 
 def test_prune_backups_keeps_restore_sources(updates_dir, tmp_path):
