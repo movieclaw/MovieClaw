@@ -807,6 +807,7 @@
     "builtinBackupMissing": "The image’s built-in version has no matching automatic backup to restore during rollback. If needed, restore manually from data/updates/backup afterwards.",
     "backupMissing": "No automatic backup was found from when v{version} was left; data cannot be restored during rollback",
     "rollbackRequiresBackup": "The target version does not recognize the current database schema. Restore a matching backup or stop the application and restore the pre-upgrade snapshot.",
+    "rollbackDatabaseUnverified": "The current SQLite database or target migration history could not be verified. Stop the application, confirm the version and matching snapshot, and restore it offline.",
     "signatureDownloadFailed": "Could not download the update manifest signature. Try again later."
   },
   "llm": {

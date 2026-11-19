@@ -45,6 +45,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from functools import cmp_to_key
 from pathlib import Path
+from uuid import uuid4
 
 import httpx
 
@@ -787,7 +788,7 @@ async def check_update() -> UpdateCheckView:
 # ---------------------------------------------------------------------------
 
 
-def _atomic_symlink(target: Path, link: Path) -> None:
+def _atomic_symlink(target: Path, link: Path, *, allow_fallback: bool = True) -> None:
     """原子地把 link 指向 target：先建临时链接再 rename 替换。
 
     飞牛 NAS 等 ZFS 部署下，``os.replace()`` 替换符号链接会抛
@@ -812,7 +813,7 @@ def _atomic_symlink(target: Path, link: Path) -> None:
         return
     except OSError as exc:
         # EXDEV(18)：ZFS 上 rename 符号链接的跨设备错误
-        if exc.errno != errno.EXDEV:
+        if exc.errno != errno.EXDEV or not allow_fallback:
             raise
         logger.warning("检测到文件系统不支持原子替换符号链接（EXDEV），改用 mv 兜底：%s", link)
     result = subprocess.run(["mv", "-T", "--", str(tmp), str(link)], capture_output=True, text=True)
@@ -912,8 +913,8 @@ def _read_alembic_rev(db_path: Path) -> str | None:
     try:
         conn = sqlite3.connect(db_path)
         try:
-            row = conn.execute("SELECT version_num FROM alembic_version").fetchone()
-            return str(row[0]) if row else None
+            rows = conn.execute("SELECT version_num FROM alembic_version").fetchall()
+            return str(rows[0][0]) if len(rows) == 1 else None
         finally:
             conn.close()
     except sqlite3.Error:
@@ -1690,42 +1691,15 @@ async def close_startup_check() -> None:
 
 
 def rollback() -> str:
-    """回退到上一版本（current/previous 互换，可再切回）；无上一版本时
-    删除 current 回落镜像基线。返回给用户的中文说明。"""
-    if _runtime_version() is None:
-        raise BadRequestException(message_key="errors.appUpdate.rollbackUnsupported")
-    if _progress.busy():
-        raise BadRequestException(message_key="errors.appUpdate.rollbackWhileUpdating")
+    """兼容无 target 请求，只允许直接切换，跨迁移恢复需显式选择。"""
     updates = _updates_dir()
-    current = updates / "current"
     previous = updates / "previous"
-    if current.exists() and not current.is_symlink():
-        raise BadRequestException(message_key="errors.appUpdate.currentLinkInvalid")
-    # 回退目标必须是 entrypoint 真实会采用的版本（runtime 匹配且未标坏）：
-    # 否则用户会经历一次什么都没变的全量重启。不可用的 previous 视同不存在。
-    if previous.is_symlink() and _overlay_state(Path(previous))[1]:
-        prev_target = Path(os.readlink(previous))
-        if current.is_symlink():
-            cur_target = Path(os.readlink(current))
-            _atomic_symlink(prev_target, current)
-            _atomic_symlink(cur_target, previous)
-        else:
-            _atomic_symlink(prev_target, current)
-            previous.unlink(missing_ok=True)
-        message = reference("settings.update.previousSwitched")
-    elif current.is_symlink() and os.environ.get("MOVIECLAW_OVERLAY_VERSION"):
-        current.unlink()
-        message = reference("settings.update.baselineSwitched")
-    else:
-        raise BadRequestException(message_key="errors.appUpdate.noRollbackTarget")
-    logger.info(
-        "应用回退：%s", stored_fields(message["message_key"], **message["params"])["message"]
-    )
-    # 占住 busy 态：重启前的窗口（响应缓冲 + 优雅停机最长约 11 秒）内
-    # 拒绝并发的更新/再回退请求，与更新线程置 restarting 的做法对称
-    _progress.set("restarting", reference("settings.update.rollingBack"), target_version=None)
-    schedule_restart(FULL_RESTART_EXIT_CODE)
-    return render_value(message)
+    running = os.environ.get("MOVIECLAW_OVERLAY_VERSION")
+    if previous.is_symlink():
+        version, usable, _ = _overlay_state(previous)
+        if usable and version != running:
+            return rollback_to(version, restore_backup=False)
+    return rollback_to("baseline" if running else None, restore_backup=False)
 
 
 # ---------------------------------------------------------------------------
@@ -1744,6 +1718,8 @@ def rollback() -> str:
 
 # 待执行恢复的暂存文件（updates/state/ 下）；带时间戳，防陈旧暂存误触发
 _RESTORE_PENDING_NAME = "restore-pending.json"
+_RESTORE_IN_PROGRESS_NAME = "restore-in-progress.json"
+_RESTORE_PROCESS_TOKEN = uuid4().hex
 # 暂存的有效窗口：正常流程从暂存到停机只有几秒，超过说明中途被打断过
 # （如恰好 docker stop），陈旧暂存绝不能在未来的某次重启里突然生效
 _RESTORE_PENDING_TTL_SECONDS = 600
@@ -1887,8 +1863,8 @@ def _stage_restore(
     backup: Path,
     target_label: str,
     *,
-    revision: str | None = None,
-    links: dict | None = None,
+    revision: str,
+    links: dict,
 ) -> None:
     """暂存一次数据库恢复，由 main.run 在停机尾声执行（见模块段注释）。"""
     state_dir = updates / "state"
@@ -1899,6 +1875,7 @@ def _stage_restore(
                 "backup": str(backup),
                 "target": target_label,
                 "requested_at": time.time(),
+                "process": _RESTORE_PROCESS_TOKEN,
                 "revision": revision,
                 "links": links,
             },
@@ -1909,7 +1886,7 @@ def _stage_restore(
 
 
 def _switch_rollback_links(
-    updates: Path, target_dir: Path | None, running_dir: Path | None
+    updates: Path, target_dir: Path | None, running_dir: Path | None, *, paired: bool = False
 ) -> None:
     current, previous = updates / "current", updates / "previous"
     if target_dir is None:
@@ -1920,15 +1897,15 @@ def _switch_rollback_links(
             current.unlink(missing_ok=True)
         except OSError:
             if prior is not None:
-                _atomic_symlink(prior, previous)
+                _atomic_symlink(prior, previous, allow_fallback=not paired)
             raise
     else:
         if running_dir is not None:
-            _atomic_symlink(running_dir, previous)
-        _atomic_symlink(target_dir, current)
+            _atomic_symlink(running_dir, previous, allow_fallback=not paired)
+        _atomic_symlink(target_dir, current, allow_fallback=not paired)
 
 
-def rollback_to(target: str, restore_backup: bool) -> str:
+def rollback_to(target: str | None, restore_backup: bool) -> str:
     """回退（切换）到指定版本或镜像基线，可选恢复对应时点的数据库备份。
 
     跨迁移回退先暂存计划，停机后恢复快照再切换启动指向。
@@ -1937,6 +1914,8 @@ def rollback_to(target: str, restore_backup: bool) -> str:
         raise BadRequestException(message_key="errors.appUpdate.rollbackUnsupported")
     if _progress.busy():
         raise BadRequestException(message_key="errors.appUpdate.rollbackWhileUpdating")
+    if target is None:
+        raise BadRequestException(message_key="errors.appUpdate.noRollbackTarget")
     updates = _updates_dir()
     current = updates / "current"
     if current.exists() and not current.is_symlink():
@@ -1973,23 +1952,37 @@ def rollback_to(target: str, restore_backup: bool) -> str:
 
     backup: Path | None = None
     revision: str | None = None
-    revisions = _declared_revisions(backend / "alembic")
+    try:
+        revisions = _declared_revisions(backend / "alembic")
+    except (OSError, SyntaxError, UnicodeError) as exc:
+        raise BadRequestException(
+            message_key="errors.appUpdate.rollbackDatabaseUnverified"
+        ) from exc
+    db_path = _db_path()
+    live_rev = _read_alembic_rev(db_path) if db_path and db_path.is_file() else None
+    if not live_rev or not revisions:
+        raise BadRequestException(message_key="errors.appUpdate.rollbackDatabaseUnverified")
     if restore_backup:
+        sidecar = {}
         if restore_version:
             backup = _latest_backup_for(updates, restore_version)
             if backup is not None:
                 revision = _read_alembic_rev(backup)
-        if not revision or revision not in revisions:
+                sidecar = _backup_sidecar(backup)
+        if (
+            backup is None
+            or not revision
+            or revision not in revisions
+            or sidecar.get("alembic_rev") != revision
+            or sidecar.get("from_version") != restore_version
+        ):
             if target == "baseline":
                 raise BadRequestException(message_key="errors.appUpdate.builtinBackupMissing")
             raise BadRequestException(
                 message_key="errors.appUpdate.backupMissing", params={"version": restore_version}
             )
-    else:
-        db_path = _db_path()
-        live_rev = _read_alembic_rev(db_path) if db_path and db_path.is_file() else None
-        if live_rev and revisions and live_rev not in revisions:
-            raise BadRequestException(message_key="errors.appUpdate.rollbackRequiresBackup")
+    elif live_rev not in revisions:
+        raise BadRequestException(message_key="errors.appUpdate.rollbackRequiresBackup")
 
     # 保险备份：记录当前版本此刻的数据（含边车）。它同时是将来「切回来」时
     # 的数据恢复源——让这次回退本身也可完整撤销
@@ -1997,6 +1990,7 @@ def rollback_to(target: str, restore_backup: bool) -> str:
 
     running_dir = _running_version_dir(updates)
     if backup is not None:
+        assert revision is not None
         _stage_restore(
             updates,
             backup,
@@ -2045,11 +2039,103 @@ def _restore_database(backup: Path, db_path: Path, revision: str | None = None) 
             src.backup(dst)
 
 
+def _sync_path(path: Path) -> None:
+    fd = os.open(path, os.O_RDONLY)
+    try:
+        os.fsync(fd)
+    finally:
+        os.close(fd)
+
+
+def _boot_link(path: Path) -> str | None:
+    if path.is_symlink():
+        return os.readlink(path)
+    if path.exists():
+        raise OSError(f"Expected a boot symlink: {path}")
+    return None
+
+
+def _link_identity(path: Path) -> list[int] | None:
+    if not path.is_symlink():
+        return None
+    stat = path.lstat()
+    return [stat.st_dev, stat.st_ino, stat.st_ctime_ns]
+
+
+def _arm_restore(updates: Path, db_path: Path, archive: Path) -> None:
+    """现库已离线归档；先持久化撤销计划，再允许恢复数据库。"""
+    journal = updates / "state" / _RESTORE_IN_PROGRESS_NAME
+    current = updates / "current"
+    original = {name: _boot_link(updates / name) for name in ("current", "previous")}
+    revision = _read_alembic_rev(archive)
+    if not revision:
+        raise ValueError("The current database archive has no verified revision")
+    running = _running_version_dir(updates)
+    if os.environ.get("MOVIECLAW_OVERLAY_VERSION"):
+        if running is None or not _overlay_state(running)[1]:
+            raise OSError("The running overlay cannot be selected again")
+        # 即使正在使用 previous，也先让 current 稳定指向实际运行的代码。
+        if current.resolve() != running.resolve():
+            _atomic_symlink(running, current, allow_fallback=False)
+    elif original["current"] is None:
+        # 用一个永远不会被入口脚本作为 overlay 采用的链接标记此次切换。
+        _atomic_symlink(journal, current, allow_fallback=False)
+    _sync_path(updates)
+    _sync_path(archive)
+    _sync_path(archive.parent)
+    temporary = journal.with_suffix(".tmp")
+    with temporary.open("w", encoding="utf-8") as stream:
+        json.dump(
+            {
+                "archive": str(archive),
+                "revision": revision,
+                "db": str(db_path.resolve()),
+                "current_identity": _link_identity(current),
+                "original": original,
+            },
+            stream,
+        )
+        stream.flush()
+        os.fsync(stream.fileno())
+    os.replace(temporary, journal)
+    _sync_path(journal.parent)
+
+
+def recover_interrupted_restore() -> None:
+    """迁移前撤销中断的恢复，或清理已经完成切换的记录。"""
+    if _runtime_version() is None:
+        return
+    updates = _updates_dir()
+    journal = updates / "state" / _RESTORE_IN_PROGRESS_NAME
+    if not journal.is_file():
+        return
+    plan = json.loads(journal.read_text(encoding="utf-8"))
+    # current 是提交点；完成切换后的旧版本可能不认识日志，不能据此重复恢复。
+    if _link_identity(updates / "current") == plan["current_identity"]:
+        db_path = _db_path()
+        if db_path is None or not db_path.is_file() or str(db_path.resolve()) != plan["db"]:
+            raise RuntimeError("Cannot recover rollback: the original SQLite database is missing")
+        _restore_database(Path(plan["archive"]), db_path, plan["revision"])
+        for name in ("previous", "current"):
+            link = updates / name
+            original = plan["original"][name]
+            if _boot_link(link) == original:
+                continue
+            if original is None:
+                link.unlink()
+            else:
+                _atomic_symlink(Path(original), link, allow_fallback=False)
+        logger.warning("已撤销中断的数据库回退，继续运行原版本")
+    _sync_path(updates)
+    journal.unlink()
+    _sync_path(journal.parent)
+
+
 def execute_pending_restore() -> None:
     """执行暂存的数据库恢复（main.run 在优雅停机后、进程退出前调用）。
 
     此时 uvicorn 已停、lifespan 已收尾、DB 引擎已关闭——纯文件操作是安全的。
-    SQLite 用同一个写事务恢复数据库；成功才切换启动指向。切换前仍保留现库归档。
+    SQLite 用同一个写事务恢复数据库；成功才切换启动指向。中断后可从现库归档撤销。
     """
     updates = _updates_dir()
     pending = updates / "state" / _RESTORE_PENDING_NAME
@@ -2061,9 +2147,17 @@ def execute_pending_restore() -> None:
         return
     finally:
         pending.unlink(missing_ok=True)  # 先消费后执行：中途崩溃也不会反复触发
+    if data.get("process") != _RESTORE_PROCESS_TOKEN:
+        logger.warning("忽略其他进程遗留的数据库恢复请求")
+        return
     requested_at = float(data.get("requested_at") or 0)
     if time.time() - requested_at > _RESTORE_PENDING_TTL_SECONDS:
         logger.warning("忽略陈旧的数据库恢复暂存（超过 %d 秒）", _RESTORE_PENDING_TTL_SECONDS)
+        return
+    links = data.get("links")
+    revision = data.get("revision")
+    if not isinstance(links, dict) or not revision:
+        logger.warning("旧格式的数据库恢复暂存缺少配对信息，已跳过")
         return
     backup = Path(str(data.get("backup") or ""))
     db_path = _db_path()
@@ -2071,27 +2165,23 @@ def execute_pending_restore() -> None:
         logger.warning("数据库恢复暂存无法执行（备份或数据库文件缺失），已跳过")
         return
     try:
-        links = data.get("links")
-        if links is not None:
-            target_dir = Path(links["current"]) if links["current"] else None
-            running_dir = Path(links["previous"]) if links["previous"] else None
-            if target_dir is not None and not _overlay_state(target_dir)[1]:
-                raise OSError("The staged rollback target is no longer available")
+        target_dir = Path(links["current"]) if links["current"] else None
+        running_dir = Path(links["previous"]) if links["previous"] else None
+        if target_dir is not None and not _overlay_state(target_dir)[1]:
+            raise OSError("The staged rollback target is no longer available")
         # 换库前把现库再归档一份（sqlite backup API，连未 checkpoint 的 WAL
         # 一起收干净）——恢复操作自身也绝不能是数据的单向门
         archive = _backup_database(updates)
         if archive is None:
             return
-        _restore_database(backup, db_path, data.get("revision"))
-        if links is not None:
-            try:
-                _switch_rollback_links(updates, target_dir, running_dir)
-            except OSError:
-                _restore_database(archive, db_path)
-                raise
+        _arm_restore(updates, db_path, archive)
+        _restore_database(backup, db_path, revision)
+        _switch_rollback_links(updates, target_dir, running_dir, paired=True)
         logger.info("已恢复数据库备份（%s → 回退到%s）", backup.name, data.get("target"))
     except Exception:
         logger.exception("数据库恢复未完成，请核对数据库与启动版本")
+    # 正常切换则清除日志；普通异常立即撤销。进程中断由下一次启动撤销。
+    recover_interrupted_restore()
 
 
 async def save_update_retention(keep_versions: int) -> int:

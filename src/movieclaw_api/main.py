@@ -26,6 +26,10 @@ def run() -> None:
     # 启动 uvicorn 前先装配好根 logger：让「Started server process」等启动日志
     # 也进入按天落盘的日志文件（设置页「系统日志」的数据来源）。
     configure_logging(settings.log_level, settings.log_dir, settings.log_retention_days)
+    # 在启动迁移前恢复回退中断，避免原版本先把已恢复的旧库升级。
+    from movieclaw_api.services.app_update import recover_interrupted_restore
+
+    recover_interrupted_restore()
     # 监听端口来自 APP_PORT 环境变量（默认 8000），不提供应用内配置：
     # 用户视角的访问入口是前端（3000 / compose 端口映射），后端端口只在
     # 容器内被 Next 反代，应用内改它对外部访问没有意义。

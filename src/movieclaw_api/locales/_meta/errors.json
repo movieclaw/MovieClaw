@@ -1652,6 +1652,9 @@
   "appUpdate.rollbackRequiresBackup": {
     "sourceHash": "1f294b859d0fdd5f61ac1bf14af1db262e3d83f4393622f681d0a6d0117b8434"
   },
+  "appUpdate.rollbackDatabaseUnverified": {
+    "sourceHash": "47a7374fdf0f260f16e85ba4d2e5de4fdfe9a5437d0d66fd76eab5a77f0b94e0"
+  },
   "appUpdate.signatureDownloadFailed": {
     "sourceHash": "4312217aa2e88394813d8210eb4e3016d4c21e2d9f178f4c647eac9c01c61d5a"
   },

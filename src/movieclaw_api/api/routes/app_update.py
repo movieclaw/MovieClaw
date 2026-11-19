@@ -16,6 +16,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter
 
+from movieclaw_api.exceptions import BadRequestException
 from movieclaw_api.i18n import t
 from movieclaw_api.schemas.app_update import (
     GithubTokenPayload,
@@ -138,7 +139,9 @@ async def rollback_update(payload: RollbackPayload | None = None) -> ApiResponse
     if payload is not None and payload.target:
         message = app_update.rollback_to(payload.target, payload.restore_backup)
     else:
-        # 旧版兼容语义：previous 互换，无 previous 回落基线
+        if payload is not None and payload.restore_backup:
+            raise BadRequestException(message_key="errors.appUpdate.noRollbackTarget")
+        # 兼容请求只做通过同一迁移校验的代码切换
         message = app_update.rollback()
     return ok(None, message=message)
 

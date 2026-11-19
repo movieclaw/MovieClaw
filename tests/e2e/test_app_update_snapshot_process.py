@@ -33,6 +33,7 @@ _OLD_REV = "a7d2e9c41b58"
 _LEASE_REV = "be3b7498a20c"
 _API_ENTRY = """
 import os
+from pathlib import Path
 import httpx
 from movieclaw_api.services import app_update
 from movieclaw_api.main import run
@@ -42,6 +43,17 @@ async def fixture_github(path, _what, **_kwargs):
         return (await client.get(os.environ["E2E_RELEASE_ORIGIN"] + path)).raise_for_status().json()
 
 app_update._github_get = fixture_github
+interrupt = Path(os.environ["E2E_INTERRUPT_BEFORE_SWITCH"])
+if interrupt.exists():
+    switch = app_update._switch_rollback_links
+
+    def stop_once(*args, **kwargs):
+        if interrupt.exists():
+            interrupt.unlink()
+            os._exit(86)
+        return switch(*args, **kwargs)
+
+    app_update._switch_rollback_links = stop_once
 run()
 """
 
@@ -183,6 +195,7 @@ def test_v051_applies_and_rolls_back_paired_snapshot(tmp_path, request):
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
         origin = f"http://127.0.0.1:{server.server_port}"
+        interrupt = tmp_path / "interrupt-before-switch"
         env = {
             **os.environ,
             "APP_RELOAD": "false",
@@ -198,6 +211,7 @@ def test_v051_applies_and_rolls_back_paired_snapshot(tmp_path, request):
             "MOVIECLAW_CLI_LINK": str(tmp_path / "mclaw"),
             "MOVIECLAW_PYTHON_BIN": sys.executable,
             "E2E_RELEASE_ORIGIN": origin,
+            "E2E_INTERRUPT_BEFORE_SWITCH": str(interrupt),
             "UPDATE_DOWNLOAD_MIRROR": origin,
             "UPDATE_MANIFEST_PUBKEY": pubkey,
             "PYTHONDONTWRITEBYTECODE": "1",
@@ -303,6 +317,7 @@ def test_v051_applies_and_rolls_back_paired_snapshot(tmp_path, request):
                 api + "/app/update/rollback", json={"target": "baseline", "restore_backup": False}
             )
             assert response.status_code == 400
+            assert client.post(api + "/app/update/rollback").status_code == 400
 
             rollback = {"target": "baseline", "restore_backup": True}
             saved = snapshot.read_bytes()
@@ -313,6 +328,19 @@ def test_v051_applies_and_rolls_back_paired_snapshot(tmp_path, request):
             snapshot.write_bytes(saved)
             api = boot("candidate-after-failed-restore", "overlay")
             assert get(api, added)["status"] == "active"
+
+            process.terminate()
+            process.wait(timeout=15)
+            interrupt.touch()
+            api = boot("candidate-before-interruption", "overlay")
+            client.post(api + "/app/update/rollback", json=rollback).raise_for_status()
+            assert process.wait(timeout=30) == 86
+            _assert_database(db, _OLD_REV, ["Legacy downloader"])
+            assert (updates / "current").is_symlink()
+            api = boot("candidate-recovered", "overlay")
+            _assert_database(db, _LEASE_REV, ["Legacy downloader", "Candidate-only downloader"])
+            assert get(api, added)["status"] == "active"
+            assert not (updates / "state/restore-in-progress.json").exists()
 
             client.post(api + "/app/update/rollback", json=rollback).raise_for_status()
             stop_for_restart()
