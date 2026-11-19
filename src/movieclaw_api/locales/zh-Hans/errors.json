@@ -806,6 +806,7 @@
     "rollbackVersionMismatch": "版本目录 v{target} 的清单声明的是 v{version}，内容不匹配",
     "builtinBackupMissing": "镜像内置版本没有可对时的自动备份，无法随回退恢复数据；如需恢复请在回退后从 data/updates/backup 手动恢复",
     "backupMissing": "没有找到离开 v{version} 时的自动备份，无法随回退恢复数据",
+    "rollbackRequiresBackup": "目标版本不认识当前数据库结构。请使用对应版本的备份回退，或停机恢复升级前的配对快照。",
     "signatureDownloadFailed": "下载更新清单签名失败，请稍后重试"
   },
   "llm": {

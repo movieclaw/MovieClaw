@@ -1649,6 +1649,9 @@
   "appUpdate.backupMissing": {
     "sourceHash": "f0233b4a64ea3bbcd6ae9a2080ff0a017b1028bb633b8ef1eaea675c474e6938"
   },
+  "appUpdate.rollbackRequiresBackup": {
+    "sourceHash": "1f294b859d0fdd5f61ac1bf14af1db262e3d83f4393622f681d0a6d0117b8434"
+  },
   "appUpdate.signatureDownloadFailed": {
     "sourceHash": "4312217aa2e88394813d8210eb4e3016d4c21e2d9f178f4c647eac9c01c61d5a"
   },

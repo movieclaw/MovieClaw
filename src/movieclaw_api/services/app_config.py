@@ -22,7 +22,6 @@ import logging
 import os
 import signal
 import threading
-import time
 from pathlib import Path
 from typing import TYPE_CHECKING
 from urllib.parse import urlsplit
@@ -205,17 +204,24 @@ async def save_web_port(port: int | None) -> AppConfigView:
 _uvicorn_server: uvicorn.Server | None = None
 # 本次进程退出应使用的重启约定码（42 后端 / 43 全量）；None = 非重启退出
 _restart_exit_code: int | None = None
+_shutdown_complete = threading.Event()
 
 
 def register_uvicorn_server(server: uvicorn.Server) -> None:
     """由 main.run 在启动前调用，把 Server 实例交给重启服务。"""
     global _uvicorn_server
     _uvicorn_server = server
+    _shutdown_complete.clear()
 
 
 def restart_exit_code() -> int | None:
     """main.run 在 Server 停机后查询：本次退出应使用的重启约定码（非重启为 None）。"""
     return _restart_exit_code
+
+
+def finish_graceful_shutdown() -> None:
+    """服务已停，重启看门狗不再限制离线数据库恢复的耗时。"""
+    _shutdown_complete.set()
 
 
 def _request_graceful_exit(exit_code: int) -> None:
@@ -234,8 +240,8 @@ def _request_graceful_exit(exit_code: int) -> None:
 def _terminate_self(exit_code: int) -> None:
     """触发优雅停机；超时未退出则以重启约定退出码强制退出。"""
     _request_graceful_exit(exit_code)
-    # 优雅停机成功时进程直接消失，走不到下面；只有停机被拖住才会兜底
-    time.sleep(_FORCE_EXIT_SECONDS)
+    if _shutdown_complete.wait(_FORCE_EXIT_SECONDS):
+        return
     logger.warning("优雅停机超时（%.0f 秒），强制退出进程以完成重启", _FORCE_EXIT_SECONDS)
     logging.shutdown()  # 强制退出不走解释器清理，先冲刷日志缓冲，保住上面这行警告
     os._exit(exit_code)

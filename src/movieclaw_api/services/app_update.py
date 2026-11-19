@@ -109,6 +109,28 @@ def _runtime_version() -> int | None:
     return int(raw) if raw.isdigit() else None
 
 
+def _image_root() -> Path:
+    return Path(os.environ.get("MOVIECLAW_APP_ROOT", "/app"))
+
+
+def _image_version() -> str | None:
+    """读实际镜像内置版本。卷里的上次启动记录可能属于另一镜像。"""
+    try:
+        source = (_image_root() / "src/movieclaw_api/__init__.py").read_text(encoding="utf-8")
+        tree = ast.parse(source)
+    except (OSError, SyntaxError, UnicodeError):
+        return None
+    for node in tree.body:
+        if (
+            isinstance(node, ast.Assign)
+            and any(isinstance(t, ast.Name) and t.id == "__version__" for t in node.targets)
+            and isinstance(node.value, ast.Constant)
+            and isinstance(node.value.value, str)
+        ):
+            return node.value.value
+    return None
+
+
 def _sanitize(version: str) -> str:
     """与 entrypoint 的 sanitize 同款：版本号转文件名安全形式。"""
     return re.sub(r"[^A-Za-z0-9._-]", "_", version)
@@ -898,7 +920,7 @@ def _read_alembic_rev(db_path: Path) -> str | None:
         return None
 
 
-def _backup_database(updates: Path) -> None:
+def _backup_database(updates: Path) -> Path | None:
     """切换版本前备份 SQLite（非 SQLite 部署跳过）。迁移单向，备份是回退跨
     版本时恢复数据的唯一通道。
 
@@ -920,7 +942,7 @@ def _backup_database(updates: Path) -> None:
         return
     backup_dir = updates / "backup"
     backup_dir.mkdir(parents=True, exist_ok=True)
-    stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    stamp = datetime.now().strftime("%Y%m%d-%H%M%S%f")
     target = backup_dir / f"movieclaw-v{_sanitize(__version__)}-{stamp}.db"
     try:
         src = sqlite3.connect(db_path)
@@ -937,13 +959,14 @@ def _backup_database(updates: Path) -> None:
         raise _UpdateError("settings.update.backupFailed", error=str(exc)) from exc
     sidecar = {
         "from_version": __version__,
-        "alembic_rev": _read_alembic_rev(db_path),
+        "alembic_rev": _read_alembic_rev(target),
         "taken_at": datetime.now().astimezone().isoformat(timespec="seconds"),
     }
     target.with_name(target.name + ".json").write_text(
         json.dumps(sidecar, ensure_ascii=False), encoding="utf-8"
     )
     logger.info("已在更新前备份数据库：%s", target)
+    return target
 
 
 def _backup_from_version(backup: Path) -> str | None:
@@ -956,7 +979,7 @@ def _backup_from_version(backup: Path) -> str | None:
                 return str(version)
         except (OSError, json.JSONDecodeError):
             pass
-    # 文件名形如 movieclaw-v{version}-{YYYYmmdd}-{HHMMSS}.db，掐头去尾取中段
+    # 文件名尾部是日期和时间（新备份的时间含微秒），掐头去尾取中段
     name = backup.name
     if not (name.startswith("movieclaw-v") and name.endswith(".db")):
         return None
@@ -1830,13 +1853,12 @@ def _build_rollback_options(baseline_version: str, keep_versions: int) -> Rollba
         )
     # 镜像基线：只有 overlay 在运行时才是一个「回退」目标（跑基线时它就是现状）
     if running:
-        schema_action, backup_taken_at = _classify_target(
-            updates, baseline_version or None, live_rev
-        )
+        image_version = _image_version()
+        schema_action, backup_taken_at = _classify_target(updates, image_version, live_rev)
         targets.append(
             RollbackTargetView(
                 kind="baseline",
-                version=baseline_version or None,
+                version=image_version or baseline_version or None,
                 changelog=None,
                 installed_at=None,
                 size_bytes=None,
@@ -1860,25 +1882,56 @@ async def rollback_options() -> RollbackOptionsView:
     )
 
 
-def _stage_restore(updates: Path, backup: Path, target_label: str) -> None:
+def _stage_restore(
+    updates: Path,
+    backup: Path,
+    target_label: str,
+    *,
+    revision: str | None = None,
+    links: dict | None = None,
+) -> None:
     """暂存一次数据库恢复，由 main.run 在停机尾声执行（见模块段注释）。"""
     state_dir = updates / "state"
     state_dir.mkdir(parents=True, exist_ok=True)
     (state_dir / _RESTORE_PENDING_NAME).write_text(
         json.dumps(
-            {"backup": str(backup), "target": target_label, "requested_at": time.time()},
+            {
+                "backup": str(backup),
+                "target": target_label,
+                "requested_at": time.time(),
+                "revision": revision,
+                "links": links,
+            },
             ensure_ascii=False,
         ),
         encoding="utf-8",
     )
 
 
+def _switch_rollback_links(
+    updates: Path, target_dir: Path | None, running_dir: Path | None
+) -> None:
+    current, previous = updates / "current", updates / "previous"
+    if target_dir is None:
+        # 入口脚本在 current 缺失时仍会尝试 previous。版本目录保留供回退选择器使用。
+        prior = Path(os.readlink(previous)) if previous.is_symlink() else None
+        previous.unlink(missing_ok=True)
+        try:
+            current.unlink(missing_ok=True)
+        except OSError:
+            if prior is not None:
+                _atomic_symlink(prior, previous)
+            raise
+    else:
+        if running_dir is not None:
+            _atomic_symlink(running_dir, previous)
+        _atomic_symlink(target_dir, current)
+
+
 def rollback_to(target: str, restore_backup: bool) -> str:
     """回退（切换）到指定版本或镜像基线，可选恢复对应时点的数据库备份。
 
-    与旧版 ``rollback()`` 的 previous 互换不同，这里显式指定目标；previous
-    指针指向当前运行版本——回退后还能一步切回来（配合回退前的保险备份，
-    连数据都能一并撤销）。
+    跨迁移回退先暂存计划，停机后恢复快照再切换启动指向。
     """
     if _runtime_version() is None:
         raise BadRequestException(message_key="errors.appUpdate.rollbackUnsupported")
@@ -1895,9 +1948,8 @@ def rollback_to(target: str, restore_backup: bool) -> str:
             raise BadRequestException(message_key="errors.appUpdate.builtinRunning")
         target_dir: Path | None = None
         target_label = "镜像内置版本"  # i18n-ignore: only logged by the restore step
-        # 恢复源按记录过的基线版本号对时；没记录过就找不到（选项接口已把
-        # 这种情况标为 unknown，正常流程不会带着 restore_backup 走到这里）
-        restore_version = None
+        restore_version = _image_version()
+        backend = _image_root()
     else:
         if target == running:
             raise BadRequestException(
@@ -1917,33 +1969,44 @@ def rollback_to(target: str, restore_backup: bool) -> str:
             )
         target_label = f"v{target}"
         restore_version = target
+        backend = target_dir / "backend"
 
     backup: Path | None = None
+    revision: str | None = None
+    revisions = _declared_revisions(backend / "alembic")
     if restore_backup:
-        if target == "baseline":
-            raise BadRequestException(message_key="errors.appUpdate.builtinBackupMissing")
-        assert restore_version is not None
-        backup = _latest_backup_for(updates, restore_version)
-        if backup is None:
+        if restore_version:
+            backup = _latest_backup_for(updates, restore_version)
+            if backup is not None:
+                revision = _read_alembic_rev(backup)
+        if not revision or revision not in revisions:
+            if target == "baseline":
+                raise BadRequestException(message_key="errors.appUpdate.builtinBackupMissing")
             raise BadRequestException(
                 message_key="errors.appUpdate.backupMissing", params={"version": restore_version}
             )
+    else:
+        db_path = _db_path()
+        live_rev = _read_alembic_rev(db_path) if db_path and db_path.is_file() else None
+        if live_rev and revisions and live_rev not in revisions:
+            raise BadRequestException(message_key="errors.appUpdate.rollbackRequiresBackup")
 
     # 保险备份：记录当前版本此刻的数据（含边车）。它同时是将来「切回来」时
     # 的数据恢复源——让这次回退本身也可完整撤销
     _backup_database(updates)
 
-    # 切换指针：previous ← 当前运行版本（回退的撤销路径），current ← 目标
     running_dir = _running_version_dir(updates)
-    if target_dir is not None:
-        _atomic_symlink(target_dir, current)
-    else:
-        current.unlink(missing_ok=True)
-    if running_dir is not None:
-        _atomic_symlink(running_dir, updates / "previous")
-
     if backup is not None:
-        _stage_restore(updates, backup, target_label)
+        _stage_restore(
+            updates,
+            backup,
+            target_label,
+            revision=revision,
+            links={
+                "current": str(target_dir) if target_dir else None,
+                "previous": str(running_dir) if running_dir else None,
+            },
+        )
         message = reference(
             "settings.update.rollbackRestore",
             target=reference("settings.update.builtinVersion")
@@ -1951,6 +2014,7 @@ def rollback_to(target: str, restore_backup: bool) -> str:
             else target_label,
         )
     else:
+        _switch_rollback_links(updates, target_dir, running_dir)
         message = reference(
             "settings.update.rollbackSwitch",
             target=reference("settings.update.builtinVersion")
@@ -1965,12 +2029,27 @@ def rollback_to(target: str, restore_backup: bool) -> str:
     return render_value(message)
 
 
+def _restore_database(backup: Path, db_path: Path, revision: str | None = None) -> None:
+    import sqlite3
+
+    with contextlib.closing(
+        sqlite3.connect(backup.resolve().as_uri() + "?mode=ro", uri=True)
+    ) as src:
+        if src.execute("PRAGMA quick_check").fetchall() != [("ok",)]:
+            raise ValueError("The database snapshot failed SQLite quick_check")
+        if revision and src.execute("SELECT version_num FROM alembic_version").fetchall() != [
+            (revision,)
+        ]:
+            raise ValueError("The database snapshot revision has changed")
+        with contextlib.closing(sqlite3.connect(db_path)) as dst:
+            src.backup(dst)
+
+
 def execute_pending_restore() -> None:
     """执行暂存的数据库恢复（main.run 在优雅停机后、进程退出前调用）。
 
     此时 uvicorn 已停、lifespan 已收尾、DB 引擎已关闭——纯文件操作是安全的。
-    任何异常只记日志不阻断退出：恢复失败的后果是旧版本对着新结构的库启动
-    （可能再次失败触发 entrypoint 的坏版本回落），数据本身始终无损。
+    SQLite 用同一个写事务恢复数据库；成功才切换启动指向。切换前仍保留现库归档。
     """
     updates = _updates_dir()
     pending = updates / "state" / _RESTORE_PENDING_NAME
@@ -1992,18 +2071,27 @@ def execute_pending_restore() -> None:
         logger.warning("数据库恢复暂存无法执行（备份或数据库文件缺失），已跳过")
         return
     try:
+        links = data.get("links")
+        if links is not None:
+            target_dir = Path(links["current"]) if links["current"] else None
+            running_dir = Path(links["previous"]) if links["previous"] else None
+            if target_dir is not None and not _overlay_state(target_dir)[1]:
+                raise OSError("The staged rollback target is no longer available")
         # 换库前把现库再归档一份（sqlite backup API，连未 checkpoint 的 WAL
         # 一起收干净）——恢复操作自身也绝不能是数据的单向门
-        _backup_database(updates)
-        tmp = db_path.with_name(db_path.name + ".restore-tmp")
-        shutil.copyfile(backup, tmp)
-        os.replace(tmp, db_path)
-        # 旧的 WAL/SHM 属于被换掉的库，留着会被 SQLite 误认为配套文件
-        db_path.with_name(db_path.name + "-wal").unlink(missing_ok=True)
-        db_path.with_name(db_path.name + "-shm").unlink(missing_ok=True)
+        archive = _backup_database(updates)
+        if archive is None:
+            return
+        _restore_database(backup, db_path, data.get("revision"))
+        if links is not None:
+            try:
+                _switch_rollback_links(updates, target_dir, running_dir)
+            except OSError:
+                _restore_database(archive, db_path)
+                raise
         logger.info("已恢复数据库备份（%s → 回退到%s）", backup.name, data.get("target"))
     except Exception:
-        logger.exception("数据库恢复失败（数据未受损，现库保持原样）")
+        logger.exception("数据库恢复未完成，请核对数据库与启动版本")
 
 
 async def save_update_retention(keep_versions: int) -> int:
