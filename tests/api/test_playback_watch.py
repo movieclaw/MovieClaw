@@ -712,6 +712,43 @@ def test_subtitle_turned_off_stays_off_across_episodes(client, tmp_path):
     assert again["watch"]["subtitle_track"] == "external:Show.S01E02.en.srt"
 
 
+def test_audio_choice_survives_an_episode_where_only_the_subtitle_changed(client, tmp_path):
+    """追剧的真实路径：第 1 集换成国语；第 2 集沿用着国语（播放器不报没动过的音轨），
+    只把字幕换成英文。第 3 集仍放第 1 集选的国语——不能因为最近一集只换过字幕就回到默认。
+
+    第 3 集轨序同第 1 集，国语不是默认轨、开会话要重封装（测试里没有 ffmpeg），
+    用同一口径套记忆的决策接口看：App 起播放的就是决策里的音轨。
+    """
+    show_id = client.portal.call(partial(_seed_show, tmp_path, 3))  # type: ignore[attr-defined]
+    report(
+        client, show_id, event="start", audio_track="embedded:1", season_number=1, episode_number=1
+    )
+
+    second = start_session(client, show_id, season_number=1, episode_number=2)
+    assert second["watch"]["audio_track"] == "embedded:0"
+    report(
+        client,
+        show_id,
+        event="progress",
+        position_ms=60_000,
+        subtitle_track="external:Show.S01E02.en.srt",
+        season_number=1,
+        episode_number=2,
+    )
+
+    resp = client.post(
+        f"{_PB}/decide",
+        json={
+            "media_item_id": show_id,
+            "season_number": 1,
+            "episode_number": 3,
+            "capability": _CAPABILITY,
+        },
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["data"]["audio"]["track_ref"] == "embedded:1"
+
+
 # ---------------------------------------------------------------------------
 # 播放页条目信息（§6.10 路由只带 media_item_id，库归属服务端解析）
 # ---------------------------------------------------------------------------

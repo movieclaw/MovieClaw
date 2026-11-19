@@ -3,7 +3,7 @@
 观看状态按单集存（``playback_state`` 一集一行），电影一部一行、天然按片记；剧集却是每集各记各的，
 新的一集没有记忆就回到默认轨——追剧时每集都要重选一遍国语、中文字幕。
 
-这里在**本集没有记忆**时，取同一部剧最近一次有选择的那一集，把它的选择**按语言换算**成本集文件里的轨：
+这里在**本集没有记忆**时，音轨、字幕各取同一部剧最近一次选过它的那一集，把那一集的选择**按语言换算**成本集文件里的轨：
 每集文件的轨序不一定相同（某集多一条评论音轨，下标就错位），外挂字幕的文件名更是每集不同，
 只有「语言 + 类型」跨集稳定。换算不出来（本集没有同语言的轨）就不给，交回默认选择策略。
 
@@ -171,56 +171,39 @@ async def _unit_file(session: AsyncSession, unit: Unit) -> LibraryFile | None:
     return (await session.execute(stmt)).scalars().first()
 
 
-def inheritance_source(
-    states: Mapping[Unit, PlaybackState], unit: Unit
-) -> tuple[Unit, PlaybackState, bool, bool] | None:
-    """本集缺记忆时从哪一集沿用：同剧最近一次有选择的那一集，连同本集缺的是不是音轨、字幕。
+Source = tuple[Unit, PlaybackState]
 
-    电影、本集两样都记着、别的集都没有选择时返回 None。纯内存计算（``states`` 调用方已取好）。
+
+def inheritance_sources(
+    states: Mapping[Unit, PlaybackState], unit: Unit
+) -> tuple[Source | None, Source | None]:
+    """本集缺记忆时（音轨从哪一集沿用, 字幕从哪一集沿用）：两样各找同剧最近一次选过它的那一集。
+
+    不能一并取「最近一次有选择的那一集」：第 1 集换了日语音轨，第 2 集沿用着日语、只换了字幕
+    （只记下字幕），第 3 集就会从第 2 集找音轨、扑空回到默认。
+    电影、本集自己记着、别的集都没选过时对应一项为 None。纯内存计算（``states`` 调用方已取好）。
     """
     media_item_id, season, episode = unit
     if season == 0 and episode == 0:
-        return None
+        return None, None
     own = states.get(unit)
-    need_audio = own is None or not own.audio_track
-    need_subtitle = own is None or not own.subtitle_track
-    if not (need_audio or need_subtitle):
-        return None
-    candidates = [
-        (key, row)
-        for key, row in states.items()
-        if key != unit and key[0] == media_item_id and (row.audio_track or row.subtitle_track)
-    ]
-    if not candidates:
-        return None
-    # 「最近」按上次播放时间比：updated_at 连标记已看、收藏这类写入都会动
-    source_unit, source_row = max(
-        candidates, key=lambda item: item[1].last_played_at or item[1].updated_at
-    )
-    return source_unit, source_row, need_audio, need_subtitle
 
-
-def inherit_tracks(
-    source_row: PlaybackState,
-    source: LibraryFile,
-    target: LibraryFile,
-    context: TrackContext,
-    *,
-    need_audio: bool,
-    need_subtitle: bool,
-) -> tuple[str | None, str | None]:
-    """上一集（``source`` 文件、``source_row`` 记忆）的选择按语言换算到本集的 ``target`` 文件。"""
-    audio = (
-        translate_audio(source_row.audio_track, source, target, context) if need_audio else None
-    )
-    subtitle = (
-        translate_subtitle(
-            source_row.subtitle_track, source, target, context, source_row.audio_track
+    def latest(field: str) -> Source | None:
+        if own is not None and getattr(own, field):
+            return None
+        candidates = [
+            (key, row)
+            for key, row in states.items()
+            if key != unit and key[0] == media_item_id and getattr(row, field)
+        ]
+        # 「最近」按上次播放时间比：updated_at 连标记已看、收藏这类写入都会动
+        return max(
+            candidates,
+            key=lambda item: item[1].last_played_at or item[1].updated_at,
+            default=None,
         )
-        if need_subtitle
-        else None
-    )
-    return audio, subtitle
+
+    return latest("audio_track"), latest("subtitle_track")
 
 
 async def series_track_memory(
@@ -229,26 +212,31 @@ async def series_track_memory(
     unit: Unit,
     target: LibraryFile | None = None,
 ) -> tuple[str | None, str | None]:
-    """本集没有记忆时，同剧最近一集的音轨 / 字幕选择换算到本集；电影、换算不出返回 None。
+    """本集没有记忆时，同剧最近选过的音轨 / 字幕各自换算到本集；电影、换算不出返回 None。
 
     ``states`` 是 ``playback_state.get_states`` 取回的这部剧全部单元的状态
     （开会话时本来就取了，不多查）。``target`` 不给时取本集在位的第一个文件。
     """
-    picked = inheritance_source(states, unit)
-    if picked is None:
+    audio_from, subtitle_from = inheritance_sources(states, unit)
+    if audio_from is None and subtitle_from is None:
         return None, None
-    source_unit, source_row, need_audio, need_subtitle = picked
-    # 上一集的默认轨策略上下文随文件同一条 SQL 取出（判断它的选择是不是默认挑选）
-    sources, contexts = await unit_files_with_contexts(session, source_unit)
-    source = sources[0] if sources else None
     target = target or await _unit_file(session, unit)
-    if source is None or target is None:
+    if target is None:
         return None, None
-    return inherit_tracks(
-        source_row,
-        source,
-        target,
-        contexts.get(source.id or 0, NO_CONTEXT),
-        need_audio=need_audio,
-        need_subtitle=need_subtitle,
-    )
+    # 那一集的文件与默认轨策略上下文同一条 SQL 取出（判断它的选择是不是默认挑选）；
+    # 两样同出一集只取一次
+    sources: dict[Unit, tuple[LibraryFile, TrackContext]] = {}
+    for source_unit, _ in (s for s in (audio_from, subtitle_from) if s is not None):
+        if source_unit not in sources:
+            files, contexts = await unit_files_with_contexts(session, source_unit)
+            if files:
+                sources[source_unit] = (files[0], contexts.get(files[0].id or 0, NO_CONTEXT))
+    audio = subtitle = None
+    if audio_from is not None and audio_from[0] in sources:
+        source, context = sources[audio_from[0]]
+        audio = translate_audio(audio_from[1].audio_track, source, target, context)
+    if subtitle_from is not None and subtitle_from[0] in sources:
+        source, context = sources[subtitle_from[0]]
+        row = subtitle_from[1]
+        subtitle = translate_subtitle(row.subtitle_track, source, target, context, row.audio_track)
+    return audio, subtitle

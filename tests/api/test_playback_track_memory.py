@@ -274,3 +274,30 @@ async def test_movies_are_never_inherited(db):
     async with db.session() as session:
         movie = PlaybackState(member_id=1, media_item_id=5, audio_track="embedded:1")
         assert await series_track_memory(session, {(5, 0, 0): movie}, (5, 0, 0)) == (None, None)
+
+
+async def test_audio_and_subtitle_each_follow_their_own_latest_choice(db):
+    """第 1 集换成日语音轨，第 2 集沿用着日语、只换了字幕（进度上报只记下字幕）：
+    第 3 集的音轨仍沿用第 1 集的日语，字幕沿用第 2 集——两样各找各自最近一次的选择，
+    不能因为最近一集只换过字幕就把音轨丢回默认。"""
+    async with db.session() as session:
+        library = await LibraryRepository(session).create(
+            name="剧集库", kind="tv", root_paths=["/tv"]
+        )
+        show = MediaItem(kind="tv", tmdb_id=303, title="番剧", original_title="A")
+        session.add(show)
+        await session.flush()
+        assert library.id and show.id
+        plain = [_audio("eng", default=True), _audio("chi"), _audio("jpn")]
+        session.add_all([_episode(library.id, show.id, n, plain) for n in (1, 2, 3)])
+        await session.commit()
+
+        states = {
+            (show.id, 1, 1): _state(show.id, 1, datetime(2026, 9, 1), audio_track="embedded:2"),
+            (show.id, 1, 2): _state(show.id, 2, datetime(2026, 9, 2),
+                                    subtitle_track="embedded:0"),
+        }
+        assert await series_track_memory(session, states, (show.id, 1, 3)) == (
+            "embedded:2",
+            "embedded:0",
+        )
