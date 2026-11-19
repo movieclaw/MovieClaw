@@ -989,6 +989,8 @@
     "trDelete": "Failed to delete the Transmission task. Check the downloader status.",
     "trRejected": "Transmission rejected the request. The torrent may be invalid or the downloader returned an error.",
     "trUrl": "Invalid Transmission URL. Use a URL such as http://host:9091.",
+    "verifyTimeout": "The connection test timed out after {seconds} seconds.",
+    "verifyInterrupted": "The connection test was interrupted. Run the test again.",
     "verifyUnexpected": "An unexpected error occurred during the connection test ({kind}): {detail}",
     "pluginNotRunning": "Downloader plugin {entry} is not running. It will retry automatically."
   },

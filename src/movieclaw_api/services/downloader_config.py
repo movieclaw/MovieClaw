@@ -8,25 +8,33 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from movieclaw_api.exceptions import BadRequestException, ConflictException, NotFoundException
 from movieclaw_api.i18n import t
-from movieclaw_api.i18n.stored import reference, source_text
+from movieclaw_api.i18n.stored import stored_fields
 from movieclaw_api.services.download_health import adopt_landing_groups
 from movieclaw_api.services.downloader_paths import PathProbe, detail_key, probe_mappings, summarize
 from movieclaw_db.engine import get_database
 from movieclaw_db.models.downloader_client import DownloaderClient
 from movieclaw_db.models.site_credential import ConfigStatus
 from movieclaw_db.repositories.downloader_repo import DownloaderRepository
-from movieclaw_downloader import DownloaderConfig, DownloaderException, create_downloader
+from movieclaw_downloader import (
+    DownloaderConfig,
+    DownloaderException,
+    DownloaderInfo,
+    create_downloader,
+)
 
 logger = logging.getLogger("movieclaw_api.downloader_config")
 
 # 连接测试用较短超时：测试只为回答"通不通"，没必要等默认 30 秒
 _TEST_TIMEOUT = 10.0
+# RPC 可能有多次往返，路径探测也可能遇到阻塞的挂载；整个验证探测另设截止时间。
+_VERIFY_TIMEOUT = 30
 
 
 class DownloaderConfigService:
@@ -223,6 +231,24 @@ class DownloaderConfigService:
 # ---------------------------------------------------------------------------
 
 
+async def _check_downloader(
+    config: DownloaderConfig, path_mappings: list[dict[str, str]] | None
+) -> tuple[DownloaderInfo, list[PathProbe]]:
+    downloader = create_downloader(config)
+    try:
+        async with asyncio.timeout(_VERIFY_TIMEOUT):
+            info = await downloader.test_connection()
+            # 连接成功才探测路径。在线程里访问文件系统，挂载阻塞时验证仍能超时退出。
+            probes = await asyncio.to_thread(probe_mappings, path_mappings)
+        return info, probes
+    finally:
+        try:
+            async with asyncio.timeout(_TEST_TIMEOUT):
+                await downloader.close()
+        except Exception:
+            logger.warning("关闭下载器测试连接失败", exc_info=True)
+
+
 async def verify_downloader(downloader_id: int) -> None:
     """异步测试某下载器的连通性与凭证，并把结论写回状态字段。
 
@@ -230,8 +256,7 @@ async def verify_downloader(downloader_id: int) -> None:
     地址、凭证均有效。
 
     前置约定：调用前状态已被 start_verification 置为 VERIFYING。
-    作为背景任务：自开独立数据库会话，绝不向外抛异常 ——
-    任何失败都转成 FAILED + last_error。
+    探测失败写入 FAILED + last_error；取消时先记录中断，再继续传播取消。
     """
     async with get_database().session() as session:
         repo = DownloaderRepository(session)
@@ -240,61 +265,56 @@ async def verify_downloader(downloader_id: int) -> None:
             logger.warning("测试连接时下载器已被删除：id=%s", downloader_id)
             return
 
-        config = DownloaderConfig(
-            type=row.client_type,
-            url=row.url,
-            username=row.username,
-            password=repo.decrypted_password(row),
-            timeout=_TEST_TIMEOUT,
-        )
-        downloader = create_downloader(config)
         try:
-            info = await downloader.test_connection()
-        except DownloaderException as exc:
-            # Downloader* 异常的 message 本身已是清晰中文，直接展示
-            logger.info("下载器连接测试失败：%s（%s）", row.name, exc.message)
+            config = DownloaderConfig(
+                type=row.client_type,
+                url=row.url,
+                username=row.username,
+                password=repo.decrypted_password(row),
+                timeout=_TEST_TIMEOUT,
+            )
+            info, probes = await _check_downloader(config, row.path_mappings)
+            path_health = [probe.as_dict() for probe in probes] or None
+        except asyncio.CancelledError:
+            interrupted = stored_fields("errors.downloader.verifyInterrupted")
             await repo.update_status(
                 downloader_id,
                 ConfigStatus.FAILED,
-                last_error=exc.message,
-                last_error_ref=exc.message_ref,
+                last_error=interrupted["message"],
+                last_error_ref=interrupted,
             )
-            await _notify_failed(session, downloader_id, row.name, exc.message_ref or exc.message)
-            return
-        except Exception as exc:  # noqa: BLE001 -- 背景任务兜底，绝不外抛
+            raise
+        except DownloaderException as exc:
+            logger.info("下载器连接测试失败：%s（%s）", row.name, exc.message)
+            error, error_ref = exc.message, exc.message_ref
+        except TimeoutError:
+            logger.info("下载器连接测试超时：%s", row.name)
+            error_ref = stored_fields("errors.downloader.verifyTimeout", seconds=_VERIFY_TIMEOUT)
+            error = error_ref["message"]
+        except Exception as exc:
             logger.exception("下载器连接测试发生未知错误：%s", row.name)
-            error = source_text(
+            error_ref = stored_fields(
                 "errors.downloader.verifyUnexpected", kind=type(exc).__name__, detail=str(exc)
             )
-            error_ref = {
-                "message": error,
-                **reference(
-                    "errors.downloader.verifyUnexpected", kind=type(exc).__name__, detail=str(exc)
-                ),
-            }
+            error = error_ref["message"]
+        else:
+            logger.info("下载器连接测试通过：%s（%s %s）", row.name, info.type, info.version)
             await repo.update_status(
-                downloader_id, ConfigStatus.FAILED, last_error=error, last_error_ref=error_ref
+                downloader_id,
+                ConfigStatus.ACTIVE,
+                version=info.version,
+                path_health=path_health,
             )
-            await _notify_failed(session, downloader_id, row.name, error_ref)
+            # 连接恢复，红灯熄灭
+            from movieclaw_api.services.system_notice import resolve_notices
+
+            await resolve_notices(session, dedupe_key=f"downloader:{downloader_id}")
+            await _notify_paths(session, downloader_id, row.name, probes)
             return
-        finally:
-            await downloader.close()
-
-        logger.info("下载器连接测试通过：%s（%s %s）", row.name, info.type, info.version)
-        # API 通了，再体检路径映射：两者是独立的故障面，绿灯必须两者都过才算数。
-        # 只在连接成功后做——连接都不通时路径结论没有意义，也别让两种失败互相遮盖
-        probes = probe_mappings(row.path_mappings)
         await repo.update_status(
-            downloader_id,
-            ConfigStatus.ACTIVE,
-            version=info.version,
-            path_health=[p.as_dict() for p in probes] or None,
+            downloader_id, ConfigStatus.FAILED, last_error=error, last_error_ref=error_ref
         )
-        # 连接恢复，红灯熄灭
-        from movieclaw_api.services.system_notice import resolve_notices
-
-        await resolve_notices(session, dedupe_key=f"downloader:{downloader_id}")
-        await _notify_paths(session, downloader_id, row.name, probes)
+        await _notify_failed(session, downloader_id, row.name, error_ref or error)
 
 
 async def _notify_paths(

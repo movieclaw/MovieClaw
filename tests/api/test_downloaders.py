@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import asyncio
 import sqlite3
+import time
+from contextlib import contextmanager
 from datetime import timedelta
 
 import pytest
@@ -73,8 +75,8 @@ class _FakeDownloader:
         pass
 
 
-@pytest.fixture
-def client(tmp_path, monkeypatch):
+@contextmanager
+def _downloader_app(tmp_path, monkeypatch):
     # 每个测试用独立临时 SQLite 库与密钥文件，保证隔离
     db_file = tmp_path / "test.db"
     monkeypatch.setenv("DATABASE_URL", f"sqlite+aiosqlite:///{db_file}")
@@ -98,11 +100,25 @@ def client(tmp_path, monkeypatch):
     app = create_app()
     # 本文件只测下载器配置业务，登录鉴权用依赖覆盖绕过（鉴权本身在 test_auth 覆盖）
     app.dependency_overrides[require_login] = lambda: Principal(kind="admin", name="tester")
-    with TestClient(
-        app, headers={"Accept-Language": "zh-Hans"}
-    ) as c:  # with 块内触发 lifespan：建库、迁移、初始化加密器
+    try:
+        yield app, db_file
+    finally:
+        get_settings.cache_clear()
+
+
+@pytest.fixture
+def downloader_app(tmp_path, monkeypatch):
+    with _downloader_app(tmp_path, monkeypatch) as (app, _):
+        yield app
+
+
+@pytest.fixture
+def client(tmp_path, monkeypatch):
+    with (
+        _downloader_app(tmp_path, monkeypatch) as (app, db_file),
+        TestClient(app, headers={"Accept-Language": "zh-Hans"}) as c,
+    ):
         yield c, db_file
-    get_settings.cache_clear()
 
 
 _PAYLOAD = {
@@ -155,6 +171,155 @@ def test_unreachable_downloader_marked_failed(client) -> None:
     assert detail["status"] == "failed"
     assert detail["usable"] is False
     assert "无法连接" in detail["last_error"]
+
+
+_TRANSMISSION = {
+    "name": "Synthetic Transmission",
+    "client_type": "transmission",
+    "url": "http://downloader.invalid:9091",
+}
+
+
+@pytest.mark.parametrize(
+    ("stage", "expected_status", "expected_error"),
+    [
+        ("factory", "failed", "Cannot initialize the synthetic downloader"),
+        ("connection", "failed", "timed out"),
+        ("paths", "failed", "Synthetic path probe failed"),
+        ("paths_timeout", "failed", "timed out"),
+        ("close", "active", None),
+        ("close_timeout", "active", None),
+    ],
+)
+def test_verification_settles_after_probe_or_cleanup_failure(
+    downloader_app, monkeypatch, stage, expected_status, expected_error
+) -> None:
+    closed = []
+    close_completed = []
+
+    class FaultyDownloader(_FakeDownloader):
+        def __init__(self, config):
+            if stage == "factory":
+                raise DownloaderConnectError("Cannot initialize the synthetic downloader")
+            super().__init__(config)
+
+        async def test_connection(self):
+            if stage == "connection":
+                await asyncio.sleep(0.25)
+            return await super().test_connection()
+
+        async def close(self):
+            closed.append(True)
+            if stage == "close":
+                raise RuntimeError("Synthetic close failed")
+            if stage == "close_timeout":
+                await asyncio.sleep(0.25)
+                close_completed.append(True)
+
+    def fail_path_probe(_):
+        raise OSError("Synthetic path probe failed")
+
+    def slow_path_probe(_):
+        time.sleep(0.25)
+        return []
+
+    monkeypatch.setattr(downloader_service, "create_downloader", FaultyDownloader)
+    if stage in {"connection", "paths_timeout"}:
+        monkeypatch.setattr(downloader_service, "_VERIFY_TIMEOUT", 0.05, raising=False)
+    if stage == "close_timeout":
+        monkeypatch.setattr(downloader_service, "_TEST_TIMEOUT", 0.05)
+    if stage == "paths":
+        monkeypatch.setattr(downloader_service, "probe_mappings", fail_path_probe)
+    if stage == "paths_timeout":
+        monkeypatch.setattr(downloader_service, "probe_mappings", slow_path_probe)
+    with TestClient(
+        downloader_app, raise_server_exceptions=False, headers={"Accept-Language": "en"}
+    ) as c:
+        response = c.post("/api/v1/downloaders", json=_TRANSMISSION)
+        assert response.status_code == 200
+        created = response.json()["data"]
+        assert created["status"] == "verifying"
+        detail = c.get(f"/api/v1/downloaders/{created['id']}").json()["data"]
+    assert detail["status"] == expected_status
+    assert detail["last_checked_at"] is not None
+    if expected_error:
+        assert expected_error in detail["last_error"]
+    else:
+        assert detail["last_error"] is None
+    assert len(closed) == (0 if stage == "factory" else 1)
+    assert not close_completed
+
+
+def test_cancelled_verification_records_failure(client, monkeypatch) -> None:
+    from movieclaw_api.api.routes import downloaders
+
+    c, _ = client
+    started = asyncio.Event()
+    closed = []
+
+    class InterruptedDownloader(_FakeDownloader):
+        async def test_connection(self):
+            started.set()
+            await asyncio.Event().wait()
+
+        async def close(self):
+            closed.append(True)
+
+    async def cancel_verification(downloader_id):
+        task = asyncio.create_task(downloader_service.verify_downloader(downloader_id))
+        await asyncio.wait_for(started.wait(), timeout=2)
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+    monkeypatch.setattr(downloader_service, "create_downloader", InterruptedDownloader)
+    monkeypatch.setattr(downloaders, "verify_downloader", cancel_verification)
+    response = c.post("/api/v1/downloaders", json=_TRANSMISSION)
+    assert response.status_code == 200
+    downloader_id = response.json()["data"]["id"]
+    detail = c.get(
+        f"/api/v1/downloaders/{downloader_id}", headers={"Accept-Language": "en"}
+    ).json()["data"]
+    assert detail["status"] == "failed"
+    assert "interrupted" in detail["last_error"]
+    assert closed == [True]
+
+
+def test_restart_recovers_interrupted_verification(downloader_app, monkeypatch) -> None:
+    from movieclaw_api.api.routes import downloaders
+
+    with TestClient(downloader_app) as c:
+        with monkeypatch.context() as patch:
+            # Simulate shutdown after the API commits VERIFYING but before the worker runs.
+            patch.setattr(downloaders, "verify_downloader", lambda _: None)
+            created = c.post("/api/v1/downloaders", json=_TRANSMISSION)
+            assert created.status_code == 200
+            path = f"/api/v1/downloaders/{created.json()['data']['id']}"
+            assert c.get(path).json()["data"]["status"] == "verifying"
+            assert c.post(f"{path}/verify").status_code == 409
+            assert c.put(path, json=_TRANSMISSION).status_code == 409
+            assert c.delete(path).status_code == 409
+            assert c.patch(f"{path}/status", json={"enabled": False}).status_code == 200
+        active = c.post("/api/v1/downloaders", json={**_TRANSMISSION, "name": "Healthy"})
+        active_path = f"/api/v1/downloaders/{active.json()['data']['id']}"
+
+    calls_before_restart = len(_captured_configs)
+    with TestClient(downloader_app, headers={"Accept-Language": "en"}) as c:
+        detail = c.get(path).json()["data"]
+        assert detail["status"] == "failed"
+        assert "interrupted" in detail["last_error"]
+        assert detail["last_checked_at"] is None
+        assert detail["enabled"] is False
+        assert c.get(active_path).json()["data"]["status"] == "active"
+        assert len(_captured_configs) == calls_before_restart
+        assert c.post(f"{path}/verify").status_code == 200
+        assert c.get(path).json()["data"]["status"] == "active"
+        updated = c.put(path, json={**_TRANSMISSION, "name": "Edited", "enabled": True})
+        assert updated.status_code == 200
+        assert c.get(path).json()["data"]["status"] == "active"
+        assert c.patch(f"{path}/status", json={"enabled": False}).status_code == 200
+        assert c.delete(path).status_code == 200
+        assert c.get(path).status_code == 404
 
 
 def test_create_rejects_invalid_url(client) -> None:
