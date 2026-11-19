@@ -18,7 +18,11 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 
 from movieclaw_api.i18n import t
-from movieclaw_api.services.playback.track_memory import inherit_tracks, inheritance_source
+from movieclaw_api.services.playback.track_memory import (
+    inheritance_sources,
+    translate_audio,
+    translate_subtitle,
+)
 from movieclaw_db.models import LibraryFile, PlaybackState
 from movieclaw_playback.subtitles import SUBTITLE_OFF, parse_embedded_track
 from movieclaw_playback.track_policy import (
@@ -102,19 +106,14 @@ def file_track_defaults(
     unit = (file.media_item_id or 0, file.season_number or 0, file.episode_number or 0)
     own = states.get(unit)
     inherited_audio = inherited_subtitle = None
-    picked = inheritance_source(states, unit)
-    if picked is not None:
-        source_unit, source_row, need_audio, need_subtitle = picked
-        source = unit_files.get(source_unit)
-        if source is not None:
-            inherited_audio, inherited_subtitle = inherit_tracks(
-                source_row,
-                source,
-                file,
-                context,
-                need_audio=need_audio,
-                need_subtitle=need_subtitle,
-            )
+    audio_from, subtitle_from = inheritance_sources(states, unit)
+    if audio_from is not None and (source := unit_files.get(audio_from[0])) is not None:
+        inherited_audio = translate_audio(audio_from[1].audio_track, source, file, context)
+    if subtitle_from is not None and (source := unit_files.get(subtitle_from[0])) is not None:
+        row = subtitle_from[1]
+        inherited_subtitle = translate_subtitle(
+            row.subtitle_track, source, file, context, row.audio_track
+        )
     audio = resolve_audio(file, own.audio_track if own else None, context)
     if audio.reason != "remembered" and inherited_audio is not None:
         audio = AudioChoice(parse_embedded_track(inherited_audio), "series")
