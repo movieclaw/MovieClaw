@@ -197,7 +197,10 @@ def test_external_player_full_flow(stack) -> None:
             # 6. 真实分享访客页：结构隐藏无外部播放器入口，匿名请求外链被拒
             visitor = open_page(visitor_ctx, "visitor")
             share_cfg = {"expires_in_days": 1, "password": None}
-            for lib_id, item_id, title in ((movie_lib, movie_id, "某电影"), (tv_lib, show_id, "测试剧集")):
+            for lib_id, item_id, title in (
+                (movie_lib, movie_id, "某电影"),
+                (tv_lib, show_id, "测试剧集"),
+            ):
                 slug = api(
                     admin, "post", f"/libraries/{lib_id}/items/{item_id}/share", data=share_cfg
                 ).json()["data"]["slug"]
