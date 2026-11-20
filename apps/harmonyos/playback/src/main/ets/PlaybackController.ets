@@ -286,14 +286,24 @@ export class PlaybackController {
   // signal lies, so in-player seeks on remote HLS are refused outright — the
   // host reopens the session at the target instead (timeline='file' 的落点由
   // 会话起播点/EXT-X-START 保证), never freezing on a dead pipeline.
-  // Plain remote URLs (/stream) stay seekable: 首帧后的续播死锁由 startAttempt
-  // 的 prepared 态 seek 绕开，in-session 拖动走正常 seek 路径。isHls absent
-  // = conservative HLS = refuse, so old media implementations cannot regress
-  // into freezing.
+  // Plain remote URLs (/stream): 首帧后的续播死锁由 startAttempt 的 prepared 态
+  // seek 绕开，in-session 拖动同样撞死在满缓存上（见 remoteDirectAvplayerSeek），
+  // 由 seek() 直接按目标转 mpv。isHls absent = conservative HLS = refuse, so
+  // old media implementations cannot regress into freezing.
   private remoteAvplayerSeek(engine: PlayerEngine): boolean {
     const lease = this.lease;
     return engine.id === 'avplayer' && lease !== null && lease.source.fd < 0
       && lease.source.url.length > 0 && (lease.source.isHls ?? true);
+  }
+  // 远程直链（非 HLS 的 URL 源）：起播后 histreamer 的前读把缓存塞满，任何出
+  // 缓存的流内 seek 都是假 seekDone 真冻结——拉回的数据存不进满缓存
+  // （SaveBodyData failed），时钟冻在 seek 点、状态机仍报 playing，只能等停滞
+  // 看门狗 30s 后转 mpv（2026-11-20 Pura X 实测：拖到 7:42 冻 46s 才救回）。
+  // prepared 态的续播 seek 不在此列（此刻缓存里只有 moov，见 startAttempt）。
+  private remoteDirectAvplayerSeek(engine: PlayerEngine): boolean {
+    const lease = this.lease;
+    return engine.id === 'avplayer' && lease !== null && lease.source.fd < 0
+      && lease.source.url.length > 0 && !(lease.source.isHls ?? true);
   }
   private async recover(failure: EngineFailure, generation: number, id: EngineId): Promise<void> {
     hilog.error(0x0000, 'MCSub', 'engine 失败: id=%{public}s kind=%{public}s code=%{public}d msg=%{public}s',
@@ -358,6 +368,37 @@ export class PlaybackController {
     const notice = new EngineEvent();
     notice.type = 'diagnostic';
     notice.text = `视频流卡死，自动恢复中（${this.frozenRecoveries}/${PlaybackController.maxFrozenRecoveries}）`;
+    this.onEvent(notice);
+    this.available = false; this.switching = true; this.attempt++;
+    try { await this.disposeEngine(); }
+    catch (error) {
+      if (generation !== this.generation) { return; }
+      const failure = new EngineFailure('internal', 0, '播放器释放失败，请退出播放页');
+      this.snapshot.phase = 'failed'; this.snapshot.playing = false; this.snapshot.buffering = false; this.snapshot.failure = failure;
+      this.publish(); this.onFailure(failure); return;
+    }
+    if (generation !== this.generation) { return; }
+    try { await this.startAttempt('mpv', generation); }
+    catch (error) {
+      if (generation !== this.generation) { return; }
+      await this.recover(error instanceof EngineFailure ? error
+        : new EngineFailure('internal', 0, '无法重建播放画面'), generation, id);
+    }
+  }
+
+  /**
+   * 远程直链 avp 的 in-session seek（拖动/重播）：与 recoverFrozen 同路——dispose
+   * 后转 mpv 就地重开。区别有二：重开位置就是拖动目标（用户可以故意回看，绝不
+   * 按看门狗口径取较大值），也不占冻结恢复的三次预算（这是主动换引擎，不是源
+   * 持续异常）。mpv 的 startAttempt 按 intent.positionMs 落到目标点，之后的拖动
+   * 走 mpv 原生 seek，不再经过这里。
+   */
+  private async recoverDragToMpv(generation: number, id: EngineId): Promise<void> {
+    hilog.info(0x0000, 'MCSub', 'avplayer 远程直链拖动，转 mpv 重开: position=%{public}d',
+      this.intent.positionMs);
+    const notice = new EngineEvent();
+    notice.type = 'diagnostic';
+    notice.text = '切换兼容引擎以支持拖动';
     this.onEvent(notice);
     this.available = false; this.switching = true; this.attempt++;
     try { await this.disposeEngine(); }
@@ -581,6 +622,15 @@ export class PlaybackController {
       hilog.info(0x0000, 'MCSub', 'avplayer 远程流拖动出窗，按目标重开会话: position=%{public}d origin=%{public}d',
         fileMs, originMs);
       this.onSeekOutsideWindow(fileMs);
+      return;
+    }
+    // 远程直链的 in-session 拖动/重播：起播前读已把 histreamer 缓存塞满，流内
+    // seek 拉回的数据存不进满缓存——假 seekDone 真冻结（见 remoteDirectAvplayerSeek）。
+    // 不陪停滞看门狗等 30 秒，拖动直接按目标转 mpv 就地重开（2026-11-20 Pura X
+    // 实测 mpv 接管 1.9s 即恢复），之后的拖动全是 mpv 原生 seek。
+    if (!this.switching && this.available && liveEngine !== null && fileMs >= originMs
+      && this.remoteDirectAvplayerSeek(liveEngine)) {
+      await this.recoverDragToMpv(this.generation, liveEngine.id);
       return;
     }
     // Before the first frame a drag merges into the deferred resume target (the

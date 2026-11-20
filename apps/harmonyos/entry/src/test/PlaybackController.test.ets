@@ -115,7 +115,7 @@ class FakeRemoteMedia implements PlaybackMedia {
       length: 0, subtitleFd: -1, subtitleUrl: '', isHls: true }, this.order, this.acquired);
   }
 }
-/** 远程直连（/stream 一类 Range 可 seek 的 URL）：AVPlayer 照常跳转，不转 mpv。 */
+/** 远程直连（/stream 一类 Range 可 seek 的 URL）：续播 seek 走 prepared 态，in-session 拖动转 mpv。 */
 class FakeDirectRemoteMedia implements PlaybackMedia {
   originMs: number = 0;
   durationMs: number = 100000;
@@ -565,16 +565,40 @@ export default function playbackControllerTest() {
       expect(controller.current().positionMs).assertEqual(42000);
       await controller.release();
     });
-    it('remote_direct_out_user_seek_stays_on_avplayer', 0, async () => {
+    it('remote_direct_out_user_seek_converts_to_mpv_at_the_target', 0, async () => {
       const factory = new FakeFactory(); const controller = new PlaybackController(factory);
       await controller.open(new FakeDirectRemoteMedia(factory.order), 'surface', new PlaybackIntent());
       expect(factory.created.join(',')).assertEqual('avplayer');
       factory.avp.frame(); await microtasks();
+      // 首帧后的拖动不再赌流内 seek：起播前读已塞满 histreamer 缓存，出缓存的
+      // seek 假 seekDone 真冻结（2026-11-20 Pura X 拖到 7:42 冻 46s 实测），按
+      // 目标直接转 mpv 就地重开。
       await controller.seek(70000);
-      expect(factory.created.join(',')).assertEqual('avplayer');
-      expect(factory.avp.calls.includes('seek:70000')).assertTrue();
-      expect(controller.current().engine).assertEqual('avplayer');
+      expect(factory.created.join(',')).assertEqual('avplayer,mpv');
+      expect(factory.avp.calls.includes('seek:70000')).assertFalse();
+      expect(factory.avp.calls.includes('release')).assertTrue();
+      expect(factory.mpv.calls.includes('open:surface')).assertTrue();
+      expect(factory.mpv.calls.includes('seek:70000')).assertTrue();
+      expect(controller.current().engine).assertEqual('mpv');
       expect(controller.current().positionMs).assertEqual(70000);
+      // 转换后的再拖动走 mpv 原生 seek，不再换引擎。
+      await controller.seek(30000);
+      expect(factory.created.join(',')).assertEqual('avplayer,mpv');
+      expect(factory.mpv.calls.includes('seek:30000')).assertTrue();
+      expect(controller.current().positionMs).assertEqual(30000);
+      await controller.release();
+    });
+    it('remote_direct_drag_before_the_first_frame_converts_to_mpv_immediately', 0, async () => {
+      const factory = new FakeFactory(); const controller = new PlaybackController(factory);
+      await controller.open(new FakeDirectRemoteMedia(factory.order), 'surface', new PlaybackIntent());
+      // 首帧前拖动：同样直接转 mpv——并入延迟恢复会在满缓存上 post-first-frame
+      // 补 seek，正是死锁路径，绝不走。
+      await controller.seek(60000);
+      expect(factory.created.join(',')).assertEqual('avplayer,mpv');
+      expect(factory.avp.calls.includes('seek:60000')).assertFalse();
+      expect(factory.mpv.calls.includes('seek:60000')).assertTrue();
+      expect(controller.current().engine).assertEqual('mpv');
+      expect(controller.current().positionMs).assertEqual(60000);
       await controller.release();
     });
     it('progress_reporting_resumes_after_landing_while_track_selection_is_still_pending', 0, async () => {
