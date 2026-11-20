@@ -500,7 +500,7 @@ struct MacItemDetailView: View {
         if !detail.originalTitle.isEmpty, detail.originalTitle != detail.title { facts.append((String(localized: .settingsScrapeOriginalTitle), detail.originalTitle)) }
         if let year = detail.year { facts.append((String(localized: .searchFiltersYear), String(year))) }
         if let genres = meta?.genres, !genres.isEmpty { facts.append((String(localized: .mediaDiscoveryType), genres.joined(separator: " / "))) }
-        if let rating = meta?.rating, rating > 0 { facts.append((String(localized: .libraryRowsRatingHint), String(format: "%.1f", locale: AppLanguage.locale, rating))) }
+        if let rating = meta?.rating, rating > 0 { facts.append((String(localized: .libraryRowsRatingHint), String(format: "%.1f", locale: AppLanguage.germanLocale, rating))) }
         if isMovie, let runtime = meta?.runtimeMinutes, runtime > 0 { facts.append((String(localized: .libraryFiltersRuntime), Formatters.runtime(runtime))) }
         if !isMovie {
             let seasons = detail.seasons.filter { $0 > 0 }.count

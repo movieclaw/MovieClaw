@@ -14,6 +14,8 @@ nonisolated enum AppLanguage {
 
     static var locale: Locale { Locale(identifier: identifier) }
 
+    static var germanLocale: Locale? { identifier == "de" ? locale : nil }
+
     static var name: String {
         switch identifier {
         case "zh-Hans": "简体中文" // i18n-ignore: autonym is language data.

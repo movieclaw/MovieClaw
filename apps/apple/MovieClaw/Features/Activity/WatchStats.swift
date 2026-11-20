@@ -196,7 +196,7 @@ enum WatchMetric: CaseIterable {
     }
 
     private static func hours(_ ms: Double) -> String {
-        String(format: ms >= 360_000_000 ? "%.0f" : "%.1f", locale: AppLanguage.locale, ms / 3_600_000)
+        String(format: ms >= 360_000_000 ? "%.0f" : "%.1f", locale: AppLanguage.germanLocale, ms / 3_600_000)
     }
 
     func format(_ v: Double) -> String {
@@ -224,7 +224,7 @@ enum WatchMetric: CaseIterable {
 
     func axis(_ v: Double) -> String {
         switch self {
-        case .watched: String(format: v >= 36_000_000 ? "%.0fh" : "%.1fh", locale: AppLanguage.locale, v / 3_600_000)
+        case .watched: String(format: v >= 36_000_000 ? "%.0fh" : "%.1fh", locale: AppLanguage.germanLocale, v / 3_600_000)
         case .plays, .members: "\(Int(v.rounded()))"
         case .completion: "\(Int((v * 100).rounded()))%"
         }
@@ -234,7 +234,7 @@ enum WatchMetric: CaseIterable {
     var bucketNote: String? { self == .members ? String(localized: .activityWatchStatsDailyAverage) : nil }
 
     private static func trim(_ v: Double) -> String {
-        v == v.rounded() ? "\(Int(v))" : String(format: "%.1f", locale: AppLanguage.locale, v)
+        v == v.rounded() ? "\(Int(v))" : String(format: "%.1f", locale: AppLanguage.germanLocale, v)
     }
 }
 

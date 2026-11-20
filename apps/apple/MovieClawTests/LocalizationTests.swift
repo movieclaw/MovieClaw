@@ -30,6 +30,18 @@ nonisolated final class LocalizationTests: XCTestCase {
         XCTAssertTrue(AppFormatting.dateTime(now, locale: locale).contains(".09."))
     }
 
+    @MainActor func testSettingsUnixTimestampUsesGermanFormatAndPreservesLegacyLanguages() {
+        let seconds = 1_790_000_000
+        let date = Date(timeIntervalSince1970: TimeInterval(seconds))
+        let legacy = date.formatted(.dateTime.year().month(.twoDigits).day(.twoDigits).hour().minute().locale(Locale(identifier: "zh_CN")))
+        let german = SettingsTime.unix(seconds, language: "de")
+
+        XCTAssertEqual(SettingsTime.unix(seconds, language: "en"), legacy)
+        XCTAssertEqual(SettingsTime.unix(seconds, language: "zh-Hans"), legacy)
+        XCTAssertEqual(german, AppFormatting.dateTime(date, locale: Locale(identifier: "de")))
+        XCTAssertNotEqual(german, legacy)
+    }
+
     @MainActor func testEnglishTaskCenterLabelsAndSummaries() throws {
         func job(_ type: String, status: String = "succeeded", message: String = "", params: [String: Any]? = nil,
                  details: [String: Any] = [:], current: Int? = nil, total: Int? = nil) throws -> API.JobView {

@@ -119,7 +119,7 @@ enum SubsFormat {
             index += 1
         }
         let rounded = (number * 100).rounded() / 100
-        let text = rounded >= 100 || index == 0 ? String(format: "%.0f", locale: AppLanguage.locale, rounded) : String(format: "%.2f", locale: AppLanguage.locale, rounded)
+        let text = rounded >= 100 || index == 0 ? String(format: "%.0f", locale: AppLanguage.germanLocale, rounded) : String(format: "%.2f", locale: AppLanguage.germanLocale, rounded)
         return "\(text) \(units[index])"
     }
 

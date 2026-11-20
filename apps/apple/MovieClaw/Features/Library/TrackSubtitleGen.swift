@@ -607,13 +607,13 @@ private enum TrackGenText {
     }
 
     static func grouped(_ value: Int) -> String {
-        AppFormatting.number(value)
+        value.formatted(.number.locale(AppLanguage.germanLocale ?? Locale(identifier: "zh_CN")))
     }
 
     static func tokenEstimate(_ tokens: Int) -> String {
         if tokens < 1000 { return String(localized: .librarySubtitleGenerationTokenEstimate(grouped(tokens))) }
         let k = Double(tokens) / 1000
-        return tokens < 10_000 ? String(localized: .librarySubtitleGenerationTokenEstimateDecimalK(String(format: "%.1f", locale: AppLanguage.locale, k))) : String(localized: .librarySubtitleGenerationTokenEstimateK(String(Int(k.rounded()))))
+        return tokens < 10_000 ? String(localized: .librarySubtitleGenerationTokenEstimateDecimalK(String(format: "%.1f", locale: AppLanguage.germanLocale, k))) : String(localized: .librarySubtitleGenerationTokenEstimateK(String(Int(k.rounded()))))
     }
 
     /// 确认区的成本行：读过的字幕按实际对白估算；内封轨还没读过时按片长粗估（同 Web）

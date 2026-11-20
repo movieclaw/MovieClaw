@@ -131,7 +131,7 @@ func libraryBytes(_ bytes: Int?) -> String {
         i += 1
     }
     let rounded = (value * 100).rounded() / 100
-    return String(format: rounded >= 100 || i == 0 ? "%.0f %@" : "%.2f %@", locale: AppLanguage.locale, rounded, units[i])
+    return String(format: rounded >= 100 || i == 0 ? "%.0f %@" : "%.2f %@", locale: AppLanguage.germanLocale, rounded, units[i])
 }
 
 /// 相对时间（Web dayjs `fromNow` 中文口径）：「几秒前」「18 天前」「1 个月前」「3 天内」；空值「从未」。

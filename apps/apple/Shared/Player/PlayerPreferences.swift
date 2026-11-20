@@ -92,7 +92,10 @@ enum PlaybackSpeed {
 
     /// 「1×」「1.25×」：时间旁的角标、开播提示用
     static func short(_ rate: Float) -> String {
-        let text = rate.formatted(.number.precision(.fractionLength(0...2)).locale(AppLanguage.locale))
+        if let locale = AppLanguage.germanLocale {
+            return rate.formatted(.number.precision(.fractionLength(0...2)).locale(locale)) + "×"
+        }
+        let text = String(format: "%.2f", rate).replacingOccurrences(of: #"\.?0+$"#, with: "", options: .regularExpression)
         return text + "×"
     }
 }

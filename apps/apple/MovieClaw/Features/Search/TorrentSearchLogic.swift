@@ -522,7 +522,7 @@ nonisolated enum TorrentSearchLogic {
     }
 
     /// 秒级耗时文案（站点状态弹层）
-    static func elapsedText(_ ms: Int) -> String { String(localized: .searchStatusSeconds(String(format: "%.1f", locale: AppLanguage.locale, Double(ms) / 1000))) }
+    static func elapsedText(_ ms: Int) -> String { String(localized: .searchStatusSeconds(String(format: "%.1f", locale: AppLanguage.germanLocale, Double(ms) / 1000))) }
 
     private nonisolated(unsafe) static let isoFormatter: ISO8601DateFormatter = {
         let f = ISO8601DateFormatter()
