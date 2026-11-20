@@ -233,8 +233,12 @@ enum SettingsTime {
     }
 
     /// Unix 秒 → 「2026-09-25 17:03」
-    static func unix(_ seconds: Int) -> String {
-        AppFormatting.dateTime(Date(timeIntervalSince1970: TimeInterval(seconds)))
+    static func unix(_ seconds: Int, language: String = AppLanguage.identifier) -> String {
+        let date = Date(timeIntervalSince1970: TimeInterval(seconds))
+        if language == "de" {
+            return AppFormatting.dateTime(date, locale: Locale(identifier: language))
+        }
+        return date.formatted(.dateTime.year().month(.twoDigits).day(.twoDigits).hour().minute().locale(Locale(identifier: "zh_CN")))
     }
 }
 

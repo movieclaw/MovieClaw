@@ -233,7 +233,7 @@ struct MediaDetailView: View {
                 if item.providerRating > 0 {
                     HStack(spacing: 4) {
                         Image(systemName: "star.fill").foregroundStyle(Theme.warning)
-                        Text(String(format: "%.1f", locale: AppLanguage.locale, item.providerRating)).font(.title3.bold()).foregroundStyle(.white)
+                        Text(String(format: "%.1f", locale: AppLanguage.germanLocale, item.providerRating)).font(.title3.bold()).foregroundStyle(.white)
                     }
                 }
                 let metas = [item.releaseYear.map(String.init), item.extentLabel.isEmpty ? nil : item.extentLabel].compactMap { $0 }

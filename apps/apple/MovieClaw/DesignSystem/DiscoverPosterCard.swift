@@ -140,7 +140,7 @@ struct DiscoverPosterCard: View {
     private var accessibilityText: String {
         var parts = [String(localized: .mediaCardsQuotedTitle(item.title))]
         if let ribbon { parts.append(ribbon.label) }
-        if item.rating > 0 { parts.append(String(localized: .mediaCardsRatingValue(String(format: "%.1f", locale: AppLanguage.locale, item.rating)))) }
+        if item.rating > 0 { parts.append(String(localized: .mediaCardsRatingValue(String(format: "%.1f", locale: AppLanguage.germanLocale, item.rating)))) }
         return parts.joined(separator: AppLanguage.identifier == "zh-Hans" ? "，" : ", ")
     }
 
@@ -399,7 +399,7 @@ struct DiscoverPosterInfoPreview: View {
                 let meta = [
                     item.typeLabel,
                     item.year.map(String.init),
-                    item.rating > 0 ? String(format: "★ %.1f", locale: AppLanguage.locale, item.rating) : nil,
+                    item.rating > 0 ? String(format: "★ %.1f", locale: AppLanguage.germanLocale, item.rating) : nil,
                     item.extent.isEmpty ? nil : item.extent,
                 ].compactMap { $0 }
                 if !meta.isEmpty {
@@ -466,7 +466,7 @@ struct RatingBadge: View {
     var body: some View {
         HStack(spacing: 3) {
             Image(systemName: "star.fill").font(.system(size: 9)).foregroundStyle(Theme.warning)
-            Text(String(format: "%.1f", locale: AppLanguage.locale, rating)).font(.caption2.weight(.semibold)).monospacedDigit()
+            Text(String(format: "%.1f", locale: AppLanguage.germanLocale, rating)).font(.caption2.weight(.semibold)).monospacedDigit()
         }
         .foregroundStyle(.white)
         .padding(.horizontal, 5).padding(.vertical, 2)

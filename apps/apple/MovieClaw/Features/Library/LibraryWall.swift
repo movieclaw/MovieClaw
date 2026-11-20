@@ -213,7 +213,7 @@ struct LibraryInventoryCell: View {
 
     var body: some View {
         let dead = item.fileCount > 0 && item.missingCount >= item.fileCount
-        let rating = (item.rating ?? 0) > 0 ? "★ " + String(format: "%.1f", locale: AppLanguage.locale, item.rating ?? 0) : nil
+        let rating = (item.rating ?? 0) > 0 ? "★ " + String(format: "%.1f", locale: AppLanguage.germanLocale, item.rating ?? 0) : nil
         let aspect = frameAspect ?? (item.primaryAspect >= 1 ? 16 / 9 : Theme.posterAspect)
         let width = cellWidth ?? LibraryGridColumn.width(minimum: aspect >= 1 ? 160 : 140)
         NavigationLink(value: AppRoute.libraryItem(libraryId: item.libraryId ?? libraryId, itemId: item.mediaItemId)) {
