@@ -21,6 +21,10 @@ import { daysBetween, episodeTone, formatAirDay, formatWeekday } from "@/lib/air
 import { BrandLoader } from "@/components/brand-loader";
 import { CastRow } from "@/components/cast-row";
 import { ChapterStrip } from "@/components/chapter-strip";
+import {
+  ExternalPlayerEpisodeMenu,
+  ExternalPlayerSplitButton,
+} from "@/components/external-player-menu";
 import { LibraryRelatedRows } from "@/components/library-related-rows";
 import { MediaTrackRows } from "@/components/media-track-rows";
 import { PAGE_NAV_BUTTON_CLASS } from "@/components/page-nav";
@@ -79,6 +83,7 @@ import {
   transferLibraryItem,
 } from "@/lib/api/libraries";
 import {
+  type PlaybackExternalLinkRequest,
   type PlaybackUnit,
   type PlaybackWatchState,
   fetchPlaybackMarks,
@@ -971,6 +976,17 @@ export function LibraryItemDetailView({
               marking={marking}
               onToggleFavorite={toggleFavorite}
               onTogglePlayed={togglePlayed}
+              externalLink={
+                playUnit
+                  ? {
+                      ...playUnit,
+                      file_id: pickedVersionFileId(
+                        selectedTrackFileId,
+                        availableTrackFiles.map((file) => file.id),
+                      ),
+                    }
+                  : undefined
+              }
               onPlay={() => {
                 // 退出播放要回到用户离开的这一屏（含季集查询参数）。导航
                 // 状态不进播放页地址（§6.10 地址就是分享凭证），走
@@ -1045,6 +1061,7 @@ export function LibraryItemDetailView({
             initialEpisode={initialEpisode}
             onEpisodeChange={setSelectedSeriesEpisode}
             refreshKey={episodesVersion}
+            externalPlayer
             airCalendar={{
               title: detail.title,
               canSubscribe,
@@ -1319,6 +1336,7 @@ export function PlayAction({
   marking = false,
   onToggleFavorite,
   onTogglePlayed,
+  externalLink,
 }: {
   watched: PlaybackWatchState | null;
   onPlay: () => void;
@@ -1330,6 +1348,8 @@ export function PlayAction({
   marking?: boolean;
   onToggleFavorite?: () => void;
   onTogglePlayed?: () => void;
+  /** 传了才渲染外部播放器入口；分享页不传 */
+  externalLink?: PlaybackExternalLinkRequest;
 }) {
   const t = useTranslations();
   const locale = useLocale();
@@ -1379,6 +1399,8 @@ export function PlayAction({
         <PlayIcon className="size-5" />
         {label}
       </button>
+
+      {externalLink && <ExternalPlayerSplitButton request={externalLink} />}
 
       {(onToggleFavorite || onTogglePlayed) && (
         <div className="flex items-center gap-2.5">
@@ -1774,6 +1796,7 @@ export function SeasonEpisodesSection<F extends { id: number; season_number: num
   fetchEpisodes,
   refreshKey = 0,
   airCalendar,
+  externalPlayer = false,
 }: {
   libraryId: number;
   detail: EpisodeSectionItem<F>;
@@ -1786,6 +1809,8 @@ export function SeasonEpisodesSection<F extends { id: number; season_number: num
   refreshKey?: number;
   /** 播出日历（issue #547）：只有库详情页传；分享页没有订阅与入库的语境 */
   airCalendar?: { title: string; canSubscribe: boolean; onSubscribe?: () => void };
+  /** 只有成员详情页传 true；分享页不传 */
+  externalPlayer?: boolean;
 }) {
   const t = useTranslations();
   const locale = useLocale();
@@ -2095,6 +2120,15 @@ export function SeasonEpisodesSection<F extends { id: number; season_number: num
               selected={episode.episode_number === selected}
               resume={watched && episode.episode_number === anchor}
               schedule={airSchedule}
+              externalLink={
+                externalPlayer && episode.owned
+                  ? {
+                      media_item_id: detail.media_item_id,
+                      season_number: data.season_number,
+                      episode_number: episode.episode_number,
+                    }
+                  : undefined
+              }
               onSelect={() => setSelected(episode.episode_number)}
             />
           ))}
@@ -2373,6 +2407,7 @@ function EpisodeCard({
   selected,
   resume = false,
   schedule = null,
+  externalLink,
   onSelect,
 }: {
   episode: LibraryEpisode;
@@ -2381,6 +2416,8 @@ function EpisodeCard({
   resume?: boolean;
   /** 播出日历：有它才分得清「还没播」与「缺集」；没有时库里没有的集一律按缺集 */
   schedule?: SeasonAirSchedule | null;
+  /** 外部播放器拉起目标；传了才在剧照右下角渲染独立菜单，分享页与缺集不传 */
+  externalLink?: PlaybackExternalLinkRequest;
   onSelect: () => void;
 }) {
   const t = useTranslations();
@@ -2394,15 +2431,18 @@ function EpisodeCard({
   const resuming = episode.position_ms > 0;
   const progress = resuming ? episode.progress_percent : episode.played ? 100 : null;
   return (
-    <button
-      type="button"
+    <div
       data-episode-number={episode.episode_number}
-      onClick={onSelect}
-      aria-pressed={selected}
-      className={`w-[200px] shrink-0 rounded-xl text-left outline-none transition ${
-        episode.owned || unaired ? "" : "opacity-45 saturate-50"
-      }`}
+      className="group/episode relative w-[200px] shrink-0"
     >
+      <button
+        type="button"
+        onClick={onSelect}
+        aria-pressed={selected}
+        className={`w-full rounded-xl text-left outline-none transition ${
+          episode.owned || unaired ? "" : "opacity-45 saturate-50"
+        }`}
+      >
       <div
         className={`relative aspect-video overflow-hidden rounded-xl bg-[var(--poster-placeholder)] transition ${
           selected
@@ -2469,7 +2509,14 @@ function EpisodeCard({
       >
         {episode.episode_number}. {episode.name ?? t("library.item.episode", { episode: episode.episode_number })}
       </p>
-    </button>
+      </button>
+      {externalLink && (
+        <ExternalPlayerEpisodeMenu
+          request={externalLink}
+          episodeNumber={episode.episode_number}
+        />
+      )}
+    </div>
   );
 }
 

@@ -1,6 +1,6 @@
 # 外部播放器：把原文件交给 PotPlayer / IINA / Infuse / VLC 播放——设计（第一期）
 
-> 状态：**后端已实现（本期）**，网页 UI 与第二期待后续 PR（2026-11-17）。代码基线 `ca1118d0f`。
+> 状态：**后端已实现；网页 UI 第一期预览已实现（2026-11-20），scheme 参数待实机核对**；第二期待维护者拍板。代码基线 `ca1118d0f`。
 > 关联：[web-player.md](web-player.md) §4.7（取流签名 token，本文直接复用）、
 > [media-share.md](media-share.md)（分享访客，本文明确不给）、
 > [library-access.md](library-access.md)（库可见范围与内容分级）、
@@ -192,6 +192,18 @@ PotPlayer、VLC、MPV、Infuse 都能自己读镜像里的盘内结构。能放�
 - 提示「**外部播放器不同步进度，看完请点「标记已看」**」（第二期之前）。
 - Infuse / VidHub / SenPlayer / Fileball 的入口旁引导「添加为 Jellyfin 服务器，可同步进度」，
   链到设置里的 Jellyfin 兼容说明。
+
+### 4.3 实现备注（2026-11-20 网页 UI 预览）
+
+本轮网页 UI 预览已按上表落地（原表格保留），与 §4.1–§4.2 原设计有以下明确偏差与约定：
+
+1. **平台识别仅用 UA + `maxTouchPoints`**：只解析 `navigator.userAgent` 并结合 `navigator.maxTouchPoints`（`Macintosh` 且 `maxTouchPoints > 1` 按 iOS/iPadOS 处理），不依赖 `navigator.userAgentData`。后者仅 Chromium 支持，且浏览器测试/模拟改 UA 时不会同步变化。
+2. **Android Intent 采用 Chrome 标准式**：生成 `intent://<host><path><query>#Intent;scheme=<http|https>;type=video/*;package=<pkg>;S.title=…;end`（仅 MX Player 在 `start_ms > 0` 时追加 `;i.position=<ms>`），不使用上表的宽松写法 `intent:URL#Intent…`，避免不同浏览器对 `Intent.parseUri` 兼容不一致。
+3. **PotPlayer 本期仅用直链，不做剪贴板模式**：仅使用 `potplayer://<stream_url>`，不传 `/sub`、`/seek`、`/title`，也不在拉起前自动写入剪贴板——剪贴板模式会静默覆盖用户剪贴板、异步请求后剪贴板写入常被浏览器拦截、且多参数格式尚未实机核对。字幕统一通过结果面板的「复制字幕链接」手动加载作为 fallback。
+4. **字幕与续播参数保守收敛、协议待实机核对**：仅保留上表列出的参数（Infuse `sub`、VLC iOS `sub`、mpv-handler `subfile`、MX Player `i.position`），其余播放器均标注为不自动加载字幕 / 可能从头播放，并在结果面板提供字幕链接复制的手动 fallback。所有播放器的 URL scheme 及参数均**待实机逐一核对**后再作为正式行为锁定。
+5. **手势激活与拉起兜底**：点击后异步调用 `POST /playback/external-link`（不预取 token）；仅在用户激活仍有效（`navigator.userActivation.isActive`，缺失时按 1 秒窗口估计）时通过临时隐藏 `<a href>` 触发拉起。若激活已过期则不自动拉起，改为弹出结果面板并提供真实 `<a href>` 按钮供用户重新触发手势。无论是否自动拉起，均弹出结果面板兜底（含「再试一次」、只读视频链接、字幕链接复制及 HTTP 内网 / 剪贴板受限时的手动全选复制 fallback）。
+6. **Jellyfin 兼容层引导**：设置页当前没有独立的「Jellyfin 兼容说明」分区，本期仅在 Infuse 结果面板内展示一行纯文字提示，不挂跳转链接，待设置分区补齐后再补链。
+7. **「全部分集」宫格（`EpisodeCell`）未加独立菜单**：分集 ⋯ 外部播放器菜单仅挂在横滚分集卡片（`EpisodeCard`）上；长季的「全部分集」数字宫格（`EpisodeCell`）保持紧凑选集，不加独立菜单，可选集后使用上方主入口（或回到横滚分集卡的 ⋯ 菜单）。
 
 ## 5. 第二期：按取流字节估算进度（待维护者拍板）
 

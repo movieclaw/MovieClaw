@@ -1769,5 +1769,31 @@
     "progress": "{percent}% watched",
     "rating": "Rating {rating}",
     "detailStatus": "Airing status: {status}"
+  },
+  "externalPlayer": {
+    "openWith": "Open in {player}",
+    "choose": "Open in external player",
+    "episodeMenu": "Episode {episode}: external player",
+    "copyLink": "Copy link",
+    "copySubtitle": "Copy subtitle link",
+    "copied": "Link copied. It expires in 12 hours; don't share it with others.",
+    "copyFailed": "The browser blocked clipboard access. Copy the link below manually.",
+    "manualCopyHint": "Link selected. Press Ctrl+C (⌘+C on Mac) to copy.",
+    "panelTitle": "Open \"{title}\" in {player}",
+    "copyTitle": "Link for \"{title}\"",
+    "launched": "Tried to open {player}. Nothing happened? {player} may not be installed or the browser blocked it. You can also copy the link and open it manually.",
+    "tapToOpen": "The link is ready. Tap the button below to open {player}.",
+    "openButton": "Open {player}",
+    "retry": "Try again",
+    "streamLink": "Video link",
+    "subtitles": "Subtitles",
+    "noSubtitleParam": "{player} won't load subtitles automatically. Copy a subtitle link and load it in the player.",
+    "noStartParam": "You stopped at {time}; {player} may start from the beginning.",
+    "needsHandler": "Requires a protocol handler",
+    "expiry": "The link expires in 12 hours. Don't share it; to share long-term, use Share instead.",
+    "noProgress": "External players don't sync progress. Use \"Mark as watched\" when you finish.",
+    "jellyfinHint": "To sync progress, add this server to Infuse as a Jellyfin server.",
+    "invalidLink": "The server returned an invalid link.",
+    "failed": "Couldn't create an external player link"
   }
 }
