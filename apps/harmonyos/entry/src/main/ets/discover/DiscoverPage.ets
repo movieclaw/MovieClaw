@@ -13,7 +13,8 @@ import {
   DiscoveryPageView,
   DiscoverRegionView,
   MediaKind,
-  MediaSource
+  MediaSource,
+  SubscriptionView
 } from '../api/Models';
 import {
   DiscoverFailure,
@@ -126,26 +127,6 @@ function regionNameOf(code: string): string {
   }
   return code;
 }
-/** 视角选项（四个按钮）：类型 × 数据源 */
-class ViewpointOption {
-  readonly mediaType: string;
-  readonly source: string;
-  readonly label: string;
-
-  constructor(mediaType: string, source: string, label: string) {
-    this.mediaType = mediaType;
-    this.source = source;
-    this.label = label;
-  }
-}
-
-/** 滚动图下面固定的四个视角（顺序：TMDB 电影 / TMDB 剧集 / 豆瓣 电影 / 豆瓣 剧集） */
-const VIEWPOINTS: ViewpointOption[] = [
-  new ViewpointOption('movie', 'tmdb', 'TMDB 电影'),
-  new ViewpointOption('tv', 'tmdb', 'TMDB 剧集'),
-  new ViewpointOption('movie', 'douban', '豆瓣 电影'),
-  new ViewpointOption('tv', 'douban', '豆瓣 剧集')
-];
 
 @ComponentV2
 export struct DiscoverPage {
@@ -153,10 +134,6 @@ export struct DiscoverPage {
   @Require @Param navStack: NavPathStack;
   /** 宿主工具栏「切视角」换一次值（'movie:tmdb' 这类）；用 @Monitor 接住执行 */
   @Param viewpointRequest: string = '';
-  /** 页内四个视角按钮切了：通知宿主同步标题与 viewpointRequest（双向一致） */
-  @Event onViewpointChange: (mediaType: string, source: string) => void =
-    (_mediaType: string, _source: string): void => {
-    };
   @Local mediaType: string = 'movie';
   @Local source: string = 'tmdb';
   /** 院线地区（仅电影 + TMDB 显示脚注） */
@@ -164,6 +141,10 @@ export struct DiscoverPage {
   @Local regionEditable: boolean = false;
   /** 刚保存过地区：脚注上短暂打勾（同 iOS saved） */
   @Local regionSaved: boolean = false;
+  /** 下拉刷新中（Refresh 转圈）；拉完由 beginRefresh 收起 */
+  @Local private refreshing: boolean = false;
+  /** 已订阅片的 title_ref 集合（loadSubscribed 填充）：Hero 订阅键显示「已订阅」态用 */
+  @Local private subscribedRefs: Set<string> = new Set<string>();
 
   private started: boolean = false;
   /** 视角切换时作废在途请求（对应 iOS `.task(id: feedKey)` 取消上一个任务） */
@@ -202,6 +183,7 @@ export struct DiscoverPage {
 
   aboutToAppear(): void {
     this.load();
+    this.loadSubscribed();
     this.startHeroRotation();
   }
 
@@ -285,11 +267,17 @@ export struct DiscoverPage {
     feed.layout = page;
     const heroRef: string = heroRefOf(page);
 
-    // 建行：除 Hero 外的每个区一行
+    // 建行：除 Hero 外的每个区一行；同 ref 复用旧行——刷新时旧数据原地保留、
+    // 取回后原地换新（同 iOS「刷新失败保留旧数据」），也免得整页闪一遍骨架
     const built: DiscoverRow[] = [];
     for (const section of page.sections) {
       if (section.presentation !== 'hero') {
-        built.push(new DiscoverRow(section.collection_ref, section.title, section.supports_full_listing));
+        const kept: DiscoverRow | null = feed.findRow(section.collection_ref);
+        if (kept !== null) {
+          built.push(kept);
+        } else {
+          built.push(new DiscoverRow(section.collection_ref, section.title, section.supports_full_listing));
+        }
       }
     }
     feed.rows = built;
@@ -322,6 +310,44 @@ export struct DiscoverPage {
       }
     }
     this.loadRegion();
+  }
+
+  /** 下拉刷新：当前视角强制重拉（load 是 load-if-needed，先清 loaded 再触发） */
+  private beginRefresh(): void {
+    this.feed.loaded = false;
+    this.token++;
+    this.load().then((): void => {
+      this.refreshing = false;
+    });
+    this.loadSubscribed();
+  }
+
+  /**
+   * 拉订阅清单建 title_ref 集合：Hero 订阅键要显示「已订阅」态
+   * （对应 iOS 订阅判定靠会话预热的订阅清单）。失败静默——按钮回落到「订阅影片」。
+   */
+  private async loadSubscribed(): Promise<void> {
+    const api: MovieClawApi | null = AppModel.shared.api;
+    if (api === null) {
+      return;
+    }
+    try {
+      const list: SubscriptionView[] = await api.subscriptionsList();
+      const refs: Set<string> = new Set<string>();
+      for (const item of list) {
+        refs.add(`tmdb:${item.media.kind}:${item.media.tmdb_id}`);
+        if (item.media.douban_id !== null) {
+          refs.add(`douban:${item.media.douban_id}`);
+        }
+      }
+      this.subscribedRefs = refs;
+    } catch (error) {
+    }
+  }
+
+  /** 这部片是否已订阅（对照 title_ref 集合） */
+  private isSubscribed(item: DiscoveredTitleView): boolean {
+    return this.subscribedRefs.has(item.title_ref);
   }
 
   private limitOf(page: DiscoveryPageView, ref: string): number {
@@ -417,19 +443,6 @@ export struct DiscoverPage {
     }
   }
 
-  /** 页内四个视角按钮：切本页视角，同时通知宿主同步标题（viewpointRequest 双向一致） */
-  private pickViewpoint(option: ViewpointOption): void {
-    if (option.mediaType === this.mediaType && option.source === this.source) {
-      return;
-    }
-    this.switchViewpoint(option.mediaType, option.source);
-    this.onViewpointChange(option.mediaType, option.source);
-  }
-
-  private isViewpoint(option: ViewpointOption): boolean {
-    return option.mediaType === this.mediaType && option.source === this.source;
-  }
-
   /** 点卡片：进发现详情（对应 iOS 的 MediaDetailView） */
   private openTitle(item: DiscoveredTitleView): void {
     this.navStack.pushPathByName('discoverDetail', new DiscoverDetailParams(item.title_ref));
@@ -490,60 +503,21 @@ export struct DiscoverPage {
     .justifyContent(FlexAlign.Center)
   }
 
-  /**
-   * 滚动图下面的四个视角按钮：作为 `ListItemGroup` 的分组头，滚到顶部后**吸顶**
-   * （`List.sticky(StickyStyle.Header)`），滚回去再跟着内容落回滚动图下面。
-   */
-  @Builder
-  ViewpointHeader() {
-    Column() {
-      this.ViewpointBar()
-    }
-    .width('100%')
-    /*
-     * 吸顶时盖住状态栏区域：上留状态栏高度、下留 12 呼吸；背景不透明，
-     * 滚过去的片单藏在它后面。在流里它就是滚动图下面的一段间距。
-     */
-    .padding({
-      left: Theme.pagePadding,
-      right: Theme.pagePadding,
-      top: WindowInsets.shared().top,
-      bottom: 12
-    })
-    .backgroundColor(Theme.bg)
-  }
-
-  /** 四个视角按钮（分段选择器）：TMDB 电影 / TMDB 剧集 / 豆瓣 电影 / 豆瓣 剧集 */
-  @Builder
-  ViewpointBar() {
-    Row({ space: 4 }) {
-      ForEach(VIEWPOINTS, (option: ViewpointOption) => {
-        Button() {
-          Text(option.label)
-            .fontSize(13)
-            .fontWeight(this.isViewpoint(option) ? FontWeight.Medium : FontWeight.Normal)
-            .fontColor(this.isViewpoint(option) ? '#0b0d12' : Theme.textMuted)
-            .textAlign(TextAlign.Center)
-            .maxLines(1)
-        }
-        .attributeModifier(new GlassButtonModifier(this.isViewpoint(option) ? GlassTone.Primary : GlassTone.Strong))
-        .padding({ top: 7, bottom: 7 })
-        .layoutWeight(1)
-        .borderRadius(11)
-        .onClick(() => {
-          this.pickViewpoint(option);
-        })
-      }, (option: ViewpointOption) => `${option.mediaType}-${option.source}`)
-    }
-    .width('100%')
-    .padding(4)
-    .backgroundColor('rgba(255, 255, 255, 0.05)')
-    .borderRadius(14)
-    .border({ width: 1, color: 'rgba(255, 255, 255, 0.07)' })
-  }
-
+  /** 内容区收口：Refresh 套 List，顶部下拉出转圈并重拉当前视角（同订阅页） */
   @Builder
   Content() {
+    Refresh({ refreshing: $$this.refreshing }) {
+      this.FeedList()
+    }
+    .onRefreshing(() => {
+      this.beginRefresh();
+    })
+    .width('100%')
+    .layoutWeight(1)
+  }
+
+  @Builder
+  FeedList() {
     // 用 List 而不是 Scroll + Column：只有 List/Grid/Swiper/WaterFlow 才让 LazyForEach
     // 按可视区建组件。Hero 仍是普通 ListItem（不进 LazyForEach，同 iOS：大图别放进懒加载里）。
     List({ scroller: this.scroller }) {
@@ -557,61 +531,58 @@ export struct DiscoverPage {
           this.Hero()
         }
       } else {
-        // 没有 Hero（版面没配或失败）：空出标题栏，四个视角按钮直接顶到标题栏下面
+        // 没有 Hero（版面没配或失败）：空出标题栏。内容从 y=0 铺起（沉浸式），
+        // 要空出的是 状态栏 + 标题行 的整段（AppNavBar.contentTop），首行才不会压到标题上
         ListItem() {
           Column()
             .width('100%')
-            .height(AppNavBar.contentTop - WindowInsets.shared().top)
+            .height(AppNavBar.contentTop)
         }
       }
 
-      // 四个视角按钮 = 分组头：滚到顶部后固定在顶部
-      ListItemGroup({ header: this.ViewpointHeader() }) {
-        if (this.feed.layout === null) {
+      // 区行：加载中出骨架，加载完按可视区懒建行（直接做 List 子项）
+      if (this.feed.layout === null) {
+        ListItem() {
+          this.RowSkeleton()
+        }
+        .padding({ bottom: 24 })
+        ListItem() {
+          this.RowSkeleton()
+        }
+        .padding({ bottom: 24 })
+      } else {
+        LazyForEach(this.rowsSource, (row: DiscoverRow) => {
           ListItem() {
-            this.RowSkeleton()
+            DiscoverRowView({
+              row: row,
+              origin: AppModel.origin(),
+              onOpenTitle: (item: DiscoveredTitleView): void => {
+                this.openTitle(item);
+              },
+              onOpenAll: (): void => {
+                this.navStack.pushPathByName('discoverCollection',
+                  new DiscoverCollectionParams(row.ref, row.title));
+              }
+            })
           }
           .padding({ bottom: 24 })
+        }, (row: DiscoverRow) => row.ref)
+        if (this.mediaType === 'movie' && this.source === 'tmdb') {
           ListItem() {
-            this.RowSkeleton()
+            this.RegionFooter()
           }
           .padding({ bottom: 24 })
-        } else {
-          LazyForEach(this.rowsSource, (row: DiscoverRow) => {
-            ListItem() {
-              DiscoverRowView({
-                row: row,
-                origin: AppModel.origin(),
-                onOpenTitle: (item: DiscoveredTitleView): void => {
-                  this.openTitle(item);
-                },
-                onOpenAll: (): void => {
-                  this.navStack.pushPathByName('discoverCollection',
-                    new DiscoverCollectionParams(row.ref, row.title));
-                }
-              })
-            }
-            .padding({ bottom: 24 })
-          }, (row: DiscoverRow) => row.ref)
-          if (this.mediaType === 'movie' && this.source === 'tmdb') {
-            ListItem() {
-              this.RegionFooter()
-            }
-            .padding({ bottom: 24 })
-          }
         }
       }
-      .width('100%')
 
       ListItem() {
         AppFooter()
       }
     }
-    .sticky(StickyStyle.Header)
     .scrollBar(BarState.Off)
     .width('100%')
-    .layoutWeight(1)
-    .edgeEffect(EdgeEffect.Spring)
+    .height('100%')
+    .edgeEffect(EdgeEffect.None)
     // 可视区上下各多缓存两行，快速滑动少建少销毁
     // 向下滚累计到阈值：底栏收成圆形按钮（往回滑立刻放回）
     .onDidScroll((xOffset: number, yOffset: number) => {
@@ -701,19 +672,20 @@ export struct DiscoverPage {
           .textOverflow({ overflow: TextOverflow.Ellipsis })
       }
       if (this.canSubscribe()) {
+        // 已订阅时切「已订阅」状态键（对应 iOS DiscoverPosterCard）；仍点击打开订阅弹层（管理态）
         Button() {
           Row({ space: 6 }) {
-            SymbolGlyph($r('sys.symbol.plus'))
+            SymbolGlyph(this.isSubscribed(item) ? $r('sys.symbol.checkmark') : $r('sys.symbol.plus'))
               .fontSize(15)
-              .fontColor(['#0b0d12'])
-            Text('订阅影片')
+              .fontColor(this.isSubscribed(item) ? [Theme.text] : ['#0b0d12'])
+            Text(this.isSubscribed(item) ? '已订阅' : '订阅影片')
               .fontSize(15)
               .fontWeight(600)
-              .fontColor('#0b0d12')
+              .fontColor(this.isSubscribed(item) ? Theme.text : '#0b0d12')
           }
           .padding({ left: 16, right: 16, top: 9, bottom: 9 })
         }
-        .attributeModifier(new GlassButtonModifier(GlassTone.Primary))
+        .attributeModifier(new GlassButtonModifier(this.isSubscribed(item) ? GlassTone.Secondary : GlassTone.Primary))
         .padding(0)
         .clip(true)
         .borderRadius(18)

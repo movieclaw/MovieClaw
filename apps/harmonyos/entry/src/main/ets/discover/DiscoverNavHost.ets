@@ -13,6 +13,27 @@ import { SearchMode } from '../search/SearchResultsPage';
 import { SearchLaunchParams } from '../search/SearchPage';
 import { SpatialMaterial } from '../common/SpatialMaterial';
 
+/** 视角选项（四个）：类型 × 数据源；标题栏视角胶囊点开的列表选择 */
+class ViewpointOption {
+  readonly mediaType: string;
+  readonly source: string;
+  readonly label: string;
+
+  constructor(mediaType: string, source: string, label: string) {
+    this.mediaType = mediaType;
+    this.source = source;
+    this.label = label;
+  }
+}
+
+/** 四个视角（顺序：TMDB 电影 / TMDB 剧集 / 豆瓣 电影 / 豆瓣 剧集） */
+const VIEWPOINTS: ViewpointOption[] = [
+  new ViewpointOption('movie', 'tmdb', 'TMDB 电影'),
+  new ViewpointOption('tv', 'tmdb', 'TMDB 剧集'),
+  new ViewpointOption('movie', 'douban', '豆瓣 电影'),
+  new ViewpointOption('tv', 'douban', '豆瓣 剧集')
+];
+
 /**
  * 发现页签的导航宿主（对应 iOS 端发现页所在的 NavigationStack）。
  *
@@ -66,10 +87,7 @@ export struct DiscoverNavHost {
       DiscoverPage({
         navStack: this.navStack,
         viewpointRequest: this.viewpointRequest,
-        scroller: this.scroller,
-        onViewpointChange: (nextMediaType: string, nextSource: string): void => {
-          this.requestViewpoint(nextMediaType, nextSource);
-        }
+        scroller: this.scroller
       })
     }
     .mode(NavigationMode.Stack)
@@ -95,15 +113,86 @@ export struct DiscoverNavHost {
     .backgroundColor(Theme.bg)
   }
 
-  /** 标题栏内容行（stackBuilder 扩展点）：动态标题 + 筛选胶囊 + 搜索（视角改到页内四个按钮） */
+  /** 标题栏内容行（stackBuilder 扩展点）：动态标题 + 视角胶囊 + 筛选胶囊 + 搜索 */
   @Builder
   TitleRow() {
     AppNavTitleBar({ title: this.mediaType === 'tv' ? '剧集' : '电影' }) {
+      this.ViewpointCapsule()
       if (this.source === 'tmdb') {
         this.FilterCapsule()
       }
       this.SearchButton()
     }
+  }
+
+  /**
+   * 视角胶囊（标题后面，对应 iOS 的标题菜单）：显示当前数据源 + 下箭头，
+   * 点开四个视角（类型 × 数据源）的列表选择。
+   */
+  @Builder
+  ViewpointCapsule() {
+    Button() {
+      Row({ space: 4 }) {
+        Text(this.source === 'douban' ? '豆瓣' : 'TMDB')
+          .fontSize(14)
+          .fontWeight(600)
+          .fontColor(Theme.text)
+        SymbolGlyph($r('sys.symbol.chevron_down'))
+          .fontSize(12)
+          .fontColor([Theme.textMuted])
+      }
+      .padding({ left: 12, right: 10, top: 6, bottom: 6 })
+    }
+    .attributeModifier(new GlassButtonModifier(GlassTone.Secondary))
+    .padding(0)
+    .clip(true)
+    .borderRadius(20)
+    .margin({ right: 6 })
+    .bindMenu(this.ViewpointMenu())
+  }
+
+  /** 四个视角的列表选择：当前项系统选中态打勾；点选换视角（同项忽略） */
+  @Builder
+  ViewpointMenu() {
+    Menu() {
+      MenuItem({ content: 'TMDB 电影' })
+        .selected(this.isCurrent('movie', 'tmdb'))
+        .selectIcon(true)
+        .onClick(() => {
+          this.pickFromMenu('movie', 'tmdb');
+        })
+      MenuItem({ content: 'TMDB 剧集' })
+        .selected(this.isCurrent('tv', 'tmdb'))
+        .selectIcon(true)
+        .onClick(() => {
+          this.pickFromMenu('tv', 'tmdb');
+        })
+      MenuItem({ content: '豆瓣 电影' })
+        .selected(this.isCurrent('movie', 'douban'))
+        .selectIcon(true)
+        .onClick(() => {
+          this.pickFromMenu('movie', 'douban');
+        })
+      MenuItem({ content: '豆瓣 剧集' })
+        .selected(this.isCurrent('tv', 'douban'))
+        .selectIcon(true)
+        .onClick(() => {
+          this.pickFromMenu('tv', 'douban');
+        })
+    }
+  }
+
+  /** 是否当前视角：菜单项的选中态判定 */
+  private isCurrent(mediaType: string, source: string): boolean {
+    return mediaType === this.mediaType && source === this.source;
+  }
+
+  /** 菜单点选：换项走 requestViewpoint（标题、viewpointRequest 连带换）；同项忽略 */
+  private pickFromMenu(mediaType: string, source: string): void {
+    if (mediaType === this.mediaType && source === this.source) {
+      return;
+    }
+    this.requestViewpoint(mediaType, source);
   }
 
   /** 右上角搜索（对齐 iOS 发现页顶栏最右的放大镜，预选影视分区，压栈搜索首页） */
