@@ -1,6 +1,8 @@
 /**
  * 主界面内容区的滚动状态：向下滑到一定距离后，底部页签栏收起；往回滑、滑回顶
- * 部或滑到内容最底都放回整条底栏。
+ * 部或滑到内容最底都放回整条底栏。距内容最底不足 `NEAR_END` 时下滑不再收起：
+ * 真底前面还有 `contentEndOffset` 的让位空白带和页脚，「看起来到底了」其实还能滑，
+ * 在这段里收起（圆钮）马上又被到底放回整条，一来一回每滑一下闪一次。
  *
  * 与官方栏的分工（2026-11 起按官方「上下布局」实现）：这里只汇总滚动方向出
  * 「收起/放回」信号，`MainTabsPage` 拿它驱动官方状态机——收起且有「接着看」=
@@ -14,9 +16,14 @@
 export class TabBarCollapse {
   private static instance: TabBarCollapse | null = null;
 
+  /** 距内容最底不足这个距离（vp）时，下滑不再收起底栏 */
+  private static readonly NEAR_END: number = 480;
+
   @Trace collapsed: boolean = false;
   /** 上一次的滚动位置（离顶 vp）：`onDidScroll` 给的第二参不是位移增量，方向自己算 */
   private lastTop: number = -1;
+  /** 最近一次到达内容最底时的离顶距离：与当前 top 的差判断「还在底部附近」 */
+  private endTop: number = -1;
   private direction: number = 0;
   private distance: number = 0;
 
@@ -46,9 +53,13 @@ export class TabBarCollapse {
     }
     /*
      * 滑到内容最底：底下已没有内容，下一步多半是换页签/离开本页——放回整条底栏；
-     * 方向累计清零，离开底部后重新起算（下滑重新累计 6 才再收起）。
+     * 记下最底位置（endTop，取最小的，橡皮筋过冲不算），方向累计清零，离开底部后
+     * 重新起算（下滑重新累计 6 才再收起）。
      */
     if (atEnd) {
+      if (this.endTop < 0 || top < this.endTop) {
+        this.endTop = top;
+      }
       if (this.collapsed) {
         this.collapsed = false;
       }
@@ -56,6 +67,15 @@ export class TabBarCollapse {
       return;
     }
     if (dy === 0) { return; }
+    /*
+     * 底部附近（距最近到达的最底不足 NEAR_END）下滑不收起：这段里「下滑收起」和
+     * 「到底放回」两个逻辑会打架——收起成圆钮的下一帧滑到真底又整条放回，每滑一
+     * 下交替一次。上滑照常走累计放回。
+     */
+    if (this.endTop > 0 && this.endTop - top < TabBarCollapse.NEAR_END && dy > 0) {
+      this.distance = 0;
+      return;
+    }
     const direction: number = dy > 0 ? 1 : -1;
     this.distance = direction === this.direction ? this.distance + Math.abs(dy) : Math.abs(dy);
     this.direction = direction;
