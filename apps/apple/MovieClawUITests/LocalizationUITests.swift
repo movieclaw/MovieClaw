@@ -12,12 +12,12 @@ final class LocalizationUITests: XCTestCase {
         continueAfterFailure = false
     }
 
-    @MainActor private func launch(_ language: String) {
+    @MainActor private func launch(_ language: String, locale: String = "en_US") {
         let env = ProcessInfo.processInfo.environment
         app.launchArguments = ["--ui-testing", "-mcServer", env["MC_TEST_SERVER"]!,
                                "-mcUser", "admin", "-mcPass", env["MC_TEST_PASSWORD"]!,
                                "-mcRoute", "/settings", "-AppleLanguages", "(\(language))",
-                               "-AppleLocale", "en_US"]
+                               "-AppleLocale", locale]
         app.launch()
     }
 
@@ -39,6 +39,14 @@ final class LocalizationUITests: XCTestCase {
         let row = app.buttons["app-language-settings"]
         XCTAssertTrue(row.waitForExistence(timeout: 30))
         XCTAssertTrue(row.label.contains("Language"))
+    }
+
+    @MainActor func testGermanLanguageRow() {
+        launch("de", locale: "de_DE")
+        let row = app.buttons["app-language-settings"]
+        XCTAssertTrue(row.waitForExistence(timeout: 30))
+        XCTAssertTrue(row.label.contains("Sprache"))
+        XCTAssertTrue(row.label.contains("Deutsch"))
     }
 
     @MainActor func testTraditionalChineseUsesSimplifiedAlias() {

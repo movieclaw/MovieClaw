@@ -6,11 +6,19 @@ nonisolated enum AppLanguage {
     }
 
     static func normalize(_ language: String) -> String {
-        language.lowercased().hasPrefix("zh") ? "zh-Hans" : "en"
+        let language = language.lowercased()
+        if language.hasPrefix("zh") { return "zh-Hans" }
+        if language == "de" || language.hasPrefix("de-") || language.hasPrefix("de_") { return "de" }
+        return "en"
     }
 
     static var locale: Locale { Locale(identifier: identifier) }
 
-    // i18n-ignore: autonyms are language data.
-    static var name: String { identifier == "zh-Hans" ? "简体中文" : "English" }
+    static var name: String {
+        switch identifier {
+        case "zh-Hans": "简体中文" // i18n-ignore: autonym is language data.
+        case "de": "Deutsch"
+        default: "English"
+        }
+    }
 }

@@ -7,6 +7,9 @@ nonisolated final class LocalizationTests: XCTestCase {
         XCTAssertEqual(AppLanguage.normalize("zh-Hant"), "zh-Hans")
         XCTAssertEqual(AppLanguage.normalize("zh-TW"), "zh-Hans")
         XCTAssertEqual(AppLanguage.normalize("en-GB"), "en")
+        XCTAssertEqual(AppLanguage.normalize("de"), "de")
+        XCTAssertEqual(AppLanguage.normalize("de-AT"), "de")
+        XCTAssertEqual(AppLanguage.normalize("DE_de"), "de")
         XCTAssertEqual(AppLanguage.normalize("ja"), "en")
     }
 
@@ -16,6 +19,15 @@ nonisolated final class LocalizationTests: XCTestCase {
         XCTAssertTrue(AppFormatting.duration(seconds: 4980, locale: locale).contains("hr"))
         let now = Date(timeIntervalSince1970: 1_790_000_000)
         XCTAssertEqual(AppFormatting.relative(now.addingTimeInterval(-180), now: now, locale: locale), "3 minutes ago")
+    }
+
+    func testGermanFormatting() {
+        let locale = Locale(identifier: AppLanguage.normalize("de-AT"))
+        XCTAssertEqual(AppFormatting.number(12345, locale: locale), "12.345")
+        let now = Date(timeIntervalSince1970: 1_790_000_000)
+        XCTAssertEqual(AppFormatting.relative(now.addingTimeInterval(-180), now: now, locale: locale), "vor 3 Minuten")
+        XCTAssertTrue(AppFormatting.dateTime(now, locale: locale).contains("2026"))
+        XCTAssertTrue(AppFormatting.dateTime(now, locale: locale).contains(".09."))
     }
 
     @MainActor func testEnglishTaskCenterLabelsAndSummaries() throws {
