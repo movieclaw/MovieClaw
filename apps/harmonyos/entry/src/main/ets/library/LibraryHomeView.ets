@@ -56,8 +56,8 @@ import {
   episodeCode,
   favoriteLevelLabel,
   formatRecentAddition,
-  libraryFromNow,
-  libraryStatsSummary
+  libraryBytes,
+  libraryFromNow
 } from './LibraryShared';
 import { SpatialMaterial } from '../common/SpatialMaterial';
 
@@ -654,11 +654,30 @@ export struct LibraryHomeView {
     return this.permissions.canManageLibraries;
   }
 
-  private statsText(): string {
-    if (this.failed && this.libraries === null) {
-      return '暂时无法获取媒体库统计，正在自动重试';
+  /** 某类型的条目总数（底部统计按钮的计数） */
+  private kindCount(kind: string): number {
+    let total: number = 0;
+    for (const library of this.visibleLibraries) {
+      if (library.kind === kind) {
+        total += library.stats.item_count;
+      }
     }
-    return libraryStatsSummary(this.libraries === null ? null : this.visibleLibraries);
+    return total;
+  }
+
+  /** 统计按钮的数值：类型条目数 / 库数 / 存储占用 */
+  private statValue(stat: string): string {
+    if (stat === 'libraries') {
+      return `${this.visibleLibraries.length}`;
+    }
+    if (stat === 'storage') {
+      let bytes: number = 0;
+      for (const library of this.visibleLibraries) {
+        bytes += library.stats.total_size_bytes;
+      }
+      return libraryBytes(bytes);
+    }
+    return `${this.kindCount(stat)}`;
   }
 
   /** 库行 / 合集行各自的条目（已换成海报格要的形态） */
@@ -894,16 +913,18 @@ export struct LibraryHomeView {
         // 用 List 而不是 Scroll + Column：只有 List / Grid / Swiper / WaterFlow 这类容器
         // 才让 LazyForEach 按可视区建组件。首页每一行分节是一个 ListItem（见 Content）。
         List({ scroller: this.scroller }) {
-          // 内容从 y=0 铺到标题栏下面：首屏空出标题栏高度（滚动时这段跟着走）
+          // 内容从 y=0 铺到标题栏下面：首屏空出标题栏高度（滚动时这段跟着走）。
+          // 在此基础上再上提 24：第一行分区自带 top: 24 间距，统计行删掉后这段不能
+          // 再空两次——首行落在标题栏下约 4，与原统计文字行的呼吸一致。
           ListItem() {
             Column()
               .width('100%')
-              .height(AppNavBar.contentTop)
-          }
-          ListItem() {
-            this.StatsHeader()
+              .height(AppNavBar.contentTop - 24)
           }
           this.Content()
+          ListItem() {
+            this.StatsFooter()
+          }
           ListItem() {
             AppFooter()
           }
@@ -944,16 +965,67 @@ export struct LibraryHomeView {
   }
 
 
-  /** 统计行 */
+  /** 底部统计区：电影 / 剧集 / 其他视频点按直达跨库墙，媒体库与存储占用只做展示 */
   @Builder
-  StatsHeader() {
-    Text(this.statsText())
-      .fontSize(15)
-      .fontColor(Theme.textMuted)
-      .maxLines(2)
-      .textOverflow({ overflow: TextOverflow.Ellipsis })
+  StatsFooter() {
+    if (this.libraries === null) {
+      Text(this.failed ? '暂时无法获取媒体库统计，正在自动重试' : '正在汇总媒体库统计…')
+        .fontSize(13)
+        .fontColor(Theme.textMuted)
+        .width('100%')
+        .textAlign(TextAlign.Center)
+        .padding({ left: Theme.pagePadding, right: Theme.pagePadding, top: 16 })
+    } else if (this.visibleLibraries.length === 0) {
+      Text('还没有媒体库，创建后会在这里显示库存统计')
+        .fontSize(13)
+        .fontColor(Theme.textMuted)
+        .width('100%')
+        .textAlign(TextAlign.Center)
+        .padding({ left: Theme.pagePadding, right: Theme.pagePadding, top: 16 })
+    } else {
+      // 外屏宽度有限，放不下时换行（Flex 换行），不挤压按钮文字
+      Flex({
+        wrap: FlexWrap.Wrap,
+        justifyContent: FlexAlign.Center
+      }) {
+        this.StatsButton('电影', 'movie')
+        this.StatsButton('剧集', 'tv')
+        if (this.kindCount('video') > 0) {
+          this.StatsButton('其他视频', 'video')
+        }
+        this.StatsButton('媒体库', 'libraries')
+        this.StatsButton('存储空间', 'storage')
+      }
       .width('100%')
-      .padding({ left: Theme.pagePadding, right: Theme.pagePadding, top: 4 })
+      .padding({ left: Theme.pagePadding, right: Theme.pagePadding, top: 20 })
+    }
+  }
+
+  /** 统计按钮：数值在上（大）、名称在下（小）；类型三项点按进跨库墙，数值直读状态、轮询刷新会跟着更新 */
+  @Builder
+  StatsButton(label: string, stat: string) {
+    Button() {
+      Column({ space: 2 }) {
+        Text(this.statValue(stat))
+          .fontSize(18)
+          .fontWeight(600)
+          .fontColor(Theme.accentStrong)
+          .maxLines(1)
+        Text(label)
+          .fontSize(10)
+          .fontColor(Theme.textMuted)
+          .maxLines(1)
+      }
+    }
+    .attributeModifier(new GlassButtonModifier(GlassTone.Secondary))
+    .padding({ left: 16, right: 16, top: 10, bottom: 8 })
+    .borderRadius(18)
+    .margin({ left: 5, right: 5, bottom: 10 })
+    .onClick(() => {
+      if (stat === 'movie' || stat === 'tv' || stat === 'video') {
+        this.navStack.pushPathByName('libraryKindWall', new KindWallParams(stat, null, null));
+      }
+    })
   }
 
   @Builder
@@ -1046,7 +1118,8 @@ export struct LibraryHomeView {
         .borderRadius(12)
         .border({ width: 1, color: 'rgba(251, 191, 36, 0.25)' })
     }
-    .padding({ left: Theme.pagePadding, right: Theme.pagePadding, top: 16 })
+    // 顶部留白跟着 spacer 的 -24 补齐：提示条别钻进标题栏底下
+    .padding({ left: Theme.pagePadding, right: Theme.pagePadding, top: 24 })
     .width('100%')
   }
 
@@ -1170,7 +1243,7 @@ export struct LibraryHomeView {
   UpNextHeader(title: string) {
     Row() {
       Text(title)
-        .fontSize(20)
+        .fontSize(17)
         .fontWeight(600)
         .fontColor(Theme.text)
         .maxLines(1)
