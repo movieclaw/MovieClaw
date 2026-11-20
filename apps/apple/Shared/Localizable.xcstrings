@@ -6298,7 +6298,7 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Automatisch verlängern"
+            "value": "Auto-Verlängerung"
           }
         }
       }
@@ -13078,7 +13078,7 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "In der Warteschlange"
+            "value": "Eingereiht"
           }
         }
       }
@@ -21347,7 +21347,7 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "In der Warteschlange"
+            "value": "Eingereiht"
           }
         }
       }
@@ -21617,7 +21617,7 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Wartet auf Ausführung"
+            "value": "Wartet auf Start"
           }
         }
       }
@@ -23417,7 +23417,7 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "In der Warteschlange"
+            "value": "Eingereiht"
           }
         }
       }
@@ -30182,7 +30182,7 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ausblenden rückgängig machen"
+            "value": "Wieder einblenden"
           }
         }
       }
@@ -30242,7 +30242,7 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Erneut ausführen"
+            "value": "Wiederholen"
           }
         }
       }
@@ -51844,7 +51844,7 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Aus Favoriten entfernen"
+            "value": "Favorit entfernen"
           }
         }
       }
@@ -104319,7 +104319,7 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Auf dem neuesten Stand"
+            "value": "Aktuell"
           }
         }
       },
@@ -107877,7 +107877,7 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Altersbeschränkung"
+            "value": "Alterslimit"
           }
         }
       },
@@ -140308,7 +140308,7 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Fehlgeschlagen · Erneut versuchen"
+            "value": "Fehler · Wiederholen"
           }
         }
       }
@@ -150712,7 +150712,7 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nächste Seite erneut versuchen"
+            "value": "Nächste Seite neu laden"
           }
         }
       }
@@ -155116,7 +155116,7 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Automatisch verlängern"
+            "value": "Auto-Verlängerung"
           }
         }
       }
