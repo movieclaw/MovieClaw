@@ -100,14 +100,29 @@ def check_catalogs() -> list[str]:
     terms = json.loads(terms_path.read_text()) if terms_path.exists() else {}
     for directory in (ROOT / "apps/web/locales", ROOT / "src/movieclaw_api/locales"):
         paths = list((directory / "zh-Hans").glob("*.json"))
+        is_web = directory.parts[-2] == "web"
         if {p.name for p in paths} != {p.name for p in (directory / "en").glob("*.json")}:
             errors.append(f"{directory}: namespace sets differ")
+        german_paths = {p.name: p for p in (directory / "de").glob("*.json")} if is_web else {}
+        if is_web and german_paths.keys() != {p.name for p in paths}:
+            errors.append(f"{directory}: German namespace set differs")
         for path in paths:
             source = flatten(json.loads(path.read_text()))
             english = flatten(json.loads((directory / "en" / path.name).read_text()))
             meta = json.loads((directory / "_meta" / path.name).read_text())
+            german = (
+                flatten(json.loads(german_paths[path.name].read_text()))
+                if path.name in german_paths
+                else {}
+            )
             if source.keys() != english.keys() or source.keys() != meta.keys():
                 errors.append(f"{path}: message/metadata key sets differ")
+            if is_web and german.keys() != english.keys():
+                missing = ", ".join(sorted(english.keys() - german.keys()))
+                extra = ", ".join(sorted(german.keys() - english.keys()))
+                errors.append(
+                    f"{path.name}: German key set differs (missing: {missing}, extra: {extra})"
+                )
             for key, text in source.items():
                 name = f"{path.stem}.{key}"
                 if not re.fullmatch(r"[a-z][a-zA-Z0-9]*(?:\.[a-z][a-zA-Z0-9]*){1,3}", name):
@@ -118,22 +133,24 @@ def check_catalogs() -> list[str]:
                 allowed_terms = terms.get(name, terms.get(text))
                 if allowed_terms is not None and translated.lower() not in allowed_terms:
                     errors.append(f"Glossary mismatch: {name}")
-                if directory.parts[-2] == "web":
+                if is_web:
                     web_english[name] = translated
                 if HAN.search(translated) or re.search(r"[，。！？：；「」《》、]", translated):
                     errors.append(f"English contains Chinese text/punctuation: {name}")
                 try:
                     source_parameters = parameters(text)
-                    if directory.parts[-2] == "web":
+                    if is_web:
                         web_parameters[name] = source_parameters
                     if source_parameters != parameters(translated):
                         errors.append(f"Parameter mismatch: {name}")
+                    if key in german and source_parameters != parameters(german[key]):
+                        errors.append(f"German parameter mismatch: {name}")
                 except (ValueError, SyntaxError) as exc:
                     errors.append(f"Invalid ICU: {name}: {exc}")
                 if name in all_english and all_english[name] != translated:
                     errors.append(f"Cross-platform English mismatch: {name}")
                 all_english[name] = translated
-                (web_source if directory.parts[-2] == "web" else server_source)[name] = text
+                (web_source if is_web else server_source)[name] = text
     errors.extend(check_builtin_sources(ROOT, server_source))
     errors.extend(check_manifest_sources(ROOT))
     errors.extend(check_channel_sources(ROOT))

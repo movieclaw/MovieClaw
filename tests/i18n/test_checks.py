@@ -23,6 +23,8 @@ def catalog(tmp_path, monkeypatch):
         base = tmp_path / directory
         write(base / "zh-Hans/common.json", {"greeting": "你好 {count}"})
         write(base / "en/common.json", {"greeting": "Hello {count}"})
+        if directory == "apps/web/locales":
+            write(base / "de/common.json", {"greeting": "Hallo {count}"})
         write(
             base / "_meta/common.json",
             {
@@ -51,6 +53,15 @@ def test_rejects_missing_keys_parameters_and_chinese_in_english(catalog):
     assert "Parameter mismatch: common.greeting" in errors
     assert "English contains Chinese text/punctuation: common.greeting" in errors
     assert "Cross-platform English mismatch: common.greeting" in errors
+
+
+def test_rejects_missing_german_keys_and_mismatched_parameters(catalog):
+    root, write = catalog
+    path = root / "apps/web/locales/de/common.json"
+    write(path, {})
+    assert any("missing: greeting" in error for error in check.check_catalogs())
+    write(path, {"greeting": "Hallo {name}"})
+    assert "German parameter mismatch: common.greeting" in check.check_catalogs()
 
 
 def test_rejects_unknown_server_key(catalog):
