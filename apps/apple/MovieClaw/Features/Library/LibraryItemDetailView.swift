@@ -738,7 +738,7 @@ struct LibraryItemDetailView: View {
         var facts = [
             detail.year.map(String.init),
             runtime.map(Self.runtimeText),
-            (meta?.rating ?? 0) > 0 ? "★ " + String(format: "%.1f", meta!.rating!) : nil,
+            (meta?.rating ?? 0) > 0 ? "★ " + String(format: "%.1f", locale: AppLanguage.locale, meta!.rating!) : nil,
         ].compactMap { $0 }
         let sources = isMovie ? detail.files.filter { $0.state == "in_place" } : (selectedTrackFile.map { [$0] } ?? [])
         let resolutions = Array(Set(sources.compactMap(\.resolution)))
@@ -2229,7 +2229,7 @@ struct LibraryFileRow: View {
             SpecRow(label: String(localized: .libraryItemBitDepth), value: file.bitDepth.map { "\($0)-bit" } ?? String(localized: .libraryItemNotProbed)),
             SpecRow(label: String(localized: .libraryItemFrameRate), value: frameRate ?? String(localized: .libraryItemNotProbed)),
             SpecRow(label: String(localized: .libraryItemColorSpace), value: file.colorSpace ?? String(localized: .libraryItemNotProbed)),
-            SpecRow(label: String(localized: .libraryItemVideoBitrate), value: file.bitRate.map { String(format: "%.1f Mbps", Double($0) / 1_000_000) } ?? String(localized: .libraryItemNotProbed)),
+            SpecRow(label: String(localized: .libraryItemVideoBitrate), value: file.bitRate.map { String(format: "%.1f Mbps", locale: AppLanguage.locale, Double($0) / 1_000_000) } ?? String(localized: .libraryItemNotProbed)),
         ]
     }
 

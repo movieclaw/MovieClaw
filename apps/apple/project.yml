@@ -81,6 +81,7 @@ targetTemplates:
           - zh-Hans
           - zh-Hant
           - en
+          - de
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         LSApplicationCategoryType: public.app-category.entertainment
@@ -145,6 +146,7 @@ targets:
           - zh-Hans
           - zh-Hant
           - en
+          - de
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         UILaunchScreen: {}
@@ -360,6 +362,7 @@ targets:
           - zh-Hans
           - zh-Hant
           - en
+          - de
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         UILaunchScreen: {}

@@ -433,7 +433,7 @@ struct DiscoverHeroSlide: View {
             if item.rating > 0 {
                 HStack(spacing: 3) {
                     Image(systemName: "star.fill").foregroundStyle(Theme.warning)
-                    Text(String(format: "%.1f", item.rating)).fontWeight(.semibold).foregroundStyle(.white)
+                    Text(String(format: "%.1f", locale: AppLanguage.locale, item.rating)).fontWeight(.semibold).foregroundStyle(.white)
                 }
             }
             if let year = item.year { Text(String(year)) }

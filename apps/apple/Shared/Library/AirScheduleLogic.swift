@@ -189,11 +189,11 @@ enum AirSchedule {
     static func weekday(_ day: String) -> String { date(day).map(weekdayFormatter.string(from:)) ?? "" }
     private static func weekday(_ value: Date) -> String { weekdayFormatter.string(from: value) }
 
-    /// 0=周一…6=周日 → 星期名（2026-01-05 是周一）；中文用「周四」，英文用全称
+    /// 0=周一…6=周日 → 星期名（2026-01-05 是周一）；中文用「周四」，其他语言用全称
     private static func weekdayName(_ index: Int) -> String {
         let monday = date("2026-01-05")!
         let value = calendar.date(byAdding: .day, value: index, to: monday)!
-        return AppLanguage.identifier == "en" ? longWeekdayFormatter.string(from: value) : weekdayFormatter.string(from: value)
+        return AppLanguage.identifier == "zh-Hans" ? weekdayFormatter.string(from: value) : longWeekdayFormatter.string(from: value)
     }
 
     /// 0=周一…6=周日

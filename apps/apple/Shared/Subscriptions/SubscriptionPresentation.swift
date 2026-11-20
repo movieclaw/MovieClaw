@@ -87,11 +87,11 @@ enum SubsFormat {
     /// 秒数 → 「15 分钟」「1.5 小时」（Web formatDuration）
     static func duration(_ seconds: Int) -> String {
         guard seconds > 0 else { return "—" }
-        if AppLanguage.identifier == "en" { return AppFormatting.duration(seconds: seconds) }
+        if AppLanguage.identifier != "zh-Hans" { return AppFormatting.duration(seconds: seconds) }
         if seconds < 60 { return String(localized: .librarySubtitleGenerationElapsedSeconds(seconds)) }
         if seconds < 3600 { return String(localized: .libraryCloudReportMinutes(Int((Double(seconds) / 60).rounded()))) }
         let hours = Double(seconds) / 3600
-        return hours == hours.rounded() ? String(localized: .libraryRecycleShortHours(Int(hours))) : String(format: "%.1f 小时", hours) // i18n-ignore: Chinese-only branch; English returns earlier
+        return hours == hours.rounded() ? String(localized: .libraryRecycleShortHours(Int(hours))) : String(format: "%.1f 小时", hours) // i18n-ignore: Chinese-only branch
     }
 
     /// 选中的季：「第 1、2 季」/「Seasons 1, 2」
@@ -119,7 +119,7 @@ enum SubsFormat {
             index += 1
         }
         let rounded = (number * 100).rounded() / 100
-        let text = rounded >= 100 || index == 0 ? String(format: "%.0f", rounded) : String(format: "%.2f", rounded)
+        let text = rounded >= 100 || index == 0 ? String(format: "%.0f", locale: AppLanguage.locale, rounded) : String(format: "%.2f", locale: AppLanguage.locale, rounded)
         return "\(text) \(units[index])"
     }
 

@@ -234,8 +234,7 @@ enum SettingsTime {
 
     /// Unix 秒 → 「2026-09-25 17:03」
     static func unix(_ seconds: Int) -> String {
-        Date(timeIntervalSince1970: TimeInterval(seconds))
-            .formatted(.dateTime.year().month(.twoDigits).day(.twoDigits).hour().minute().locale(Locale(identifier: "zh_CN")))
+        AppFormatting.dateTime(Date(timeIntervalSince1970: TimeInterval(seconds)))
     }
 }
 
