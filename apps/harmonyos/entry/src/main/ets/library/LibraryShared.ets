@@ -2,7 +2,7 @@ import { Theme } from '../theme/AppTheme';
 import { GlassButtonModifier, GlassTone } from '../common/GlassControls';
 import { Formatters } from '../common/Formatters';
 import { RemoteImage } from '../common/RemoteImage';
-import { LibraryRecentAdditionView, LibraryView } from '../api/Models';
+import { LibraryRecentAdditionView } from '../api/Models';
 
 /**
  * 媒体库模块内共用的小工具与小组件（逐条对齐 iOS 端 Features/Library/LibraryShared.swift
@@ -153,33 +153,6 @@ export function episodeCode(season: number, episode: number): string {
   return `S${Formatters.pad2(season)}E${Formatters.pad2(episode)}`;
 }
 
-/** 媒体库首页摘要（Web libraryStatsSummary）：只聚合库列表随带的统计快照 */
-export function libraryStatsSummary(libraries: LibraryView[] | null): string {
-  if (libraries === null) {
-    return '正在汇总媒体库统计…';
-  }
-  if (libraries.length === 0) {
-    return '还没有媒体库，创建后会在这里显示库存统计';
-  }
-  let movieCount: number = 0;
-  let tvCount: number = 0;
-  let videoCount: number = 0;
-  let totalSize: number = 0;
-  for (const library of libraries) {
-    if (library.kind === 'movie') {
-      movieCount += library.stats.item_count;
-    } else if (library.kind === 'tv') {
-      tvCount += library.stats.item_count;
-    } else if (library.kind === 'video') {
-      videoCount += library.stats.item_count;
-    }
-    totalSize += library.stats.total_size_bytes;
-  }
-  const videoPart: string = videoCount > 0 ? ` · ${videoCount} 个其他视频` : '';
-  return `${libraries.length} 个媒体库 · ${movieCount} 部电影 · ${tvCount} 部剧集${videoPart}`
-    + ` · 共占用 ${libraryBytes(totalSize)} 存储空间`;
-}
-
 /** 首页 / 详情页的分区头：标题 + 右侧入口（「查看全部」或 ⋯ 菜单） */
 @Component
 export struct LibrarySectionHeader {
@@ -193,7 +166,7 @@ export struct LibrarySectionHeader {
   build() {
     Row() {
       Text(this.title)
-        .fontSize(20)
+        .fontSize(17)
         .fontWeight(600)
         .fontColor(Theme.text)
         .maxLines(1)
