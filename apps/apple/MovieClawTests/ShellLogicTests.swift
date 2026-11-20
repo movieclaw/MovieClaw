@@ -40,6 +40,12 @@ struct ShellLogicTests {
         #expect(Formatters.fromNow(now.addingTimeInterval(3 * 86400), now: now, locale: Locale(identifier: "zh-Hans")) == "3 天内")
     }
 
+    @Test func germanRelativeTimeUsesLocalizedWordOrder() {
+        let locale = Locale(identifier: "de_DE")
+        #expect(Formatters.fromNow(now.addingTimeInterval(-180), now: now, locale: locale) == "vor 3 Minuten")
+        #expect(Formatters.fromNow(now.addingTimeInterval(180), now: now, locale: locale) == "in 3 Minuten")
+    }
+
     @Test func legacyRelativeHelpersShareOneAlgorithm() {
         #expect(libraryFromNow(nil) == "从未")
         #expect(SubsFormat.relative(nil) == "从未")
