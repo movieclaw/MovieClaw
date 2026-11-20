@@ -126,6 +126,7 @@ def build_media_playlist(
     segment_name: str,
     query: str = "",
     start_s: float | None = None,
+    from_index: int = 0,
 ) -> str:
     """媒体播放列表（VOD）。``segment_name`` 是含 %05d 的文件名模板；
     ``query`` 形如 ``?token=xxx``，逐条附在 URI 上（HLS 客户端不继承查询串）。
@@ -136,21 +137,29 @@ def build_media_playlist(
     AVPlayer 会先按 0 秒去取第 0 段、就绪后才 seek 过去：服务端的转码此时正从
     续播点起转，第 0 段的请求会把它拉回片头重启一轮、seek 过来再重启一轮
     （NAS 实测远程转码续播首片因此多等 5 秒）。hls.js 与 Safari 同样认这个标签。
+
+    ``from_index``：从第几个分片开始列（默认 0 = 全片）。大于 0 时列表截断——
+    ``MEDIA-SEQUENCE`` 跟着改成它、不再写 ``EXT-X-START``（列表头就是起播段，
+    无处可指）。给「认不认 ``EXT-X-START`` 无法验证」的播放器用（鸿蒙系统播放
+    器 histreamer 即如此）：``?from=start`` 让它第一个请求就落在起播段，不赌
+    标签解析。分片 URI 的编号仍是全片绝对编号，缓存与 seek 重启的编号账不受
+    影响；截断只是少列，分片按需转码（``ensure_segment``）照常兜住后续请求。
     """
+    from_index = max(0, min(from_index, plan.count - 1))
     max_duration = max((plan.duration_of(i) for i in range(plan.count)), default=1.0)
     lines = [
         "#EXTM3U",
         "#EXT-X-VERSION:7",
         f"#EXT-X-TARGETDURATION:{math.ceil(max_duration)}",
-        "#EXT-X-MEDIA-SEQUENCE:0",
+        f"#EXT-X-MEDIA-SEQUENCE:{from_index}",
         "#EXT-X-PLAYLIST-TYPE:VOD",
         "#EXT-X-INDEPENDENT-SEGMENTS",
     ]
-    if start_s is not None and start_s > 0:
+    if from_index == 0 and start_s is not None and start_s > 0:
         lines.append(f"#EXT-X-START:TIME-OFFSET={plan.start_offset(start_s):.3f},PRECISE=YES")
     if init_name is not None:
         lines.append(f'#EXT-X-MAP:URI="{init_name}{query}"')
-    for i in range(plan.count):
+    for i in range(from_index, plan.count):
         lines.append(f"#EXTINF:{plan.duration_of(i):.6f},")
         lines.append(f"{segment_name % i}{query}")
     lines.append("#EXT-X-ENDLIST")

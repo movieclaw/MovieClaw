@@ -1808,12 +1808,20 @@ async def get_session_playlist(
             # （docs/design/transcode-latency.md §5，iOS 引擎 P39 同一取舍）
             plan = session.segment_plan
             start_s = plan.boundaries[plan.segment_for(start_s)]
+        # ?from=start：列表从起播段截断（hls_vod.build_media_playlist 的 from_index）。
+        # 鸿蒙系统播放器（histreamer）认不认 EXT-X-START 无文档可考，截断后它的
+        # 第一个请求就落在起播段，不赌标签解析；只有鸿蒙客户端带这个参数，
+        # iOS / 网页 / Infuse 照旧拿全片列表。
+        from_index = 0
+        if request.query_params.get("from") == "start":
+            from_index = session.segment_plan.segment_for(start_s)
         playlist = build_media_playlist(
             session.segment_plan,
             init_name=None if is_mpegts(session.plan) else INIT_NAME,
             segment_name=segment_pattern(session.plan),
             query=f"?token={token}",
             start_s=start_s,
+            from_index=from_index,
         )
         return Response(
             content=playlist,
