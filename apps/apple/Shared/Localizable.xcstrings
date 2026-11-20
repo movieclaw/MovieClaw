@@ -19366,7 +19366,7 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Freiget %@; Einträge gelöscht: %@; Einträge übersprungen während der Nutzung: %@"
+            "value": "%@ freigegeben · Entfernte Einträge: %@ · In Verwendung und übersprungen: %@"
           }
         }
       }
@@ -19516,7 +19516,7 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Die Neugenerierung dieses Caches dauert lange. Lösche ZUNÄCHST UNNUTZTE EINTRÄGE."
+            "value": "Der Neuaufbau dieses Caches dauert eine Weile. Bereinige zuerst ungenutzte Einträge."
           }
         }
       }
@@ -37784,13 +37784,13 @@
               "one": {
                 "stringUnit": {
                   "state": "translated",
-                  "value": "Lösche den Boost-torrent %1$lld und seine Datenfiles (%2$@ insgesamt) aus dem Downloader. Das kann nicht rückgängig gemacht werden."
+                  "value": "%1$lld Boost-Torrent samt Datendateien aus dem Downloader löschen (%2$@ insgesamt)? Das kann nicht rückgängig gemacht werden."
                 }
               },
               "other": {
                 "stringUnit": {
                   "state": "translated",
-                  "value": "Lösche die Boost-torrents %1$lld und ihre Datenfiles (%2$@ insgesamt) aus dem Downloader. Das kann nicht rückgängig gemacht werden."
+                  "value": "%1$lld Boost-Torrents samt Datendateien aus dem Downloader löschen (%2$@ insgesamt)? Das kann nicht rückgängig gemacht werden."
                 }
               }
             }
@@ -143638,7 +143638,7 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Löschung des Downloads (%@)"
+            "value": "Download löschen (%@)"
           }
         }
       }
@@ -144835,13 +144835,13 @@
               "one": {
                 "stringUnit": {
                   "state": "translated",
-                  "value": "%lld gesehener Download belegt %@"
+                  "value": "%lld vollständig angesehener Download belegt %@"
                 }
               },
               "other": {
                 "stringUnit": {
                   "state": "translated",
-                  "value": "%lld gesehene Downloads belegen %@"
+                  "value": "%lld vollständig angesehene Downloads belegen %@"
                 }
               }
             }
@@ -144919,13 +144919,13 @@
               "one": {
                 "stringUnit": {
                   "state": "translated",
-                  "value": "Lösche die Downloads für den Titel %lld?"
+                  "value": "Downloads für %lld Titel löschen?"
                 }
               },
               "other": {
                 "stringUnit": {
                   "state": "translated",
-                  "value": "Lösche die Downloads für die Titel %lld?"
+                  "value": "Downloads für %lld Titel löschen?"
                 }
               }
             }
@@ -145432,7 +145432,7 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nur die Kopie auf diesem %@ wird gelöscht; der Zuschauungsfortschritt wird beibehalten."
+            "value": "Nur die Kopie auf %@ wird gelöscht. Dein Wiedergabefortschritt bleibt erhalten."
           }
         }
       }
@@ -145477,7 +145477,7 @@
               "one": {
                 "stringUnit": {
                   "state": "translated",
-                  "value": "Nächster %lld Folge"
+                  "value": "Nächste Folge (%lld Download)"
                 }
               },
               "other": {
@@ -145531,13 +145531,13 @@
               "one": {
                 "stringUnit": {
                   "state": "translated",
-                  "value": "%lld ungelesene Folge"
+                  "value": "%lld ungesehene Folge"
                 }
               },
               "other": {
                 "stringUnit": {
                   "state": "translated",
-                  "value": "%lld ungelesene Folgen"
+                  "value": "%lld ungesehene Folgen"
                 }
               }
             }
@@ -145591,7 +145591,7 @@
               "other": {
                 "stringUnit": {
                   "state": "translated",
-                  "value": "%lld weitere Folgen"
+                  "value": "%lld verbleibende Folgen"
                 }
               }
             }
@@ -145624,7 +145624,7 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Jeder herunterladbare Folgeabschnitt dieser Serie ist bereits auf dieser %@ vorhanden"
+            "value": "Alle zum Download verfügbaren Folgen dieser Serie sind bereits auf %@ gespeichert."
           }
         }
       }
@@ -145876,7 +145876,7 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Freigeben von %@. Nur die Kopie auf dieser %@ wird gelöscht; der Fortschritt wird beibehalten."
+            "value": "Gibt %@ frei. Nur die Kopie auf %@ wird gelöscht. Dein Wiedergabefortschritt bleibt erhalten."
           }
         }
       }
@@ -146080,7 +146080,7 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Löschen von diesem %@"
+            "value": "Von %@ löschen"
           }
         }
       }
@@ -146140,7 +146140,7 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Löschen (freigeben %@)"
+            "value": "Löschen (%@ freigeben)"
           }
         }
       }
@@ -146215,13 +146215,13 @@
               "one": {
                 "stringUnit": {
                   "state": "translated",
-                  "value": "%lld weitere Herunterladen"
+                  "value": "%lld weiterer Download läuft"
                 }
               },
               "other": {
                 "stringUnit": {
                   "state": "translated",
-                  "value": "%lld mehr herunterladen"
+                  "value": "%lld weitere Downloads laufen"
                 }
               }
             }
@@ -146548,7 +146548,7 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Herunterladen Informationen nicht verfügbar"
+            "value": "Download-Informationen fehlen"
           }
         }
       }
@@ -146758,7 +146758,7 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nur über Wi-Fi verfügbar. Änderung in Mir → Downloads."
+            "value": "Downloads nur im WLAN. Das kannst du unter „Ich → Downloads“ ändern."
           }
         }
       }
@@ -146998,7 +146998,7 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Wenn Sie mit dem Server verbunden sind, klicke auf Herunterladen auf der Titelseite, um den Inhalt ohne Verbindung abzuspielen."
+            "value": "Verbinde dich mit dem Server und tippe auf der Titelseite auf „Download“, um den Titel offline anzusehen."
           }
         }
       }
@@ -147088,7 +147088,7 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Wartet auf Herunterladen"
+            "value": "Wartet auf Download"
           }
         }
       }
@@ -147208,7 +147208,7 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Interruption. Wird später erneut versucht."
+            "value": "Unterbrochen. Erneuter Versuch folgt."
           }
         }
       }
@@ -147268,7 +147268,7 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Interruption. Wird automatisch später erneut versucht."
+            "value": "Unterbrochen. Später folgt automatisch ein neuer Versuch."
           }
         }
       }
@@ -147298,7 +147298,7 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sofort gelöscht, ohne Papierkorb. Du musst den Inhalt erneut herunterladen, um ihn offline abzuspielen; der Fortschritt wird erhalten."
+            "value": "Der Download wird sofort gelöscht und landet nicht im Papierkorb. Für die Offline-Wiedergabe musst du ihn erneut herunterladen. Dein Wiedergabefortschritt bleibt erhalten."
           }
         }
       }
@@ -147448,7 +147448,7 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Keine Downloads. Tippe auf Download auf der Titelseite, um den Film ohne Verbindung zu schauen."
+            "value": "Noch keine Downloads. Tippe auf der Titelseite auf „Download“, um den Titel offline anzusehen."
           }
         }
       }
@@ -147598,7 +147598,7 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Herunterladen-Einstellungen"
+            "value": "Download-Einstellungen"
           }
         }
       }
@@ -147778,7 +147778,7 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Der Server wartet auf die Transkodierung"
+            "value": "Die Transkodierung steht auf dem Server in der Warteschlange"
           }
         }
       }
@@ -147838,7 +147838,7 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Herunterladen unterbrochen"
+            "value": "Download unterbrochen"
           }
         }
       }
