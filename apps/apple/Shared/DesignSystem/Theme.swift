@@ -115,15 +115,15 @@ enum Formatters {
         return fromNow(date)
     }
 
-    /// 全 App 唯一的「多久之前」算法，逐条复刻 dayjs relativeTime 插件（默认阈值 + zh-cn 措辞）：
+    /// 中文逐条复刻 dayjs relativeTime 插件（默认阈值 + zh-cn 措辞）：
     /// 每一档先把差值换算成该档单位并**四舍五入**，再与阈值比较——
     /// ≤44 秒「几秒」、≤89 秒「1 分钟」、≤44 分「N 分钟」、≤89 分「1 小时」、≤21 时「N 小时」、
     /// ≤35 时「1 天」、≤25 天「N 天」、≤45 天「1 个月」、≤10 月「N 个月」、≤17 月「1 年」、再往后「N 年」；
     /// 过去加「前」，将来加「内」（zh-cn 的 future 是「%s内」）。
-    /// 不用系统 RelativeDateTimeFormatter：它会出「1周前」「2周前」，与网页「11 天前」对不上。
+    /// 其他语言走系统格式器。中文不走系统格式器，因为「1周前」「2周前」与网页「11 天前」对不上。
     /// 设备/令牌「最近活跃」用的是 Web 另一套分钟粒度口径（SettingsTime.deviceRelative），不走这里。
     static func fromNow(_ date: Date, now: Date = .now, locale: Locale = AppLanguage.locale) -> String {
-        if AppLanguage.normalize(locale.identifier) == "en" {
+        if AppLanguage.normalize(locale.identifier) != "zh-Hans" {
             return AppFormatting.relative(date, now: now, locale: locale)
         }
         let delta = now.timeIntervalSince(date)
@@ -132,32 +132,32 @@ enum Formatters {
         func round(_ value: Double) -> Int { Int(value.rounded()) }
         let text: String
         if round(seconds) <= 44 {
-            text = "几秒" // i18n-ignore: Chinese-only branch; English returns earlier
+            text = "几秒" // i18n-ignore: Chinese-only branch
         } else if round(seconds) <= 89 {
-            text = "1 分钟" // i18n-ignore: Chinese-only branch; English returns earlier
+            text = "1 分钟" // i18n-ignore: Chinese-only branch
         } else if round(seconds / 60) <= 44 {
             text = String(localized: .libraryCloudReportMinutes(max(1, round(seconds / 60))))
         } else if round(seconds / 60) <= 89 {
-            text = "1 小时" // i18n-ignore: Chinese-only branch; English returns earlier
+            text = "1 小时" // i18n-ignore: Chinese-only branch
         } else if round(seconds / 3600) <= 21 {
             text = String(localized: .libraryRecycleShortHours(max(1, round(seconds / 3600))))
         } else if round(seconds / 3600) <= 35 {
-            text = "1 天" // i18n-ignore: Chinese-only branch; English returns earlier
+            text = "1 天" // i18n-ignore: Chinese-only branch
         } else if round(seconds / 86400) <= 25 {
             text = String(localized: .libraryShareDays(max(1, round(seconds / 86400))))
         } else if round(seconds / 86400) <= 45 {
-            text = "1 个月" // i18n-ignore: Chinese-only branch; English returns earlier
+            text = "1 个月" // i18n-ignore: Chinese-only branch
         } else {
             let months = monthDiff(from: min(date, now), to: max(date, now))
             if round(months) <= 10 {
-                text = "\(max(1, round(months))) 个月" // i18n-ignore: Chinese-only branch; English returns earlier
+                text = "\(max(1, round(months))) 个月" // i18n-ignore: Chinese-only branch
             } else if round(months) <= 17 {
-                text = "1 年" // i18n-ignore: Chinese-only branch; English returns earlier
+                text = "1 年" // i18n-ignore: Chinese-only branch
             } else {
                 text = String(localized: .mediaFiltersYearValue(String(max(1, round(months / 12)))))
             }
         }
-        return delta >= 0 ? "\(text)前" : "\(text)内" // i18n-ignore: Chinese-only branch; English returns earlier
+        return delta >= 0 ? "\(text)前" : "\(text)内" // i18n-ignore: Chinese-only branch
     }
 
     /// 两个时刻相差的月数（带小数，同 dayjs monthDiff：整月数 + 余下部分占下一个整月的比例）

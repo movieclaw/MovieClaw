@@ -146269,13 +146269,13 @@
               "one": {
                 "stringUnit": {
                   "state": "translated",
-                  "value": "%lld gesehenes Download löschen?"
+                  "value": "%lld vollständig angesehenen Download löschen?"
                 }
               },
               "other": {
                 "stringUnit": {
                   "state": "translated",
-                  "value": "%lld gesehene Downloads löschen?"
+                  "value": "%lld vollständig angesehene Downloads löschen?"
                 }
               }
             }
@@ -147418,7 +147418,7 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Gespeicherte Downloads löschen"
+            "value": "Vollständig angesehene Downloads löschen"
           }
         }
       }
