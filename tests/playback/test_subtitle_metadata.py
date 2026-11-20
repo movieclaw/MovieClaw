@@ -70,3 +70,33 @@ def test_old_subtitle_inventory_without_metadata_still_plans():
     assert plan.track_ref == "embedded:0"
     assert plan.title is None
     assert plan.is_forced is False
+
+
+@pytest.mark.parametrize(
+    ("codec", "kind"),
+    [
+        ("vtt", "vtt"),  # 外挂轨台账记扩展名
+        ("webvtt", "vtt"),  # 内封轨 ffprobe 的写法
+        ("VTT", "vtt"),
+        ("srt", "vtt"),
+        ("subrip", "vtt"),
+        ("mov_text", "vtt"),
+        ("ass", "ass"),
+        ("ssa", "ass"),
+        ("hdmv_pgs_subtitle", "pgs"),
+        ("dvd_subtitle", None),
+        ("dvb_subtitle", None),
+    ],
+)
+def test_subtitle_kind_for_embedded_and_external_codecs(codec, kind):
+    file = LibraryFile(
+        library_id=1,
+        file_path="/m/film.mkv",
+        size_bytes=1,
+        source=FileSource.SCANNED,
+        subtitle_streams=[{"codec": codec}],
+        external_subtitles=[{"filename": f"film.chs.{codec}", "format": codec}],
+    )
+    plans = plan_subtitles(media_profile_from_file(file))
+    expected = [] if kind is None else [("embedded:0", kind), (f"external:film.chs.{codec}", kind)]
+    assert [(p.track_ref, p.kind) for p in plans] == expected

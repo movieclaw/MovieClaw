@@ -57,8 +57,9 @@ _RESOLUTION_HEIGHT = {
     "1080p": 1080, "720p": 720, "576p": 576, "480p": 480,
 }
 
-#: 文本字幕：可转 WebVTT 交给 <track> 原生渲染。
-_TEXT_SUBTITLE_CODECS = frozenset({"subrip", "srt", "mov_text", "webvtt", "text"})
+#: 文本字幕：可转 WebVTT 交给 <track> 原生渲染。内封轨 ffprobe 报 webvtt，
+#: 外挂轨台账的 format 是扩展名 vtt，两种写法都得认。
+_TEXT_SUBTITLE_CODECS = frozenset({"subrip", "srt", "mov_text", "webvtt", "vtt", "text"})
 #: ASS/SSA：原样下发交给 JASSUB（libass WASM）渲染，保留特效。
 _ASS_SUBTITLE_CODECS = frozenset({"ass", "ssa"})
 #: PGS 位图字幕：默认前端 libbitsub 解码；烧录是硬边界 1 的唯一例外，见 ``_burn_target``。
