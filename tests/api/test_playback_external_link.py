@@ -10,6 +10,8 @@ from __future__ import annotations
 
 import asyncio
 import itertools
+import shutil
+import subprocess
 import time
 from datetime import UTC, date, datetime
 from functools import partial
@@ -395,6 +397,124 @@ def test_text_subtitles_are_listed_with_working_urls_and_image_tracks_are_not(cl
     assert resp.status_code == 200, resp.text
     assert "你好" in resp.text
     assert "-->" in resp.text and "," in resp.text.split("-->")[0]  # SRT 的毫秒逗号，不是 VTT
+
+
+_VTT = (
+    "WEBVTT\n\n00:00:01.250 --> 00:00:03.500\n你好 VTT\n\n00:01:02.000 --> 00:01:04.040\n第二句\n"
+)
+
+
+def _srt_cues(text: str) -> list[tuple[str, str, str]]:
+    """把 SRT 解析成 (起, 止, 文本)；格式不对就断言失败。"""
+    cues = []
+    for block in text.strip().replace("\r\n", "\n").split("\n\n"):
+        index, timing, *body = block.split("\n")
+        assert index.strip().isdigit(), block
+        start, end = (part.strip() for part in timing.split("-->"))
+        cues.append((start, end, "\n".join(body)))
+    return cues
+
+
+def test_external_vtt_is_listed_as_srt_and_converts_end_to_end(client, tmp_path):
+    """扫描台账给外挂 .vtt 记的是 format=vtt：要列出来，并经真实转换路径给出 SRT。"""
+    ids = seed(
+        client,
+        tmp_path,
+        versions=(
+            {
+                "name": "Movie.mkv",
+                "external_subtitles": [
+                    {
+                        "filename": "Movie.chs.vtt",
+                        "format": "vtt",
+                        "language": "chi",
+                        "title": "简体",
+                        "forced": False,
+                    },
+                ],
+            },
+            {
+                "name": "Other.mkv",
+                "resolution": "720p",
+                "external_subtitles": [
+                    {"filename": "Other.eng.vtt", "format": "vtt", "language": "eng"},
+                ],
+            },
+        ),
+    )
+    first, second = ids["file_ids"]
+    for name in ("Movie.chs.vtt", "Other.eng.vtt"):
+        (path,) = tmp_path.glob(f"lib*/{name}")
+        path.write_text(_VTT, encoding="utf-8")
+
+    data = ok_link(client, ids["item_id"])
+    assert data["file_id"] == first
+    assert [(s["track"], s["language"], s["label"], s["format"]) for s in data["subtitles"]] == [
+        ("external:Movie.chs.vtt", "chi", "简体", "srt")
+    ]
+    url = data["subtitles"][0]["url"]
+    token = token_of(data["stream_url"])
+    assert url == (
+        f"http://testserver{_PB}/files/{first}/subtitles"
+        f"?track={quote('external:Movie.chs.vtt', safe='')}&format=srt&token={token}"
+    )
+
+    client.cookies.clear()  # 外部播放器没有登录 Cookie
+    resp = client.get(relative(url))
+    assert resp.status_code == 200, resp.text
+    assert resp.headers["content-type"].startswith("application/x-subrip")
+    assert "WEBVTT" not in resp.text
+    assert _srt_cues(resp.text) == [
+        ("00:00:01,250", "00:00:03,500", "你好 VTT"),
+        ("00:01:02,000", "00:01:04,040", "第二句"),
+    ]
+
+    # 同一个 token 拿不到另一个文件（哪怕同一部片的另一版本）的字幕
+    other_track = quote("external:Other.eng.vtt", safe="")
+    for target in (second, first):
+        resp = client.get(
+            f"{_PB}/files/{target}/subtitles?track={other_track}&format=srt&token={token}"
+        )
+        assert resp.status_code == 404, (target, resp.text)
+
+
+@pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="需要系统 ffmpeg")
+def test_embedded_webvtt_track_is_listed_and_extracted_as_srt(client, tmp_path):
+    """内封轨 ffprobe 报 codec=webvtt：这个写法照旧认，经真实 ffmpeg 抽取给出 SRT。"""
+    ids = seed(
+        client,
+        tmp_path,
+        versions=(
+            {"name": "Web.mkv", "subtitle_streams": [{"codec": "webvtt", "language": "eng"}]},
+        ),
+    )
+    (video,) = tmp_path.glob("lib*/Web.mkv")
+    source = tmp_path / "src.vtt"
+    source.write_text(_VTT, encoding="utf-8")
+    subprocess.run(
+        [
+            "ffmpeg", "-v", "error", "-y",
+            "-f", "lavfi", "-i", "color=c=black:s=64x64:d=70",
+            "-i", str(source),
+            "-map", "0:v", "-map", "1:s", "-c:v", "libx264", "-c:s", "webvtt",
+            str(video),
+        ],
+        check=True,
+        capture_output=True,
+        timeout=180,
+    )  # fmt: skip
+
+    data = ok_link(client, ids["item_id"])
+    assert [(s["track"], s["language"], s["format"]) for s in data["subtitles"]] == [
+        ("embedded:0", "eng", "srt")
+    ]
+    client.cookies.clear()
+    resp = client.get(relative(data["subtitles"][0]["url"]))
+    assert resp.status_code == 200, resp.text
+    assert _srt_cues(resp.text) == [
+        ("00:00:01,250", "00:00:03,500", "你好 VTT"),
+        ("00:01:02,000", "00:01:04,040", "第二句"),
+    ]
 
 
 # ---------------------------------------------------------------------------
