@@ -45,12 +45,44 @@ class EngineDependencyTests(unittest.TestCase):
             )
             project = root / "MovieClaw.xcodeproj/project.pbxproj"
             project.write_text('knownRegions = ("zh-Hans", Base);')
+            prepare.stage_catalogs(root)
             prepare.add_catalog_regions(root)
             result = project.read_text()
             self.assertIn('"en"', result)
             self.assertIn('"zh-Hant"', result)
             self.assertIn('"zh-Hans"', result)
+            self.assertIn('"de"', result)
             self.assertIn('"Base"', result)
+
+    def test_staged_catalog_preserves_german_and_fills_missing_keys_from_english(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            catalog = root / "Shared/Localizable.xcstrings"
+            catalog.parent.mkdir()
+            english = {
+                "variations": {
+                    "plural": {
+                        "one": {"stringUnit": {"state": "translated", "value": "%lld file"}},
+                        "other": {"stringUnit": {"state": "translated", "value": "%lld files"}},
+                    },
+                },
+            }
+            german = {"stringUnit": {"state": "translated", "value": "Schließen"}}
+            data = {
+                "strings": {
+                    "library.files": {"localizations": {"en": english}},
+                    "common.close": {
+                        "localizations": {"en": {"stringUnit": {"value": "Close"}}, "de": german},
+                    },
+                },
+            }
+            catalog.write_text(json.dumps(data))
+            prepare.stage_catalogs(root)
+            staged = root / "build/LocalizedCatalogs/Shared/Localizable.xcstrings"
+            strings = json.loads(staged.read_text())["strings"]
+            self.assertEqual(strings["library.files"]["localizations"]["de"], english)
+            self.assertEqual(strings["common.close"]["localizations"]["de"], german)
+            self.assertEqual(json.loads(catalog.read_text()), data)
 
     def test_rejects_unresolved_engine_upgrade(self):
         self.project["packages"]["AetherEngine"]["revision"] = "0" * 40

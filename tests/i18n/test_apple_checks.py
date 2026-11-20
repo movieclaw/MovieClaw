@@ -64,17 +64,29 @@ def catalog(tmp_path):
     return tmp_path, path, value, entry
 
 
-def validate(root):
+def validate(root, warnings=None):
     return apple.check_apple(
         root,
         {"units.duration.hoursMinutes": "{hours} hr {minutes} min"},
         {"units.duration.hoursMinutes": {"hours", "minutes"}},
+        warnings=warnings,
     )
 
 
 def test_catalog_maps_positional_printf_to_web_parameters(catalog):
     root, _, _, _ = catalog
     assert validate(root) == []
+
+
+def test_missing_german_apple_translation_warns_without_failing(catalog):
+    root, path, value, entry = catalog
+    del entry["localizations"]["de"]
+    path.write_text(json.dumps(value))
+    warnings = []
+    assert validate(root, warnings) == []
+    assert warnings == [
+        "Missing German Apple translation: Shared/Localizable.xcstrings:units.duration.hoursMinutes"
+    ]
 
 
 @pytest.mark.parametrize(
@@ -86,6 +98,8 @@ def test_catalog_maps_positional_printf_to_web_parameters(catalog):
         ("english", "Apple/Web English differs"),
         ("german", "Apple German printf parameters differ"),
         ("german_state", "Apple German translation needs review"),
+        ("german_empty", "Apple German translation is empty"),
+        ("missing_english", "Apple required localizations differ"),
     ],
 )
 def test_catalog_rejects_stale_alias_parameters_and_cross_platform_drift(catalog, change, expected):
@@ -101,6 +115,10 @@ def test_catalog_rejects_stale_alias_parameters_and_cross_platform_drift(catalog
         languages["de"]["stringUnit"]["value"] = "%1$lld Std. %2$lld Min. %2$lld"
     elif change == "german_state":
         languages["de"]["stringUnit"]["state"] = "needs_review"
+    elif change == "german_empty":
+        languages["de"]["stringUnit"]["value"] = " "
+    elif change == "missing_english":
+        del languages["en"]
     else:
         languages["en"]["stringUnit"]["value"] = "%lld hours %lld minutes"
     path.write_text(json.dumps(value))

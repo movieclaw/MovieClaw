@@ -55,13 +55,39 @@ def test_rejects_missing_keys_parameters_and_chinese_in_english(catalog):
     assert "Cross-platform English mismatch: common.greeting" in errors
 
 
-def test_rejects_missing_german_keys_and_mismatched_parameters(catalog):
+@pytest.mark.parametrize("missing_file", [False, True])
+def test_missing_german_web_translation_warns_without_failing(
+    catalog, capsys, monkeypatch, missing_file
+):
     root, write = catalog
     path = root / "apps/web/locales/de/common.json"
-    write(path, {})
-    assert any("missing: greeting" in error for error in check.check_catalogs())
-    write(path, {"greeting": "Hallo {name}"})
-    assert "German parameter mismatch: common.greeting" in check.check_catalogs()
+    if missing_file:
+        path.unlink()
+    else:
+        write(path, {})
+    write(root / "scripts/i18n/baseline.json", {})
+    monkeypatch.setattr(check, "baseline", lambda: {})
+    assert check.main() == 0
+    message = "Warning: Missing German Web translations in common.json: greeting"
+    assert message in capsys.readouterr().err
+
+
+@pytest.mark.parametrize(
+    "german,expected",
+    [
+        ({"greeting": "Hallo {name}"}, "German parameter mismatch: common.greeting"),
+        ({"greeting": " "}, "German translation is empty: common.greeting"),
+        ({"greeting": "Hallo {count}", "extra": "Extra"}, "unexpected German keys: extra"),
+        (
+            {"greeting": "{count, plural, one {Hallo #} other {Hallo #}}"},
+            "German variation branches differ: common.greeting",
+        ),
+    ],
+)
+def test_rejects_invalid_german_web_translations(catalog, german, expected):
+    root, write = catalog
+    write(root / "apps/web/locales/de/common.json", german)
+    assert any(expected in error for error in check.check_catalogs())
 
 
 def test_rejects_unknown_server_key(catalog):

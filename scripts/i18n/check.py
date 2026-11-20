@@ -39,22 +39,42 @@ def flatten(value: dict, prefix: str = "") -> dict[str, str]:
     return result
 
 
-def parameters(message: str) -> set[str]:
-    def visit(nodes):
-        result = set()
-        for node in nodes:
-            if isinstance(node, dict):
-                result.add(node["name"])
-                result.update(visit(node.get("contents", [])))
-                for option in node.get("options", {}).values():
-                    result.update(visit(option))
-        return result
-
+def parse_message(message: str) -> list:
     try:
-        return visit(Parser({"allow_tags": True}).parse(message))
+        return Parser({"allow_tags": True}).parse(message)
     except SyntaxError:
         # Server messages render without rich-text tags, so "<placeholder>" is literal text there.
-        return visit(Parser().parse(message))
+        return Parser().parse(message)
+
+
+def message_parameters(nodes: list) -> set[str]:
+    result = set()
+    for node in nodes:
+        if isinstance(node, dict):
+            result.add(node["name"])
+            result.update(message_parameters(node.get("contents", [])))
+            for option in node.get("options", {}).values():
+                result.update(message_parameters(option))
+    return result
+
+
+def parameters(message: str) -> set[str]:
+    return message_parameters(parse_message(message))
+
+
+def message_variations(nodes: list) -> frozenset:
+    """Keep ICU branch structure, allowing repeated selectors for translated word order."""
+    result = set()
+    for node in nodes:
+        if not isinstance(node, dict):
+            continue
+        if "options" in node:
+            branches = frozenset(
+                (key, message_variations(value)) for key, value in node["options"].items()
+            )
+            result.add((node["name"], node["type"], node.get("offset", 0), branches))
+        result.update(message_variations(node.get("contents", [])))
+    return frozenset(result)
 
 
 def call_parameters(node: ast.Call) -> tuple[str, set[str]] | None:
@@ -89,7 +109,7 @@ def call_parameters(node: ast.Call) -> tuple[str, set[str]] | None:
     return None
 
 
-def check_catalogs() -> list[str]:
+def check_catalogs(warnings: list[str] | None = None) -> list[str]:
     errors = []
     all_english = {}
     web_source = {}
@@ -101,11 +121,12 @@ def check_catalogs() -> list[str]:
     for directory in (ROOT / "apps/web/locales", ROOT / "src/movieclaw_api/locales"):
         paths = list((directory / "zh-Hans").glob("*.json"))
         is_web = directory.parts[-2] == "web"
-        if {p.name for p in paths} != {p.name for p in (directory / "en").glob("*.json")}:
+        english_names = {p.name for p in (directory / "en").glob("*.json")}
+        if {p.name for p in paths} != english_names:
             errors.append(f"{directory}: namespace sets differ")
         german_paths = {p.name: p for p in (directory / "de").glob("*.json")} if is_web else {}
-        if is_web and german_paths.keys() != {p.name for p in paths}:
-            errors.append(f"{directory}: German namespace set differs")
+        if extra := german_paths.keys() - english_names:
+            errors.append(f"{directory}: unexpected German namespaces: {', '.join(sorted(extra))}")
         for path in paths:
             source = flatten(json.loads(path.read_text()))
             english = flatten(json.loads((directory / "en" / path.name).read_text()))
@@ -117,12 +138,16 @@ def check_catalogs() -> list[str]:
             )
             if source.keys() != english.keys() or source.keys() != meta.keys():
                 errors.append(f"{path}: message/metadata key sets differ")
-            if is_web and german.keys() != english.keys():
-                missing = ", ".join(sorted(english.keys() - german.keys()))
-                extra = ", ".join(sorted(german.keys() - english.keys()))
-                errors.append(
-                    f"{path.name}: German key set differs (missing: {missing}, extra: {extra})"
-                )
+            if is_web:
+                if extra := german.keys() - english.keys():
+                    errors.append(
+                        f"{path.name}: unexpected German keys: {', '.join(sorted(extra))}"
+                    )
+                if warnings is not None and (missing := english.keys() - german.keys()):
+                    warnings.append(
+                        f"Missing German Web translations in {path.name}: "
+                        f"{', '.join(sorted(missing))}"
+                    )
             for key, text in source.items():
                 name = f"{path.stem}.{key}"
                 if not re.fullmatch(r"[a-z][a-zA-Z0-9]*(?:\.[a-z][a-zA-Z0-9]*){1,3}", name):
@@ -141,10 +166,17 @@ def check_catalogs() -> list[str]:
                     source_parameters = parameters(text)
                     if is_web:
                         web_parameters[name] = source_parameters
-                    if source_parameters != parameters(translated):
+                    english_nodes = parse_message(translated)
+                    if source_parameters != message_parameters(english_nodes):
                         errors.append(f"Parameter mismatch: {name}")
-                    if key in german and source_parameters != parameters(german[key]):
-                        errors.append(f"German parameter mismatch: {name}")
+                    if key in german:
+                        if not german[key].strip():
+                            errors.append(f"German translation is empty: {name}")
+                        german_nodes = parse_message(german[key])
+                        if source_parameters != message_parameters(german_nodes):
+                            errors.append(f"German parameter mismatch: {name}")
+                        if message_variations(english_nodes) != message_variations(german_nodes):
+                            errors.append(f"German variation branches differ: {name}")
                 except (ValueError, SyntaxError) as exc:
                     errors.append(f"Invalid ICU: {name}: {exc}")
                 if name in all_english and all_english[name] != translated:
@@ -256,7 +288,7 @@ def check_catalogs() -> list[str]:
             value = catalog["strings"].get(key, {}).get("localizations", {}).get("zh-Hans", {})
             if value.get("stringUnit", {}).get("value") != original:
                 errors.append(f"Apple Chinese changed during migration: {key}")
-    errors.extend(check_apple(ROOT, web_english, web_parameters, terms))
+    errors.extend(check_apple(ROOT, web_english, web_parameters, terms, warnings))
     return errors
 
 
@@ -503,7 +535,8 @@ def baseline() -> dict[str, int]:
 
 
 def main() -> int:
-    errors = check_catalogs()
+    warnings = []
+    errors = check_catalogs(warnings)
     current = baseline()
     baseline_path = ROOT / "scripts/i18n/baseline.json"
     if "--write-baseline" in sys.argv:
@@ -513,6 +546,8 @@ def main() -> int:
         for path, count in current.items():
             if count > previous.get(path, 0):
                 errors.append(f"Bare Chinese increased: {path}: {previous.get(path, 0)} -> {count}")
+    for warning in warnings:
+        print(f"Warning: {warning}", file=sys.stderr)
     if errors:
         print("\n".join(errors), file=sys.stderr)
         return 1

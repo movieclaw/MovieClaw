@@ -57,10 +57,24 @@ def check_lock(spec, lock):
         raise ValueError("FFmpegBuild version differs from project.yml")
 
 
+def stage_catalogs(root: Path) -> None:
+    """Supply English values for missing German keys in the catalogs Xcode builds."""
+    for catalog in root.glob("*/*.xcstrings"):
+        data = json.loads(catalog.read_text())
+        for entry in data["strings"].values():
+            translations = entry["localizations"]
+            translations.setdefault("de", translations["en"])
+        output = root / "build/LocalizedCatalogs" / catalog.relative_to(root)
+        text = json.dumps(data, ensure_ascii=False, indent=2) + "\n"
+        if not output.exists() or output.read_text() != text:
+            output.parent.mkdir(parents=True, exist_ok=True)
+            output.write_text(text)
+
+
 def add_catalog_regions(root: Path) -> None:
     # XcodeGen does not discover catalog languages inside synchronized folders.
     regions = {"Base"}
-    for catalog in root.glob("*/*.xcstrings"):
+    for catalog in (root / "build/LocalizedCatalogs").glob("*/*.xcstrings"):
         data = json.loads(catalog.read_text())
         regions.add(data["sourceLanguage"])
         for entry in data["strings"].values():
@@ -78,7 +92,11 @@ def add_catalog_regions(root: Path) -> None:
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--update-lock", action="store_true")
+    parser.add_argument("--stage-catalogs", action="store_true", help="Stage catalogs for XcodeGen")
     args = parser.parse_args()
+    if args.stage_catalogs:
+        stage_catalogs(ROOT)
+        return
     spec = json.loads(subprocess.check_output(["xcodegen", "dump", "--type", "json"], cwd=ROOT))
     url, revision = engine_dependency(spec)
     if not args.update_lock:
