@@ -61,8 +61,11 @@ extension View {
 /// 格式化工具（与 Web 端展示口径一致）
 enum Formatters {
     /// 字节 → 「19.40 GB」
-    static func bytes(_ value: Int?) -> String {
+    static func bytes(_ value: Int?, locale: Locale = AppLanguage.locale) -> String {
         guard let value else { return "—" }
+        if AppLanguage.normalize(locale.identifier) == "de" {
+            return AppFormatting.bytes(value, locale: locale)
+        }
         return ByteCountFormatter.string(fromByteCount: Int64(value), countStyle: .binary)
             .replacingOccurrences(of: "GiB", with: "GB").replacingOccurrences(of: "MiB", with: "MB")
             .replacingOccurrences(of: "KiB", with: "KB").replacingOccurrences(of: "TiB", with: "TB")

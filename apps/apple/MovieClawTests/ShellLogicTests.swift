@@ -46,6 +46,11 @@ struct ShellLogicTests {
         #expect(Formatters.fromNow(now.addingTimeInterval(180), now: now, locale: locale) == "in 3 Minuten")
     }
 
+    @Test func germanFileSizeUsesAppLocale() {
+        let size = Formatters.bytes(1_500_000, locale: Locale(identifier: "de_DE"))
+        #expect(size.split(whereSeparator: \.isWhitespace).joined(separator: " ") == "1,4 MB")
+    }
+
     @Test func legacyRelativeHelpersShareOneAlgorithm() {
         #expect(libraryFromNow(nil) == "从未")
         #expect(SubsFormat.relative(nil) == "从未")
