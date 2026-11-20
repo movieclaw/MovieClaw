@@ -1769,5 +1769,31 @@
     "progress": "已看 {percent}%",
     "rating": "评分 {rating}",
     "detailStatus": "播出状态：{status}"
+  },
+  "externalPlayer": {
+    "openWith": "用 {player} 打开",
+    "choose": "用外部播放器打开",
+    "episodeMenu": "第 {episode} 集：外部播放器",
+    "copyLink": "复制链接",
+    "copySubtitle": "复制字幕链接",
+    "copied": "链接已复制，12 小时内有效，请勿分享给他人",
+    "copyFailed": "浏览器没有允许写入剪贴板，请在下方手动复制链接。",
+    "manualCopyHint": "已选中链接，请按 Ctrl+C（Mac 上按 ⌘+C）复制",
+    "panelTitle": "用 {player} 打开《{title}》",
+    "copyTitle": "《{title}》的链接",
+    "launched": "已尝试打开 {player}。没有反应？可能没装 {player}，或浏览器拦截了；也可以复制链接手动打开。",
+    "tapToOpen": "链接已生成，点下面的按钮打开 {player}。",
+    "openButton": "打开 {player}",
+    "retry": "再试一次",
+    "streamLink": "视频链接",
+    "subtitles": "字幕",
+    "noSubtitleParam": "{player} 不会自动加载字幕，可复制字幕链接后在播放器里手动加载。",
+    "noStartParam": "上次看到 {time}，{player} 可能会从头播放。",
+    "needsHandler": "需要另装协议处理器",
+    "expiry": "链接 12 小时内有效，请勿分享给他人；需要长期给别人看，请用分享功能。",
+    "noProgress": "外部播放器不同步进度，看完请点「标记为已看」。",
+    "jellyfinHint": "想同步进度，可以在 Infuse 里把本服务器添加为 Jellyfin 服务器。",
+    "invalidLink": "服务器返回的链接无效，无法打开。",
+    "failed": "无法生成外部播放器链接"
   }
 }

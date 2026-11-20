@@ -1769,5 +1769,31 @@
     "progress": "{percent} % gesehen",
     "rating": "Bewertung {rating}",
     "detailStatus": "Ausstrahlungsstatus: {status}"
+  },
+  "externalPlayer": {
+    "openWith": "In {player} öffnen",
+    "choose": "In externem Player öffnen",
+    "episodeMenu": "Folge {episode}: externer Player",
+    "copyLink": "Link kopieren",
+    "copySubtitle": "Untertitel-Link kopieren",
+    "copied": "Link kopiert. Er läuft in 12 Stunden ab; nicht mit anderen teilen.",
+    "copyFailed": "Der Browser hat den Zugriff auf die Zwischenablage blockiert. Kopiere den Link unten manuell.",
+    "manualCopyHint": "Link markiert. Mit Strg+C (⌘+C auf dem Mac) kopieren.",
+    "panelTitle": "„{title}“ in {player} öffnen",
+    "copyTitle": "Link für „{title}“",
+    "launched": "{player} wurde aufgerufen. Nichts passiert? {player} ist evtl. nicht installiert oder der Browser hat es blockiert. Du kannst den Link auch kopieren und manuell öffnen.",
+    "tapToOpen": "Der Link ist bereit. Tippe unten, um {player} zu öffnen.",
+    "openButton": "{player} öffnen",
+    "retry": "Erneut versuchen",
+    "streamLink": "Video-Link",
+    "subtitles": "Untertitel",
+    "noSubtitleParam": "{player} lädt Untertitel nicht automatisch. Kopiere einen Untertitel-Link und lade ihn im Player.",
+    "noStartParam": "Zuletzt bei {time}; {player} startet evtl. von vorn.",
+    "needsHandler": "Benötigt einen Protokoll-Handler",
+    "expiry": "Der Link läuft in 12 Stunden ab. Nicht weitergeben; zum dauerhaften Teilen die Teilen-Funktion nutzen.",
+    "noProgress": "Externe Player synchronisieren keinen Fortschritt. Nutze danach „Als gesehen markieren“.",
+    "jellyfinHint": "Um den Fortschritt zu synchronisieren, füge diesen Server in Infuse als Jellyfin-Server hinzu.",
+    "invalidLink": "Der Server hat einen ungültigen Link geliefert.",
+    "failed": "Link für externen Player konnte nicht erstellt werden"
   }
 }

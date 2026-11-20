@@ -1243,3 +1243,42 @@ export function reportPlaybackRecordOnUnload(
   }
 }
 
+/** 外部播放器链接（docs/design/external-player.md §2）。只给登录成员，不走分享 scope。 */
+export interface PlaybackExternalLinkRequest {
+  media_item_id: number;
+  season_number?: number;
+  episode_number?: number;
+  file_id?: number;
+}
+
+export interface PlaybackExternalSubtitle {
+  track: string;
+  label: string | null;
+  language: string | null;
+  format: string; // srt / ass / ssa
+  url: string;
+}
+
+export interface PlaybackExternalLink {
+  file_id: number;
+  stream_url: string;
+  subtitles: PlaybackExternalSubtitle[];
+  title: string;
+  file_name: string;
+  container: string | null;
+  start_ms: number;
+  duration_ms: number | null;
+  expires_at: string;
+}
+
+export async function createExternalLink(
+  body: PlaybackExternalLinkRequest,
+): Promise<PlaybackExternalLink> {
+  const response = await request<ApiEnvelope<PlaybackExternalLink>>(
+    "/playback/external-link",
+    { method: "POST", body: JSON.stringify(body) },
+    { timeoutMs: 15_000 },
+  );
+  return response.data;
+}
+
