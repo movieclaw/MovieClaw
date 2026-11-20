@@ -458,6 +458,21 @@ export default function playbackControllerTest() {
       expect(factory.mpv.calls.length).assertEqual(0);
       await controller.release();
     });
+    it('remote_hls_seek_before_engine_creation_reopens_once_the_source_is_known', 0, async () => {
+      const factory = new FakeFactory(); const gate = new Gate(); factory.creation = gate.promise;
+      const controller = new PlaybackController(factory);
+      const targets: number[] = [];
+      controller.onSeekOutsideWindow = (ms: number): void => { targets.push(ms); };
+      const opening = controller.open(new FakeRemoteMedia(factory.order), 'surface', new PlaybackIntent());
+      await microtasks();
+      await controller.seek(50000); await controller.seek(70000);
+      expect(targets.length).assertEqual(0);
+      gate.release(); await opening;
+      await controller.release();
+      expect(targets.join(',')).assertEqual('70000');
+      expect(factory.avp.calls.includes('open:surface')).assertFalse();
+      expect(factory.mpv.calls.length).assertEqual(0);
+    });
     it('remote_hls_fixed_avplayer_preference_stays_on_avplayer', 0, async () => {
       const factory = new FakeFactory(); const controller = new PlaybackController(factory);
       const intent = new PlaybackIntent(); intent.positionMs = 42000;

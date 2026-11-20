@@ -243,6 +243,56 @@ test('MPV frozen clock reaches the startup deadline', async () => {
   assert.equal(f.controller.current().failure.kind, 'timeout'); await f.controller.release();
 });
 
+for (const stage of ['create', 'acquire', 'previous release']) {
+  test(`HLS startup drag during ${stage} reopens at the latest target and keeps later seeks exact`, async () => {
+    const f = playerFixture(); const waiting = gate(); const opened = []; const seeks = [];
+    const load = runtime({}, f.timers);
+    const { PhonePlaybackHost } = load('entry/src/main/ets/playback/PhonePlaybackHost.ets');
+    const { PlaybackIntent } = load('playback/Index.ets');
+    const host = new PhonePlaybackHost(); host.controller = f.controller; host.bindController();
+    const acquire = f.media.acquire;
+    f.media.acquire = async () => {
+      if (stage === 'acquire') { await waiting.promise; }
+      const lease = await acquire(); lease.source.isHls = true;
+      lease.source.url = 'https://fixture.invalid/old/index.m3u8'; return lease;
+    };
+    f.engine.open = async (source) => { opened.push(source.url); };
+    f.engine.seek = async (ms) => { seeks.push(ms); };
+    if (stage === 'create') { f.controller.factory.create = async () => { await waiting.promise; return f.engine; }; }
+    if (stage === 'previous release') {
+      await f.controller.open(f.media, 'previous', f.intent);
+      f.engine.release = () => waiting.promise; opened.length = 0;
+    }
+    const requests = []; let reopening;
+    // Replace only the server negotiation boundary. The production host's seek,
+    // outside-window callback and snapshot binding drive the real controller.
+    host.negotiate = async () => {
+      requests.push([host.startMs, host.resumeExplicit]);
+      const intent = new PlaybackIntent(); intent.positionMs = host.startMs;
+      const media = { ...f.media, acquire: async () => {
+        const lease = await acquire(); lease.source.isHls = true;
+        lease.source.url = `https://fixture.invalid/start-${intent.positionMs}/index.m3u8`; return lease;
+      } };
+      reopening = f.controller.open(media, 'surface', intent); await reopening;
+    };
+    const opening = f.controller.open(f.media, 'surface', f.intent);
+    await drain(); host.seekTo(50000); host.seekTo(70000); await drain();
+    assert.deepEqual(requests, []);
+    waiting.resolve(); await opening; await drain(); await reopening;
+    try {
+      assert.deepEqual(requests, [[70000, true]]);
+      assert.deepEqual(opened, ['https://fixture.invalid/start-70000/index.m3u8']);
+      f.emit('firstFrame'); await drain(); f.emit('time', { positionMs: 71000 });
+      assert.equal(host.positionMs, 71000);
+      host.seekTo(30000); await drain(); await reopening;
+      f.emit('firstFrame'); await drain(); f.emit('time', { positionMs: 31000 });
+      assert.deepEqual(requests, [[70000, true], [30000, true]]);
+      assert.equal(host.positionMs, 31000); assert.deepEqual(seeks, []);
+    } finally { await f.controller.release(); }
+    assert.equal(f.closes(), stage === 'previous release' ? 4 : 3);
+  });
+}
+
 test('pause cancels startup and resume receives a fresh deadline', async () => {
   const f = playerFixture();
   await f.controller.open(f.media, 'surface', f.intent);

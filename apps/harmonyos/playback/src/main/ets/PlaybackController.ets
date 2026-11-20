@@ -139,6 +139,7 @@ export class PlaybackController {
     this.attachedSubtitle = null;
     this.subtitleMemory = SubtitleMemory.Untouched;
     this.media = media; this.surface = surface; this.intent = intent; this.preference = preference;
+    this.startupSeekSuperseded = false;
     this.switching = true; this.available = false; this.interrupted = false;
     this.snapshot = new PlaybackSnapshot();
     this.snapshot.phase = 'opening'; this.snapshot.positionMs = intent.positionMs;
@@ -155,7 +156,6 @@ export class PlaybackController {
     if (media === null || generation !== this.generation) { return; }
     this.openingFailure = null;
     this.startupConfirmed = false;
-    this.startupSeekSuperseded = false;
     this.deferredResumePending = false;
     this.deferredSeekIssued = false;
     this.startupDeadlineMs = PlaybackController.startupTimeoutMs;
@@ -171,6 +171,13 @@ export class PlaybackController {
       lease = await media.acquire(id);
       if (!this.valid(generation, attempt)) { await engine.release(); await lease.close(); return; }
       this.engine = engine; this.lease = lease; this.engineSurface = this.surface;
+      // A drag can arrive before create/acquire resolves, when seek() cannot yet
+      // identify remote HLS. Once known, reopen at the latest target instead of
+      // starting the old session: AVPlayer cannot apply that target in-stream.
+      if (this.startupSeekSuperseded && this.remoteAvplayerSeek(engine)) {
+        this.onSeekOutsideWindow(this.intent.positionMs);
+        return;
+      }
       engine.onEvent = (event: EngineEvent): void => {
         if (this.valid(generation, attempt)) { this.receive(event, generation); }
       };
