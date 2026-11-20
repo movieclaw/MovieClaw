@@ -22,6 +22,12 @@
             "state": "translated",
             "value": "Route %@"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Route %@"
+          }
         }
       }
     },
@@ -42,6 +48,12 @@
           }
         },
         "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Container %@"
+          }
+        },
+        "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Container %@"
@@ -70,6 +82,12 @@
             "state": "translated",
             "value": "Video %@"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Video %@"
+          }
         }
       }
     },
@@ -94,6 +112,12 @@
             "state": "translated",
             "value": "Picture %@"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bild %@"
+          }
         }
       }
     },
@@ -114,6 +138,12 @@
           }
         },
         "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Audio %@"
+          }
+        },
+        "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Audio %@"
@@ -142,6 +172,12 @@
             "state": "translated",
             "value": "Audio delivery %@"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Audiospur %@"
+          }
         }
       }
     },
@@ -162,6 +198,12 @@
           }
         },
         "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dolby Vision"
+          }
+        },
+        "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Dolby Vision"
@@ -190,6 +232,12 @@
             "state": "translated",
             "value": " · Source DV P%lld"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": " · Quelle DV P%lld"
+          }
         }
       }
     },
@@ -213,6 +261,12 @@
           "stringUnit": {
             "state": "translated",
             "value": " (converted to 8.1)"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": " (in 8.1 umgewandelt)"
           }
         }
       }
@@ -238,6 +292,12 @@
             "state": "translated",
             "value": "Local remux → AVPlayer"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lokaler Remux → AVPlayer"
+          }
         }
       }
     },
@@ -261,6 +321,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Local software decoding → System display layer"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lokale Software-Dekodierung → Systemanzeige"
           }
         }
       }
@@ -286,6 +352,12 @@
             "state": "translated",
             "value": "Direct AVPlayer connection"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Direkte AVPlayer-Verbindung"
+          }
         }
       }
     },
@@ -309,6 +381,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Audio only"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nur Audio"
           }
         }
       }
@@ -334,6 +412,12 @@
             "state": "translated",
             "value": "Not loaded"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nicht geladen"
+          }
         }
       }
     },
@@ -357,6 +441,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Stream copy"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stream-Kopie"
           }
         }
       }
@@ -382,6 +472,12 @@
             "state": "translated",
             "value": "Local decoding and re-encoding"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lokal dekodiert und neu kodiert"
+          }
         }
       }
     },
@@ -405,6 +501,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Local decoding"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lokal dekodiert"
           }
         }
       }
@@ -430,6 +532,12 @@
             "state": "translated",
             "value": "Handled by the system player"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wiedergabe über den Systemplayer"
+          }
         }
       }
     },
@@ -454,6 +562,12 @@
             "state": "translated",
             "value": "No audio track in source"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keine Audiospur in der Quelle"
+          }
         }
       }
     },
@@ -477,6 +591,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "No output available (muted)"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keine Ausgabe verfügbar (stumm)"
           }
         }
       }

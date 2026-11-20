@@ -22,6 +22,12 @@
             "state": "translated",
             "value": "Up Next"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Weiterschauen"
+          }
         }
       }
     }

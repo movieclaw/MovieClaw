@@ -3,8 +3,21 @@
 import hashlib
 import json
 import re
+from collections import Counter
 
 SPECIFIER = re.compile(r"%%|%(?:(\d+)\$)?(?:[-+ 0#]*\d*(?:\.\d+)?)?(lld|ld|d|llu|lu|u|lf|f|@)")
+
+
+def printf_signature(text):
+    """Keep implicit arguments in order and count all occurrences of positional arguments."""
+    implicit = []
+    positional = Counter()
+    for match in SPECIFIER.finditer(text):
+        if match[1] or match[0] == "%%":
+            positional[match[0]] += 1
+        else:
+            implicit.append(match[0])
+    return implicit, positional
 
 
 def normalize_printf(text, names):
@@ -154,7 +167,7 @@ def check_apple(root, web_english, web_parameters, terms=None):
             ):
                 errors.append(f"Invalid Apple semantic key: {context}")
             translations = entry.get("localizations", {})
-            if translations.keys() != {"zh-Hans", "zh-Hant", "en"}:
+            if translations.keys() != {"zh-Hans", "zh-Hant", "en", "de"}:
                 errors.append(f"Apple missing localization: {context}")
                 continue
             if translations["zh-Hant"] != translations["zh-Hans"]:
@@ -165,6 +178,21 @@ def check_apple(root, web_english, web_parameters, terms=None):
                 source = translations["zh-Hans"]["stringUnit"]["value"]
                 record = records.get(key, {})
                 units = translation_units(translations["en"])
+                german_units = translation_units(translations["de"])
+                if german_units.keys() != units.keys():
+                    errors.append(f"Apple German variation branches differ: {context}")
+                for category, german in german_units.items():
+                    variant = context if category is None else f"{context} ({category})"
+                    if german["state"] != "translated":
+                        errors.append(f"Apple German translation needs review: {variant}")
+                    if category not in units:
+                        continue
+                    english_text = units[category]["value"]
+                    german_text = german["value"]
+                    if english_text.strip() and not german_text.strip():
+                        errors.append(f"Apple German translation is empty: {variant}")
+                    if printf_signature(german_text) != printf_signature(english_text):
+                        errors.append(f"Apple German printf parameters differ: {variant}")
                 english = normalized_translation(translations["en"], record)
                 if record.get("sourceHash") != hashlib.sha256(source.encode()).hexdigest():
                     errors.append(f"Stale Apple English: {context}")

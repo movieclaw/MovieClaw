@@ -10,11 +10,15 @@ from pathlib import Path
 
 import pytest
 
-pytestmark = pytest.mark.skipif(shutil.which("xcrun") is None, reason="Requires Xcode")
+pytestmark = pytest.mark.skipif(
+    shutil.which("xcrun") is None
+    or subprocess.run(["xcrun", "--find", "xcstringstool"], capture_output=True).returncode != 0,
+    reason="Requires Xcode's xcstringstool",
+)
 
 
 @pytest.mark.parametrize("traditional_alias", [False, True])
-def test_generated_symbols_and_english_bundle_fallback(tmp_path, traditional_alias):
+def test_generated_symbols_and_bundle_language(tmp_path, traditional_alias):
     fixture = Path(__file__).with_name("apple") / "Localizable.xcstrings"
     catalog = tmp_path / "Localizable.xcstrings"
     source = json.loads(fixture.read_text())
@@ -32,7 +36,8 @@ def test_generated_symbols_and_english_bundle_fallback(tmp_path, traditional_ali
         "CFBundleIdentifier": "io.movieclaw.i18n-probe",
         "CFBundleExecutable": "probe",
         "CFBundleDevelopmentRegion": "en",
-        "CFBundleLocalizations": ["zh-Hans", "en"] + (["zh-Hant"] if traditional_alias else []),
+        "CFBundleLocalizations": ["zh-Hans", "en", "de"]
+        + (["zh-Hant"] if traditional_alias else []),
     }
     (resources.parent / "Info.plist").write_bytes(plistlib.dumps(info))
     subprocess.run(
@@ -83,6 +88,7 @@ print(String(data: try! JSONEncoder().encode(output), encoding: .utf8)!)
     for languages, expected in (
         ("en", ["en", "Close", "Loaded 3 items"]),
         ("ja", ["en", "Close", "Loaded 3 items"]),
+        ("de-DE", ["de", "Schließen", "3 Einträge geladen"]),
         ("zh-Hans", ["zh-Hans", "关闭", "已加载 3 项"]),
     ):
         result = subprocess.check_output([str(binary), "-AppleLanguages", f"({languages})"])

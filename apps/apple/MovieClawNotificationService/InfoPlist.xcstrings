@@ -22,6 +22,12 @@
             "state": "translated",
             "value": "MovieClaw uses your local network to download notification images from your self-hosted server."
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MovieClaw verwendet dein lokales Netzwerk, um Bilder für Mitteilungen von deinem selbst gehosteten Server zu laden."
+          }
         }
       },
       "comment": "System permission explanation; MovieClaw is an untranslated product name."

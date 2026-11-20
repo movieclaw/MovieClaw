@@ -22,6 +22,12 @@
             "state": "translated",
             "value": "In library"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "In der Mediathek"
+          }
         }
       }
     },
@@ -45,6 +51,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Watched"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gesehen"
           }
         }
       }
@@ -70,6 +82,12 @@
             "state": "translated",
             "value": "Downloading"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wird geladen"
+          }
         }
       }
     },
@@ -93,6 +111,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Not found"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nicht gefunden"
           }
         }
       }
@@ -126,6 +150,24 @@
                 "stringUnit": {
                   "state": "translated",
                   "value": "%lld episodes in library"
+                }
+              }
+            }
+          }
+        },
+        "de": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld Folge in Mediathek"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld Folgen in Mediathek"
                 }
               }
             }
@@ -166,6 +208,24 @@
               }
             }
           }
+        },
+        "de": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld Folge gesehen"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld Folgen gesehen"
+                }
+              }
+            }
+          }
         }
       }
     },
@@ -198,6 +258,24 @@
                 "stringUnit": {
                   "state": "translated",
                   "value": "%lld episodes downloading"
+                }
+              }
+            }
+          }
+        },
+        "de": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld Folge wird heruntergeladen"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld Folgen werden heruntergeladen"
                 }
               }
             }
@@ -238,6 +316,24 @@
               }
             }
           }
+        },
+        "de": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld Folge nicht gefunden"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld Folgen nicht gefunden"
+                }
+              }
+            }
+          }
         }
       }
     },
@@ -258,6 +354,12 @@
           }
         },
         "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": ", "
+          }
+        },
+        "de": {
           "stringUnit": {
             "state": "translated",
             "value": ", "
