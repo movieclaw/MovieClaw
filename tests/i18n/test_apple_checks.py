@@ -44,6 +44,7 @@ def catalog(tmp_path):
             "zh-Hans": translation(source),
             "zh-Hant": translation(source),
             "en": translation("%1$lld hr %2$lld min"),
+            "de": translation("%1$lld Std. %2$lld Min."),
         },
     }
     base = tmp_path / "apps/apple"
@@ -83,6 +84,8 @@ def test_catalog_maps_positional_printf_to_web_parameters(catalog):
         ("alias", "simplified alias differs"),
         ("parameters", "printf parameters differ"),
         ("english", "Apple/Web English differs"),
+        ("german", "Apple German printf parameters differ"),
+        ("german_state", "Apple German translation needs review"),
     ],
 )
 def test_catalog_rejects_stale_alias_parameters_and_cross_platform_drift(catalog, change, expected):
@@ -94,6 +97,10 @@ def test_catalog_rejects_stale_alias_parameters_and_cross_platform_drift(catalog
         languages["zh-Hant"]["stringUnit"]["value"] = "不同"
     elif change == "parameters":
         languages["en"]["stringUnit"]["value"] = "%lld hr"
+    elif change == "german":
+        languages["de"]["stringUnit"]["value"] = "%1$lld Std. %2$lld Min. %2$lld"
+    elif change == "german_state":
+        languages["de"]["stringUnit"]["state"] = "needs_review"
     else:
         languages["en"]["stringUnit"]["value"] = "%lld hours %lld minutes"
     path.write_text(json.dumps(value))
@@ -151,9 +158,25 @@ def test_catalog_checks_plural_variations_with_explicit_logical_parameter(catalo
             }
         },
     }
+    entry["localizations"]["de"] = {
+        "variations": {
+            "plural": {
+                "one": {
+                    "stringUnit": {"state": "translated", "value": "%1$lld Stunde %2$lld Min."}
+                },
+                "other": {
+                    "stringUnit": {"state": "translated", "value": "%1$lld Stunden %2$lld Min."}
+                },
+            },
+        },
+    }
     path.write_text(json.dumps(value))
     english = {key: "{hours, plural, one {# hour {minutes} min} other {# hours {minutes} min}}"}
     assert apple.check_apple(root, english, {key: {"hours", "minutes"}}) == []
+    del entry["localizations"]["de"]["variations"]["plural"]["one"]
+    path.write_text(json.dumps(value))
+    errors = apple.check_apple(root, english, {key: {"hours", "minutes"}})
+    assert any("German variation branches differ" in error for error in errors)
     entry["localizations"]["en"]["variations"]["plural"]["one"]["stringUnit"]["value"] = "一 hour"
     path.write_text(json.dumps(value))
     errors = apple.check_apple(root, english, {key: {"hours", "minutes"}})

@@ -16,6 +16,12 @@
             "state": "translated",
             "value": "Close"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Schließen"
+          }
         }
       }
     },
@@ -33,6 +39,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Loaded %lld items"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld Einträge geladen"
           }
         }
       }

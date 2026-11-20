@@ -22,6 +22,12 @@
             "state": "translated",
             "value": "MovieClaw uses your local network to discover and connect to your self-hosted MovieClaw server."
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MovieClaw verwendet dein lokales Netzwerk, um deinen selbst gehosteten MovieClaw-Server zu finden und sich damit zu verbinden."
+          }
         }
       },
       "comment": "System permission explanation; MovieClaw is an untranslated product name."
@@ -47,6 +53,12 @@
             "state": "translated",
             "value": "Choose photos for your avatar, library artwork or AI conversation attachments."
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wähle Fotos für dein Profilbild, für Mediathek-Cover oder als Anhang für KI-Unterhaltungen aus."
+          }
         }
       },
       "comment": "System permission explanation; MovieClaw is an untranslated product name."
@@ -71,6 +83,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Scan sign-in QR codes on TVs and terminals, or take photos for AI conversation attachments."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Scanne QR-Codes zur Anmeldung auf Fernsehern und in Terminals oder nimm Fotos für KI-Unterhaltungen auf."
           }
         }
       },
