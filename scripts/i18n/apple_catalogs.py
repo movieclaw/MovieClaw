@@ -136,7 +136,7 @@ def apple_shapes(icu):
     return {icu, plain, whole_plural(icu), whole_plural(plain)}
 
 
-def check_apple(root, web_english, web_parameters, terms=None):
+def check_apple(root, web_english, web_parameters, terms=None, warnings=None):
     base = root / "apps/apple"
     meta_path = base / "Localization.meta.json"
     if not meta_path.exists():
@@ -167,9 +167,11 @@ def check_apple(root, web_english, web_parameters, terms=None):
             ):
                 errors.append(f"Invalid Apple semantic key: {context}")
             translations = entry.get("localizations", {})
-            if translations.keys() != {"zh-Hans", "zh-Hant", "en", "de"}:
-                errors.append(f"Apple missing localization: {context}")
+            if translations.keys() - {"de"} != {"zh-Hans", "zh-Hant", "en"}:
+                errors.append(f"Apple required localizations differ: {context}")
                 continue
+            if "de" not in translations and warnings is not None:
+                warnings.append(f"Missing German Apple translation: {context}")
             if translations["zh-Hant"] != translations["zh-Hans"]:
                 errors.append(f"Apple simplified alias differs: {context}")
             if entry.get("extractionState") != "manual":
@@ -178,21 +180,21 @@ def check_apple(root, web_english, web_parameters, terms=None):
                 source = translations["zh-Hans"]["stringUnit"]["value"]
                 record = records.get(key, {})
                 units = translation_units(translations["en"])
-                german_units = translation_units(translations["de"])
-                if german_units.keys() != units.keys():
-                    errors.append(f"Apple German variation branches differ: {context}")
-                for category, german in german_units.items():
-                    variant = context if category is None else f"{context} ({category})"
-                    if german["state"] != "translated":
-                        errors.append(f"Apple German translation needs review: {variant}")
-                    if category not in units:
-                        continue
-                    english_text = units[category]["value"]
-                    german_text = german["value"]
-                    if english_text.strip() and not german_text.strip():
-                        errors.append(f"Apple German translation is empty: {variant}")
-                    if printf_signature(german_text) != printf_signature(english_text):
-                        errors.append(f"Apple German printf parameters differ: {variant}")
+                if "de" in translations:
+                    german_units = translation_units(translations["de"])
+                    if german_units.keys() != units.keys():
+                        errors.append(f"Apple German variation branches differ: {context}")
+                    for category, german in german_units.items():
+                        variant = context if category is None else f"{context} ({category})"
+                        if german["state"] != "translated":
+                            errors.append(f"Apple German translation needs review: {variant}")
+                        if not german["value"].strip():
+                            errors.append(f"Apple German translation is empty: {variant}")
+                        if category in units and (
+                            printf_signature(german["value"])
+                            != printf_signature(units[category]["value"])
+                        ):
+                            errors.append(f"Apple German printf parameters differ: {variant}")
                 english = normalized_translation(translations["en"], record)
                 if record.get("sourceHash") != hashlib.sha256(source.encode()).hexdigest():
                     errors.append(f"Stale Apple English: {context}")

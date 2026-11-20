@@ -8,6 +8,7 @@ name: MovieClaw
 options:
   bundleIdPrefix: io.movieclaw
   developmentLanguage: zh-Hans
+  preGenCommand: python3 scripts/prepare-project.py --stage-catalogs
   deploymentTarget:
     iOS: "26.0"
     tvOS: "26.0"
@@ -62,8 +63,14 @@ targetTemplates:
     sources:
       - path: MovieClawMac
         type: syncedFolder
-      - path: Shared
+        excludes: [InfoPlist.xcstrings]
+      - path: build/LocalizedCatalogs/MovieClawMac/InfoPlist.xcstrings
+      - &sharedSources
+        path: Shared
         type: syncedFolder
+        excludes: [Localizable.xcstrings]
+      - &sharedCatalog
+        path: build/LocalizedCatalogs/Shared/Localizable.xcstrings
     dependencies:
       - package: Nuke
         product: Nuke
@@ -115,9 +122,11 @@ targets:
     sources:
       - path: MovieClaw
         type: syncedFolder
+        excludes: [InfoPlist.xcstrings]
+      - path: build/LocalizedCatalogs/MovieClaw/InfoPlist.xcstrings
       # 与 Apple TV 版共用的代码（接口层、登录与账号、播放逻辑、主题与图片加载），见 docs/design/tvos-app.md §6
-      - path: Shared
-        type: syncedFolder
+      - *sharedSources
+      - *sharedCatalog
       # 推送的密文、密钥与登录对照：App 与通知扩展共用（docs/design/cloud-push.md §9）
       - path: PushShared
         type: syncedFolder
@@ -206,6 +215,9 @@ targets:
     sources:
       - path: MovieClawNotificationService
         type: syncedFolder
+        excludes: [InfoPlist.xcstrings, Localizable.xcstrings]
+      - path: build/LocalizedCatalogs/MovieClawNotificationService/InfoPlist.xcstrings
+      - path: build/LocalizedCatalogs/MovieClawNotificationService/Localizable.xcstrings
       - path: PushShared
         type: syncedFolder
     info:
@@ -245,6 +257,9 @@ targets:
     sources:
       - path: MovieClawNotificationContent
         type: syncedFolder
+        excludes: [InfoPlist.xcstrings, Localizable.xcstrings]
+      - path: build/LocalizedCatalogs/MovieClawNotificationContent/InfoPlist.xcstrings
+      - path: build/LocalizedCatalogs/MovieClawNotificationContent/Localizable.xcstrings
       - path: PushShared
         type: syncedFolder
     # 要显式链接：系统按 Info.plist 找扩展上下文类（_UNNotificationContentExtensionVendorContext），
@@ -296,6 +311,8 @@ targets:
     sources:
       - path: AetherCore
         type: syncedFolder
+        excludes: [Localizable.xcstrings]
+      - path: build/LocalizedCatalogs/AetherCore/Localizable.xcstrings
     dependencies:
       - package: AetherEngine
         product: AetherEngine
@@ -339,8 +356,10 @@ targets:
     sources:
       - path: MovieClawTV
         type: syncedFolder
-      - path: Shared
-        type: syncedFolder
+        excludes: [InfoPlist.xcstrings]
+      - path: build/LocalizedCatalogs/MovieClawTV/InfoPlist.xcstrings
+      - *sharedSources
+      - *sharedCatalog
       # Top Shelf 的数据格式与 App 内部链接：App 写、扩展读，同一份代码
       - path: MovieClawTVTopShelf/TopShelfSnapshot.swift
     dependencies:
@@ -407,6 +426,8 @@ targets:
     sources:
       - path: MovieClawTVTopShelf
         type: syncedFolder
+        excludes: [Localizable.xcstrings]
+      - path: build/LocalizedCatalogs/MovieClawTVTopShelf/Localizable.xcstrings
     info:
       path: MovieClawTVTopShelf/Info.plist
       properties:

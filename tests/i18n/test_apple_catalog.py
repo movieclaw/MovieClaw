@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import copy
+import importlib.util
 import json
 import plistlib
 import shutil
@@ -20,12 +22,22 @@ pytestmark = pytest.mark.skipif(
 @pytest.mark.parametrize("traditional_alias", [False, True])
 def test_generated_symbols_and_bundle_language(tmp_path, traditional_alias):
     fixture = Path(__file__).with_name("apple") / "Localizable.xcstrings"
-    catalog = tmp_path / "Localizable.xcstrings"
+    script = Path(__file__).resolve().parents[2] / "apps/apple/scripts/prepare-project.py"
+    spec = importlib.util.spec_from_file_location("prepare_project", script)
+    prepare = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(prepare)
+    source_catalog = tmp_path / "Shared/Localizable.xcstrings"
+    source_catalog.parent.mkdir()
     source = json.loads(fixture.read_text())
+    fallback = copy.deepcopy(source["strings"]["common.close"])
+    del fallback["localizations"]["de"]
+    source["strings"]["common.fallback"] = fallback
     if traditional_alias:
         for entry in source["strings"].values():
             entry["localizations"]["zh-Hant"] = entry["localizations"]["zh-Hans"]
-    catalog.write_text(json.dumps(source, ensure_ascii=False))
+    source_catalog.write_text(json.dumps(source, ensure_ascii=False))
+    prepare.stage_catalogs(tmp_path)
+    catalog = tmp_path / "build/LocalizedCatalogs/Shared/Localizable.xcstrings"
     generated = tmp_path / "generated"
     generated.mkdir()
     resources = tmp_path / "Probe.app/Contents/Resources"
@@ -70,7 +82,8 @@ def test_generated_symbols_and_bundle_language(tmp_path, traditional_alias):
     main.write_text("""import Foundation
 let output = [Bundle.main.preferredLocalizations.first ?? "",
               String(localized: .commonClose),
-              String(localized: .libraryScanProgress(3))]
+              String(localized: .libraryScanProgress(3)),
+              String(localized: .commonFallback)]
 print(String(data: try! JSONEncoder().encode(output), encoding: .utf8)!)
 """)
     subprocess.run(
@@ -86,18 +99,18 @@ print(String(data: try! JSONEncoder().encode(output), encoding: .utf8)!)
         capture_output=True,
     )
     for languages, expected in (
-        ("en", ["en", "Close", "Loaded 3 items"]),
-        ("ja", ["en", "Close", "Loaded 3 items"]),
-        ("de-DE", ["de", "Schließen", "3 Einträge geladen"]),
-        ("zh-Hans", ["zh-Hans", "关闭", "已加载 3 项"]),
+        ("en", ["en", "Close", "Loaded 3 items", "Close"]),
+        ("ja", ["en", "Close", "Loaded 3 items", "Close"]),
+        ("de-DE", ["de", "Schließen", "3 Einträge geladen", "Close"]),
+        ("zh-Hans", ["zh-Hans", "关闭", "已加载 3 项", "关闭"]),
     ):
         result = subprocess.check_output([str(binary), "-AppleLanguages", f"({languages})"])
         assert json.loads(result) == expected
     for language in ("zh-Hant", "zh-TW", "zh-HK", "zh-MO"):
         expected = (
-            ["zh-Hant", "关闭", "已加载 3 项"]
+            ["zh-Hant", "关闭", "已加载 3 项", "关闭"]
             if traditional_alias
-            else ["en", "Close", "Loaded 3 items"]
+            else ["en", "Close", "Loaded 3 items", "Close"]
         )
         result = subprocess.check_output([str(binary), "-AppleLanguages", f"({language})"])
         assert json.loads(result) == expected
