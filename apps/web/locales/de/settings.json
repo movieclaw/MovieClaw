@@ -950,6 +950,17 @@
       "closeTip": "Tipp ausblenden",
       "pairHint": "Koppeln am Rechner mit installiertem MovieClaw Transcoder: Öffne den Transcoder, wähle den im Netzwerk gefundenen MovieClaw-Server (oder gib seine Adresse ein) und dann „Verbinden und koppeln“. Er zeigt einen Kopplungscode und öffnet eine Bestätigungsseite. Prüfe den Code und bestätige ihn. Öffnet sich die Seite nicht, gib den Code unter Einstellungen → Geräte ein. Ein Token musst du nie eingeben: Bei der Bestätigung werden die Zugangsdaten des Workers direkt an diesen Rechner übertragen, ohne angezeigt zu werden.",
       "advancedHint": "Der Server teilt jedem Worker mit, woher er das Quellvideo holt und wohin er die HLS-Dateien hochlädt. Standardmäßig wird die Adresse verwendet, über die sich der Worker verbunden hat – die ist erreichbar und meist der schnellste lokale Weg. Überschreibe sie nur, wenn ein Reverse Proxy den Host auf eine Upstream-Adresse (etwa 127.0.0.1:8000) umschreibt, die der Worker nicht erreichen kann."
+    },
+    "completion": {
+      "title": "Als gesehen markieren",
+      "description": "Alle Geräte verwenden die Regeln dieses Servers. Änderungen gelten für den Wiedergabefortschritt, den Geräte ab jetzt melden.",
+      "percent": "Gesehen ab (%)",
+      "range": "Gib einen Wert von 80 bis 100 % ein.",
+      "outro": "Erkannten Abspann bevorzugen",
+      "outroHint": "Ein erkannter Abspann ersetzt bei Serien den Prozentwert. Dadurch kann eine Folge früher oder später als gesehen gelten. Nur ein Abspann, der bis zum Ende läuft, zählt. Sonst gilt der Prozentwert.",
+      "footnote": "Für Filme gilt der eingestellte Prozentwert. Das gilt auch, wenn die Erkennung ausgeschaltet ist oder kein passender Abspann gefunden wurde. Bei der Standardeinstellung von 90 % zählen Videos unter 5 Minuten schon ab 5 % als gesehen. Bei anderen Einstellungen gilt der eingegebene Wert. Beim Markieren als gesehen wird die gespeicherte Wiedergabeposition gelöscht. Schalte die Erkennung unter Serienmediathek bearbeiten → Intros und Abspann erkennen ein. Bei 100 % gilt wegen der Genauigkeit der gespeicherten Dauer eine Toleranz von einer Sekunde.",
+      "detection": "Die Erkennung von Intros und Abspann ist in {enabled} von {total} Serienmediatheken aktiv. Jede Folge muss noch erfolgreich analysiert werden.",
+      "upgrade": "Aktualisiere den Server, um diese Optionen zu nutzen."
     }
   },
   "drives": {
