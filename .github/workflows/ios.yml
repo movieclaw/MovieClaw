@@ -75,6 +75,7 @@ jobs:
               - *common
               - "apps/apple/MovieClawMac/**"
               - "apps/apple/MovieClawMacDirect/**"
+              - "apps/apple/tests/mac_player_menu_*"
 
   iphone:
     needs: changes
@@ -161,6 +162,10 @@ jobs:
           path: ~/workspace/.mc-ios-spm
           key: ios-spm-${{ hashFiles('apps/apple/project.yml', 'apps/apple/Package.resolved') }}
           restore-keys: ios-spm-
+
+      # 仅进程内 SwiftUI 观察边界回归：不启动 App、不显示窗口、不发送输入。
+      - name: Mac 播放器菜单回归
+        run: python3 apps/apple/tests/mac_player_menu_regression.py
 
       - name: 编译 Mac 版（${{ needs.changes.outputs.configuration }}）
         run: apps/apple/scripts/ci-build.sh MovieClawMac macOS ${{ needs.changes.outputs.configuration }}
