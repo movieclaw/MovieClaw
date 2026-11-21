@@ -110,6 +110,10 @@ export class PlaybackController {
   private firstFrameAbort: ((failure: EngineFailure) => void) | null = null;
   private frozenRecoveries: number = 0;
   private frozenSessionKey: string | null = null;
+  // mpv 结构性不可用（x86_64 模拟器 libmpv 为 stub，init 必败；真机/ARM64 正常）。
+  // 首次尝试以 unavailable 失败即记忆（进程期内不重试）：之后冻结救援/拖动一律
+  // 不再浪费尝试，直接按记忆位置回退会话重开（avp 继续播，与 HLS 越界拖动同路）。
+  private mpvUnavailable: boolean = false;
   // 字幕记忆三态（P1-2），见 SubtitleMemory。
   private subtitleMemory: SubtitleMemory = SubtitleMemory.Untouched;
   // 在播挂上的旁挂源（mpv）：冻结就地重开绕过 open()，host 不会重走挂载流程
@@ -317,7 +321,8 @@ export class PlaybackController {
       this.publish(); this.onFailure(releaseFailure); return;
     }
     if (generation !== this.generation) { return; }
-    if (id === 'avplayer' && this.preference === 'auto' && failure.canFallback()) {
+    // mpv 已判不可用（模拟器 stub）：avp 失败再撞 stub 只会白耗一次尝试，直接终态。
+    if (id === 'avplayer' && this.preference === 'auto' && failure.canFallback() && !this.mpvUnavailable) {
       const event = new EngineEvent(); event.type = 'fallback'; event.failure = failure; this.onEvent(event);
       try {
         if (this.onSurfaceReset !== null) {
@@ -329,6 +334,18 @@ export class PlaybackController {
         await this.recover(error instanceof EngineFailure ? error
           : new EngineFailure('internal', 0, '无法重建播放画面'), generation, 'mpv');
       }
+      return;
+    }
+    // mpv 结构性不可用（x86_64 模拟器 libmpv 为 stub，init 必败；真机/ARM64 不
+    // 会走到）：冻结救援/拖动转换撞上它时重试无意义，也绝不升级成终态报错废掉
+    // 整个会话——记住不可用，按当前记忆位置回退会话重开（宿主 renegotiate 后
+    // avp 重开，与 HLS 越界拖动同一条路），avp 内核继续播。仅回退一次：之后
+    // mpv 尝试全部短路，avp 自身失败直接终态，绝不无限 renegotiate。
+    if (id === 'mpv' && failure.kind === 'unavailable' && !this.mpvUnavailable) {
+      this.mpvUnavailable = true;
+      this.switching = false;
+      hilog.warn(0x0000, 'MCSub', 'mpv 不可用，回退 avp 会话重开: position=%{public}d', this.intent.positionMs);
+      this.onSeekOutsideWindow(this.intent.positionMs);
       return;
     }
     this.switching = false; this.snapshot.phase = 'failed'; this.snapshot.playing = false; this.snapshot.buffering = false;
@@ -378,6 +395,15 @@ export class PlaybackController {
       this.publish(); this.onFailure(failure); return;
     }
     if (generation !== this.generation) { return; }
+    // mpv 已判结构性不可用（模拟器 stub）：不再浪费尝试，按冻结位置回退会话重
+    // 开——宿主 renegotiate 后 open，引擎仍是 avp（暂停后点播放卡死的模拟器实
+    // 测：停发卡住 avp 时转 mpv 只会变成「MPV 初始化失败」终态报错）。
+    if (this.mpvUnavailable) {
+      hilog.warn(0x0000, 'MCSub', '视频冻结，mpv 不可用，回退 avp 会话重开: position=%{public}d', positionMs);
+      this.switching = false;
+      this.onSeekOutsideWindow(positionMs);
+      return;
+    }
     try { await this.startAttempt('mpv', generation); }
     catch (error) {
       if (generation !== this.generation) { return; }
@@ -630,6 +656,11 @@ export class PlaybackController {
     // 实测 mpv 接管 1.9s 即恢复），之后的拖动全是 mpv 原生 seek。
     if (!this.switching && this.available && liveEngine !== null && fileMs >= originMs
       && this.remoteDirectAvplayerSeek(liveEngine)) {
+      // mpv 已判不可用（模拟器 stub）：与远程 HLS 拖动同路，按目标重开会话。
+      if (this.mpvUnavailable) {
+        this.onSeekOutsideWindow(fileMs);
+        return;
+      }
       await this.recoverDragToMpv(this.generation, liveEngine.id);
       return;
     }
