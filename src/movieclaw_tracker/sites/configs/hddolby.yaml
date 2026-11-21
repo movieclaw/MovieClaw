@@ -1,10 +1,11 @@
 # HDDolby 高清杜比
+# 官网：https://www.uhddolby.com/（原 www.hddolby.com 已停用，2026-11-22 换）
 # 选择器基于 2026-08-05 浏览器实登页面逐项验证。
 # 本站魔力值叫「鲸币」，等级 title 带前缀（如「(士兵)User」）。
 
 site_id: hddolby
 display_name: 高清杜比 HDDolby
-base_url: https://www.hddolby.com
+base_url: https://www.uhddolby.com
 framework: nexusphp
 
 auth:
