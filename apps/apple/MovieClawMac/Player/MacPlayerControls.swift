@@ -262,7 +262,7 @@ struct MacPlayerTransport: View {
                                 size: 18, help: String(localized: .playerMacTracks), id: "mac-player-tracks", active: panel == .tracks) {
                 panel = panel == .tracks ? nil : .tracks
             }
-            moreMenu
+            MacPlayerMoreMenu(controller: controller)
             if controller.unit.isEpisode, controller.clip == nil {
                 MacPlayerIconButton(symbol: "rectangle.stack", size: 17, help: String(localized: .playerMacEpisodesShortcut),
                                     id: "mac-player-episodes", active: episodesOpen) {
@@ -280,10 +280,15 @@ struct MacPlayerTransport: View {
         if controller.phase == .ended { return "arrow.counterclockwise" }
         return controller.paused && !controller.wantsPlay ? "play.fill" : "pause.fill"
     }
+}
+
+/// 独立观察画质与倍速，时间轴 tick 不应重设原生菜单的 submenu。
+private struct MacPlayerMoreMenu: View {
+    let controller: PlaybackController
 
     /// ⋯：画质、倍速两个子菜单（docs/design/playback-speed.md）。用系统菜单而不是自绘面板：悬停就展开二级、
     /// 当前项打勾，是 Mac 用户的习惯；子菜单标题下一行小字写着当前值。访客分享不能选画质（服务端按分享的设定给流）
-    private var moreMenu: some View {
+    var body: some View {
         let quality = QualityOption.all.first { $0.maxHeight == controller.quality }?.label ?? String(localized: .playerQualityOriginal)
         return Menu {
             if controller.scope.shareSlug == nil {
