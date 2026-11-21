@@ -85,6 +85,8 @@ fun OfflineProfileSheet(
 
     var scopes by remember { mutableStateOf<List<OfflineDownloadChoices.Scope>?>(null) }
     var note by remember { mutableStateOf<String?>(null) }
+    var seasonLabel by remember { mutableStateOf<String?>(null) }
+    var hasLocal by remember { mutableStateOf(false) }
     var scopeId by remember { mutableStateOf<String?>(null) }
     var entries by remember { mutableStateOf<Map<Long, OfflineFileProfiles>>(emptyMap()) }
     var asked by remember { mutableStateOf<Set<Long>>(emptySet()) }
@@ -119,6 +121,8 @@ fun OfflineProfileSheet(
             return@LaunchedEffect
         }
         note = choices.note
+        seasonLabel = choices.seasonLabel
+        hasLocal = choices.hasLocal
         scopeId = (choices.scopes.firstOrNull { it.preferred } ?: choices.scopes.firstOrNull())?.id
         scopes = choices.scopes
         // 所有范围的文件一次问完：切范围不再发请求
@@ -191,7 +195,11 @@ fun OfflineProfileSheet(
             Column(Modifier.formSheetScroll().verticalScroll(rememberScrollState()).heightIn(max = 560.dp)) {
                 val loaded = scopes
                 when {
-                    loaded != null && loaded.isEmpty() -> EmptyNotice("都已下载", "这部剧能下的集都已在${device}上")
+                    loaded != null && loaded.isEmpty() -> if (hasLocal) {
+                        EmptyNotice("都已下载", "${seasonLabel ?: "这部剧"}能下的集都已在${device}上")
+                    } else {
+                        EmptyNotice("暂无可下载的分集", "${seasonLabel ?: "这部剧"}还没有可下载的分集")
+                    }
                     loaded == null && error != null -> EmptyNotice("拿不到下载信息", error.orEmpty())
                     loaded == null -> Box(Modifier.fillMaxWidth().padding(vertical = 36.dp), contentAlignment = Alignment.Center) {
                         Text("正在读取可下载的集", style = McType.sub, color = TextMuted)
@@ -203,7 +211,7 @@ fun OfflineProfileSheet(
                             note?.let { Text(it, style = McType.footnote, color = TextMuted, modifier = Modifier.padding(top = 4.dp).testTag("offline-download-note")) }
                         }
                         if (ranged && currentScope != null) {
-                            SectionHeader("下载范围")
+                            SectionHeader(seasonLabel?.let { "下载范围 · $it" } ?: "下载范围")
                             Section {
                                 if (loaded.size > 1) {
                                     Row(

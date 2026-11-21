@@ -713,7 +713,7 @@ class ItemDetailViewModel @Inject constructor(
     fun selectSeason(season: Int) {
         _selectedSeason.value = season
         val picked = anchorsBySeason[season]
-        if (picked != null) _selectedEpisode.value = SelectedUnit(season, picked)
+        _selectedEpisode.value = picked?.let { SelectedUnit(season, it) }
     }
 
     /** 手动换段：段里有锚点选锚点，否则段首（段跟着选中集走，不单独存） */
@@ -1262,6 +1262,7 @@ fun ItemDetailScreen(
     ItemDownloadHost(
         detail = readyItem,
         episodes = (state as? Loadable.Ready)?.value?.episodes.orEmpty(),
+        selectedSeason = selectedSeason,
         selected = selectedUnit,
         target = downloadSheet,
         onDismiss = { downloadSheet = null },

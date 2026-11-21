@@ -20594,6 +20594,46 @@
     },
     "player.mac.episodesShortcut": {
       "sourceHash": "63185161790e6c190cef13a0c130d2328e487991cfb2a4e822c00d3f1afbf986"
+    },
+    "offline.scopeForSeason": {
+      "sourceHash": "015ca7cdde368499843f061e12d5fd20ff2a939bc94b095eec6c450629612b80",
+      "parameters": [
+        "season"
+      ]
+    },
+    "offline.specialsEpisode": {
+      "sourceHash": "d7ad5d89a8b5eb9849b5f9c75c2895a63595b55f1345ec3af0109ffdc5ce6d12",
+      "parameters": [
+        "episode"
+      ]
+    },
+    "offline.specialsEpisodeRange": {
+      "sourceHash": "6ff47458e24403bf606bf46557d1932aa1acb44dbebb4e7ad9a5b8ae288706c8",
+      "parameters": [
+        "start",
+        "end",
+        "count"
+      ],
+      "pluralParameter": "count"
+    },
+    "offline.seasonEpisodesHere": {
+      "sourceHash": "005630c33bfaabe96e334999301d91c4cc42b72c6990d89e42d11d2e71831a92",
+      "parameters": [
+        "season",
+        "device"
+      ]
+    },
+    "offline.noDownloadableEpisodes": {
+      "sourceHash": "ad836b4b3d93fba82f7467e5e641e8c38ebe9bef3a9aba872cfebd34ef6f6c55"
+    },
+    "offline.noDownloadableEpisodesHint": {
+      "sourceHash": "528f47936a234ec10e5b3aa0fab96054881501250e8fa0a89a57baa3788174ba"
+    },
+    "offline.seasonNoDownloadableEpisodes": {
+      "sourceHash": "9ecf64c634040b5177da1f6f8581deda78e26ec0a0505998afe33053db69090f",
+      "parameters": [
+        "season"
+      ]
     }
   },
   "MovieClaw/InfoPlist.xcstrings": {

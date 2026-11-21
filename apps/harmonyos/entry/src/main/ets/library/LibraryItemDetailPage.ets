@@ -1501,8 +1501,8 @@ export struct LibraryItemDetailPage {
   }
 
   /**
-   * 剧集下载范围面板的整张集表（对应 iOS `OfflineEpisodeSelection.load`）：
-   * 逐季拉集列表，只收在库的；`local` 标记交给范围算法排除本机已有的。
+   * 剧集下载范围面板的本季集表（对应 iOS `downloadChoices`）：
+   * 只拉当前选中的季，收本季在库的集；`local` 标记交给范围算法排除本机已有的。
    */
   private async buildSeriesChoices(): Promise<OfflineDownloadChoices> {
     const api: MovieClawApi | null = AppModel.shared.api;
@@ -1511,16 +1511,10 @@ export struct LibraryItemDetailPage {
       return new OfflineDownloadChoices([], null);
     }
     const multiSeason: boolean = detail.seasons.length > 1;
-    const seasons: number[] = detail.seasons.length > 0 ? detail.seasons : [this.season];
+    const targetSeason: number = this.season;
     const selected: OfflineEpisodeChoice[] = [];
-    for (const season of seasons) {
-      let view: SeasonEpisodesView;
-      try {
-        view = await api.libraryItemsListEpisodes(this.libraryId, this.mediaItemId, season);
-      } catch (error) {
-        // 这一季拉不到就跳过，别的季照常
-        continue;
-      }
+    try {
+      const view: SeasonEpisodesView = await api.libraryItemsListEpisodes(this.libraryId, this.mediaItemId, targetSeason);
       for (const episode of view.episodes) {
         if (!episode.owned) {
           continue;
@@ -1528,18 +1522,20 @@ export struct LibraryItemDetailPage {
         const ids: number[] = episode.file_ids;
         const file: number | null = ids.length > 0 ? ids[0] : null;
         const unit: OfflineUnit | null =
-          OfflineStore.shared.unitOf(this.mediaItemId, season, episode.episode_number);
+          OfflineStore.shared.unitOf(this.mediaItemId, targetSeason, episode.episode_number);
         let local: string | null = null;
         if (unit !== null) {
           local = unit.playable ? 'done' : 'active';
         }
-        selected.push(new OfflineEpisodeChoice(season, episode.episode_number, file, episode.played, local));
+        selected.push(new OfflineEpisodeChoice(targetSeason, episode.episode_number, file, episode.played, local));
       }
+    } catch (error) {
+      // 当前季拉不到时返回空列表
     }
     const picked: EpisodeView | null = this.selectedEpisode;
-    return OfflineDownloadChoices.make(selected, this.season,
+    return OfflineDownloadChoices.make(selected, targetSeason,
       picked !== null ? picked.episode_number : null,
-      this.selectedDownloadFile(), multiSeason);
+      this.selectedDownloadFile(), multiSeason, targetSeason);
   }
 
   /** 洗版：已有订阅直接去订阅详情跑一轮洗版；没有则以洗版模式打开订阅对话框（同 iOS `upgrade`） */

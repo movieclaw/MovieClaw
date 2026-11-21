@@ -168999,6 +168999,240 @@
           }
         }
       }
+    },
+    "offline.scopeForSeason": {
+      "extractionState": "manual",
+      "generatesSymbol": true,
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "下载范围 · %@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "下载范围 · %@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Episodes to download · %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Folgen zum Herunterladen · %@"
+          }
+        }
+      }
+    },
+    "offline.specialsEpisode": {
+      "extractionState": "manual",
+      "generatesSymbol": true,
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "特别篇第 %lld 集"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "特别篇第 %lld 集"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Specials, Episode %lld"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Specials, Folge %lld"
+          }
+        }
+      }
+    },
+    "offline.specialsEpisodeRange": {
+      "extractionState": "manual",
+      "generatesSymbol": true,
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "特别篇第 %lld～%lld 集，共 %lld 集"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "特别篇第 %lld～%lld 集，共 %lld 集"
+          }
+        },
+        "en": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Specials, episodes %lld–%lld (%lld episode)"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Specials, episodes %lld–%lld (%lld episodes)"
+                }
+              }
+            }
+          }
+        },
+        "de": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Specials, Folgen %lld–%lld (%lld Folge)"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Specials, Folgen %lld–%lld (%lld Folgen)"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "offline.seasonEpisodesHere": {
+      "extractionState": "manual",
+      "generatesSymbol": true,
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@能下的集都已在 %@ 上"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@能下的集都已在 %@ 上"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Every downloadable episode of %@ is already on this %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alle zum Download verfügbaren Folgen von %@ sind bereits auf %@ gespeichert."
+          }
+        }
+      }
+    },
+    "offline.noDownloadableEpisodes": {
+      "extractionState": "manual",
+      "generatesSymbol": true,
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "暂无可下载的分集"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "暂无可下载的分集"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No downloadable episodes"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keine herunterladbaren Folgen"
+          }
+        }
+      }
+    },
+    "offline.noDownloadableEpisodesHint": {
+      "extractionState": "manual",
+      "generatesSymbol": true,
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "这部剧还没有可下载的分集"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "这部剧还没有可下载的分集"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This series has no downloadable episodes yet"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diese Serie hat noch keine herunterladbaren Folgen."
+          }
+        }
+      }
+    },
+    "offline.seasonNoDownloadableEpisodes": {
+      "extractionState": "manual",
+      "generatesSymbol": true,
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@还没有可下载的分集"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@还没有可下载的分集"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ has no downloadable episodes yet"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ hat noch keine herunterladbaren Folgen."
+          }
+        }
+      }
     }
   },
   "version": "1.0"

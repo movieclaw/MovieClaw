@@ -212,19 +212,85 @@ struct OfflineDownloadChoicesTests {
         #expect(choices.note == "第 1 集正在下载 · 正在下载 1 集，不会重复下载")
     }
 
-    @Test func multiSeasonNamesAndNonContiguousRanges() {
-        let list = episodes(3, season: 1, local: [2: .done]) + episodes(2, season: 2)
-        let choices = OfflineDownloadChoices.make(episodes: list, selected: (1, 2), selectedFile: nil, multiSeason: true)
-        #expect(choices.note?.hasPrefix("第 1 季第 2 集已下载") == true)
-        #expect(choices.scopes.map(\.label) == ["接下来 3 集", "剩余 4 集"])
-        #expect(choices.scopes[0].detail == "第 1 季第 3 集 起，共 3 集")
-        #expect(choices.scopes[1].detail == "第 1 季第 1 集 起，共 4 集")
+    @Test func multiSeasonScopesStayWithinCurrentSeason() {
+        // 多季剧：第 1 季有已看和已下，切到第 2 季选中 S2E2（S2E1 已看、一集未下），范围只包含第 2 季，
+        // 且第 1 季已下载不污染第 2 季的提示文案，不把「全部」错写成「剩余」
+        let list = episodes(5, season: 1, local: [1: .done, 2: .done], played: [1, 2])
+            + episodes(4, season: 2, played: [1])
+            + episodes(6, season: 3)
+        let choices = OfflineDownloadChoices.make(episodes: list, selected: (2, 2), selectedFile: 2002, multiSeason: true)
+        #expect(choices.seasonLabel == "第 2 季")
+        #expect(choices.note == nil)
+        #expect(choices.scopes.map(\.label) == ["第 2 集", "未看 3 集", "全部 4 集"])
+        #expect(choices.scopes.first(where: \.preferred)?.id == "unwatched")
+        #expect(choices.scopes[0].fileIds == [2002])
+        #expect(choices.scopes[0].detail == "第 2 季第 2 集")
+        #expect(choices.scopes[1].fileIds == [2002, 2003, 2004])
+        #expect(choices.scopes[1].detail == "第 2 季第 2～4 集，共 3 集")
+        #expect(choices.scopes[2].fileIds == [2001, 2002, 2003, 2004])
+        #expect(choices.scopes[2].detail == "第 2 季第 1～4 集，共 4 集")
     }
 
-    @Test func everythingLocalHasNoScopes() {
-        let choices = OfflineDownloadChoices.make(episodes: episodes(2, local: [1: .done, 2: .done]), selected: (1, 1), selectedFile: nil,
-                                                  multiSeason: false)
-        #expect(choices.scopes.isEmpty)
+    @Test func multiSeasonNextAndNonContiguousStayInSeason() {
+        // S1 共 4 集，E2 已下，S2 还有 3 集：在 S1 选中 E2 时，「接下来」只取 S1 的 E3～E4，不跨到 S2
+        let list = episodes(4, season: 1, local: [2: .done]) + episodes(3, season: 2)
+        let choices = OfflineDownloadChoices.make(episodes: list, selected: (1, 2), selectedFile: nil, multiSeason: true)
+        #expect(choices.seasonLabel == "第 1 季")
+        #expect(choices.hasLocal)
+        #expect(choices.note == "第 1 季第 2 集已下载 · 已下载 1 集，不会重复下载")
+        #expect(choices.scopes.map(\.label) == ["接下来 2 集", "剩余 3 集"])
+        #expect(choices.scopes[0].fileIds == [1003, 1004])
+        #expect(choices.scopes[0].detail == "第 1 季第 3～4 集，共 2 集")
+        #expect(choices.scopes[1].fileIds == [1001, 1003, 1004])
+        #expect(choices.scopes[1].detail == "第 1 季第 1 集 起，共 3 集")
+    }
+
+    @Test func multiSeasonEndOfSeasonDoesNotSpillIntoNextSeason() {
+        // S1 共 3 集，E2 已下、E3 已下（选中 E3），S2 未下：不跨进 S2，只剩 S1E1
+        let list = episodes(3, season: 1, local: [2: .done, 3: .done]) + episodes(3, season: 2)
+        let choices = OfflineDownloadChoices.make(episodes: list, selected: (1, 3), selectedFile: nil, multiSeason: true)
+        #expect(choices.scopes.map(\.label) == ["剩余 1 集"])
+        #expect(choices.scopes[0].fileIds == [1001])
+        #expect(choices.scopes[0].detail == "第 1 季第 1 集")
+    }
+
+    @Test func watchedAndDownloadedEpisodeLabelsRemainingAsUnwatched() {
+        // 第 2 季 10 集：第 1 集已下且已看，第 2～10 集未下且未看 → 剩下的全是未看，直接叫「未看 9 集」而非「剩余 9 集」
+        let list = episodes(10, season: 2, local: [1: .done], played: [1])
+        let choices = OfflineDownloadChoices.make(episodes: list, selected: (2, 2), selectedFile: 2002, multiSeason: true)
+        #expect(choices.seasonLabel == "第 2 季")
+        #expect(choices.scopes.map(\.label) == ["第 2 集", "未看 9 集"])
+        #expect(choices.scopes.first(where: \.preferred)?.label == "未看 9 集")
+        #expect(choices.scopes[1].detail == "第 2 季第 2～10 集，共 9 集")
+        #expect(choices.note == "已下载 1 集，不会重复下载")
+    }
+
+    @Test func specialsSeasonUsesSpecialsName() {
+        let list = episodes(3, season: 0, played: [1]) + episodes(2, season: 1)
+        let choices = OfflineDownloadChoices.make(episodes: list, selected: (0, 2), selectedFile: nil, multiSeason: true, season: 0)
+        #expect(choices.seasonLabel == "特别篇")
+        #expect(choices.scopes.map(\.label) == ["第 2 集", "未看 2 集", "全部 3 集"])
+        #expect(choices.scopes[0].detail == "特别篇第 2 集")
+        #expect(choices.scopes[1].detail == "特别篇第 2～3 集，共 2 集")
+    }
+
+    @Test func everythingLocalAndUnownedSeasonAreDistinguished() {
+        let downloaded = OfflineDownloadChoices.make(
+            episodes: episodes(2, season: 1, local: [1: .done, 2: .done]) + episodes(2, season: 2),
+            selected: (1, 1), selectedFile: nil, multiSeason: true, season: 1
+        )
+        #expect(downloaded.scopes.isEmpty)
+        #expect(downloaded.hasLocal)
+        #expect(downloaded.seasonLabel == "第 1 季")
+
+        // 切到无片源的第 3 季（即使传了别的季的分集或旧选中集）：返回空且 hasLocal == false
+        let emptySeason = OfflineDownloadChoices.make(
+            episodes: episodes(2, season: 1),
+            selected: (1, 1), selectedFile: nil, multiSeason: true, season: 3
+        )
+        #expect(emptySeason.scopes.isEmpty)
+        #expect(!emptySeason.hasLocal)
+        #expect(emptySeason.seasonLabel == "第 3 季")
     }
 }
 
