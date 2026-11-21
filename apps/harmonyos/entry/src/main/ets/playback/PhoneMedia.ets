@@ -49,6 +49,11 @@ export class PhoneMedia implements PlaybackMedia {
   private subtitlePath: string;
   private cacheDirectory: string;
   private isHls: boolean;
+  /** AVPlayer 冻结看门狗触发拍数（1 拍=2 秒）：网盘直出保持缺省 15 拍（30 秒，
+   * 盖服务端换连接续传窗口）；本地盘/NAS 直出与 HLS 由宿主传 6 拍（12 秒）——
+   * histreamer 解复用线程 seek/暂停恢复后楔死是确定性的（2026-11-21 取证）。
+   * 0=未指定，沿用引擎缺省。 */
+  private stallSamples: number;
   /** 冻结重开上限的会话标识：同文件换引擎/换档共用一个 key，上限跨 open 累计。 */
   public sessionKey?: string;
   constructor(originMs: number,
@@ -59,7 +64,8 @@ export class PhoneMedia implements PlaybackMedia {
     subtitlePath: string = '',
     cacheDirectory: string = '',
     isHls: boolean = false,
-    sessionKey: string = '') {
+    sessionKey: string = '',
+    stallSamples: number = 0) {
     this.originMs = originMs;
     this.durationMs = durationMs;
     this.url = url;
@@ -68,6 +74,7 @@ export class PhoneMedia implements PlaybackMedia {
     this.subtitlePath = subtitlePath;
     this.cacheDirectory = cacheDirectory;
     this.isHls = isHls;
+    this.stallSamples = stallSamples;
     // 空串归一为缺省：控制器按「缺省=每次 open 清零」的旧口径处理。
     this.sessionKey = sessionKey.length > 0 ? sessionKey : undefined;
   }
@@ -107,7 +114,7 @@ export class PhoneMedia implements PlaybackMedia {
         length: media === null ? 0 : OfflineDisk.fileSize(this.path),
         subtitleUrl: '', subtitleFd: subtitle?.fd ?? -1,
         subtitleOffsetMs: engine === 'mpv' ? this.originMs : 0,
-        subtitleFormat: subtitleFormat, isHls: this.isHls };
+        subtitleFormat: subtitleFormat, isHls: this.isHls, stallSamples: this.stallSamples };
       return new PhoneMediaLease(source, media, subtitle, temporaryPath);
     } catch (error) {
       if (media !== null) { fileIo.closeSync(media); }

@@ -5020,6 +5020,10 @@ export interface PlaybackSourceView {
   bit_rate?: number | null
   frame_rate?: number | null
   size_bytes?: number | null
+  /** 本地没有字节、只在网盘上（= !local_bytes）：取原文件可能被 302 到网盘直链
+   * 或由服务端中继，App 据此放宽 AVP 冻结看门狗盖住服务端换连接续传窗口。
+   * 可空：老服务器没有这个字段。 */
+  on_drive?: boolean | null
 }
 
 /** 一个播放单元在当前成员名下的观看状态。续播与上报共用同一形状。 */
