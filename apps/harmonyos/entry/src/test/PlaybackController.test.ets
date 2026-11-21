@@ -601,6 +601,80 @@ export default function playbackControllerTest() {
       expect(controller.current().positionMs).assertEqual(60000);
       await controller.release();
     });
+    it('frozen_avp_with_mpv_unavailable_reopens_the_session_on_avp', 0, async () => {
+      const factory = new FakeFactory(); const controller = new PlaybackController(factory);
+      // x86_64 模拟器：libmpv 是 stub，mpv open 必以 unavailable 失败（init -3）。
+      factory.mpv.failure = new EngineFailure('unavailable', -3, 'MPV 初始化失败');
+      const intent = new PlaybackIntent(); intent.positionMs = 42000;
+      const reopened: number[] = [];
+      controller.onSeekOutsideWindow = (positionMs: number): void => { reopened.push(positionMs); };
+      await controller.open(new FakeDirectRemoteMedia(factory.order), 'surface', intent);
+      factory.avp.frame(); await microtasks();
+      factory.avp.time(45000);
+      // 冻结救援撞上结构性不可用的 mpv：绝不终态报错废掉会话——按冻结位置回退
+      // 会话重开，宿主 renegotiate 后 avp 继续播（暂停后点播放卡死的模拟器实测）。
+      factory.avp.frozen(45000);
+      await microtasks(); await microtasks();
+      expect(reopened.join(',')).assertEqual('45000');
+      expect(factory.created.join(',')).assertEqual('avplayer,mpv');
+      expect(controller.current().failure).assertNull();
+      await controller.release();
+    });
+    it('remote_direct_drag_with_mpv_unavailable_reopens_at_the_target_on_avp', 0, async () => {
+      const factory = new FakeFactory(); const controller = new PlaybackController(factory);
+      factory.mpv.failure = new EngineFailure('unavailable', -3, 'MPV 初始化失败');
+      const reopened: number[] = [];
+      controller.onSeekOutsideWindow = (positionMs: number): void => { reopened.push(positionMs); };
+      await controller.open(new FakeDirectRemoteMedia(factory.order), 'surface', new PlaybackIntent());
+      factory.avp.frame(); await microtasks();
+      // 拖动转换撞上 stub：同路回退会话重开，重开位置就是拖动目标。
+      await controller.seek(70000);
+      await microtasks(); await microtasks();
+      expect(reopened.join(',')).assertEqual('70000');
+      expect(factory.mpv.calls.includes('open:surface')).assertTrue();
+      expect(controller.current().failure).assertNull();
+      await controller.release();
+    });
+    it('second_freeze_with_mpv_unavailable_skips_the_mpv_attempt', 0, async () => {
+      const factory = new FakeFactory(); const controller = new PlaybackController(factory);
+      factory.mpv.failure = new EngineFailure('unavailable', -3, 'MPV 初始化失败');
+      const reopened: number[] = [];
+      controller.onSeekOutsideWindow = (positionMs: number): void => { reopened.push(positionMs); };
+      const media = new FakeDirectRemoteMedia(factory.order);
+      await controller.open(media, 'surface', new PlaybackIntent());
+      factory.avp.frame(); await microtasks();
+      factory.avp.frozen(10000);
+      await microtasks(); await microtasks();
+      expect(reopened.join(',')).assertEqual('10000');
+      // 宿主按冻结位置重开会话（同引擎 avp 重新起播）：mpv 已判不可用，再次冻结
+      // 直接走会话重开，不再浪费一次 mpv 尝试。
+      await controller.open(media, 'surface', new PlaybackIntent());
+      factory.avp.frame(); await microtasks();
+      factory.avp.frozen(20000);
+      await microtasks(); await microtasks();
+      expect(reopened.join(',')).assertEqual('10000,20000');
+      expect(factory.created.filter((id: string): boolean => id === 'mpv').length).assertEqual(1);
+      await controller.release();
+    });
+    it('mpv_unavailable_fallback_happens_once_then_avp_failures_are_terminal', 0, async () => {
+      const factory = new FakeFactory(); const controller = new PlaybackController(factory);
+      // avp 与 mpv 都起不来（decode + stub 不可用）：首次 avp 自动回退撞上 stub 转
+      // 一次会话重开；mpv 已判不可用后 avp 再失败直接终态，绝不无限 renegotiate。
+      factory.avp.failure = new EngineFailure('decode', 0, 'avp 打不开');
+      factory.mpv.failure = new EngineFailure('unavailable', -3, 'MPV 初始化失败');
+      const reopened: number[] = [];
+      controller.onSeekOutsideWindow = (positionMs: number): void => { reopened.push(positionMs); };
+      const failures: string[] = [];
+      controller.onFailure = (failure: EngineFailure): void => { failures.push(failure.kind); };
+      await controller.open(new FakeDirectRemoteMedia(factory.order), 'surface', new PlaybackIntent());
+      expect(reopened.length).assertEqual(1);
+      expect(failures.join(',')).assertEqual('');
+      await controller.open(new FakeDirectRemoteMedia(factory.order), 'surface', new PlaybackIntent());
+      expect(reopened.length).assertEqual(1);
+      expect(failures.join(',')).assertEqual('decode');
+      expect(controller.current().phase).assertEqual('failed');
+      await controller.release();
+    });
     it('progress_reporting_resumes_after_landing_while_track_selection_is_still_pending', 0, async () => {
       const factory = new FakeFactory(); const controller = new PlaybackController(factory);
       const gate = new Gate();
