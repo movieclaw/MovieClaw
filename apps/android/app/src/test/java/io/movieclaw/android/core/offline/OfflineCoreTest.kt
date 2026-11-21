@@ -250,19 +250,85 @@ class OfflineDownloadChoicesTest {
     }
 
     @Test
-    fun multiSeasonNamesAndNonContiguousRanges() {
-        val list = episodes(3, season = 1, local = mapOf(2 to "done")) + episodes(2, season = 2)
-        val choices = OfflineDownloadChoices.make(list, 1 to 2, null, true)
-        assertTrue(choices.note!!.startsWith("第 1 季第 2 集已下载"))
-        assertEquals(listOf("接下来 3 集", "剩余 4 集"), choices.scopes.map { it.label })
-        assertEquals("第 1 季第 3 集 起，共 3 集", choices.scopes[0].detail)
-        assertEquals("第 1 季第 1 集 起，共 4 集", choices.scopes[1].detail)
+    fun multiSeasonScopesStayWithinCurrentSeason() {
+        val list = episodes(5, season = 1, local = mapOf(1 to "done", 2 to "done"), played = setOf(1, 2)) +
+            episodes(4, season = 2, played = setOf(1)) +
+            episodes(6, season = 3)
+        val choices = OfflineDownloadChoices.make(list, 2 to 2, 2002, true)
+        assertEquals("第 2 季", choices.seasonLabel)
+        assertNull(choices.note)
+        assertEquals(listOf("第 2 集", "未看 3 集", "全部 4 集"), choices.scopes.map { it.label })
+        assertEquals("unwatched", choices.scopes.first { it.preferred }.id)
+        assertEquals(listOf(2002L), choices.scopes[0].fileIds)
+        assertEquals("第 2 季第 2 集", choices.scopes[0].detail)
+        assertEquals(listOf(2002L, 2003L, 2004L), choices.scopes[1].fileIds)
+        assertEquals("第 2 季第 2～4 集，共 3 集", choices.scopes[1].detail)
+        assertEquals(listOf(2001L, 2002L, 2003L, 2004L), choices.scopes[2].fileIds)
+        assertEquals("第 2 季第 1～4 集，共 4 集", choices.scopes[2].detail)
     }
 
     @Test
-    fun everythingLocalHasNoScopes() {
-        val choices = OfflineDownloadChoices.make(episodes(2, local = mapOf(1 to "done", 2 to "done")), 1 to 1, null, false)
-        assertTrue(choices.scopes.isEmpty())
+    fun multiSeasonNextAndNonContiguousStayInSeason() {
+        val list = episodes(4, season = 1, local = mapOf(2 to "done")) + episodes(3, season = 2)
+        val choices = OfflineDownloadChoices.make(list, 1 to 2, null, true)
+        assertEquals("第 1 季", choices.seasonLabel)
+        assertTrue(choices.hasLocal)
+        assertEquals("第 1 季第 2 集已下载 · 已下载 1 集，不会重复下载", choices.note)
+        assertEquals(listOf("接下来 2 集", "剩余 3 集"), choices.scopes.map { it.label })
+        assertEquals(listOf(1003L, 1004L), choices.scopes[0].fileIds)
+        assertEquals("第 1 季第 3～4 集，共 2 集", choices.scopes[0].detail)
+        assertEquals(listOf(1001L, 1003L, 1004L), choices.scopes[1].fileIds)
+        assertEquals("第 1 季第 1 集 起，共 3 集", choices.scopes[1].detail)
+    }
+
+    @Test
+    fun multiSeasonEndOfSeasonDoesNotSpillIntoNextSeason() {
+        val list = episodes(3, season = 1, local = mapOf(2 to "done", 3 to "done")) + episodes(3, season = 2)
+        val choices = OfflineDownloadChoices.make(list, 1 to 3, null, true)
+        assertEquals(listOf("剩余 1 集"), choices.scopes.map { it.label })
+        assertEquals(listOf(1001L), choices.scopes[0].fileIds)
+        assertEquals("第 1 季第 1 集", choices.scopes[0].detail)
+    }
+
+    @Test
+    fun watchedAndDownloadedEpisodeLabelsRemainingAsUnwatched() {
+        // 第 2 季 10 集：第 1 集已下且已看，第 2～10 集未下且未看 → 剩下的全是未看，直接叫「未看 9 集」而非「剩余 9 集」
+        val list = episodes(10, season = 2, local = mapOf(1 to "done"), played = setOf(1))
+        val choices = OfflineDownloadChoices.make(list, 2 to 2, 2002, true)
+        assertEquals("第 2 季", choices.seasonLabel)
+        assertEquals(listOf("第 2 集", "未看 9 集"), choices.scopes.map { it.label })
+        assertEquals("未看 9 集", choices.scopes.first { it.preferred }.label)
+        assertEquals("第 2 季第 2～10 集，共 9 集", choices.scopes[1].detail)
+        assertEquals("已下载 1 集，不会重复下载", choices.note)
+    }
+
+    @Test
+    fun specialsSeasonUsesSpecialsName() {
+        val list = episodes(3, season = 0, played = setOf(1)) + episodes(2, season = 1)
+        val choices = OfflineDownloadChoices.make(list, 0 to 2, null, true, season = 0)
+        assertEquals("特别篇", choices.seasonLabel)
+        assertEquals(listOf("第 2 集", "未看 2 集", "全部 3 集"), choices.scopes.map { it.label })
+        assertEquals("特别篇第 2 集", choices.scopes[0].detail)
+        assertEquals("特别篇第 2～3 集，共 2 集", choices.scopes[1].detail)
+    }
+
+    @Test
+    fun everythingLocalAndUnownedSeasonAreDistinguished() {
+        val downloaded = OfflineDownloadChoices.make(
+            episodes(2, season = 1, local = mapOf(1 to "done", 2 to "done")) + episodes(2, season = 2),
+            1 to 1, null, true, season = 1,
+        )
+        assertTrue(downloaded.scopes.isEmpty())
+        assertTrue(downloaded.hasLocal)
+        assertEquals("第 1 季", downloaded.seasonLabel)
+
+        val emptySeason = OfflineDownloadChoices.make(
+            episodes(2, season = 1),
+            1 to 1, null, true, season = 3,
+        )
+        assertTrue(emptySeason.scopes.isEmpty())
+        assertFalse(emptySeason.hasLocal)
+        assertEquals("第 3 季", emptySeason.seasonLabel)
     }
 }
 

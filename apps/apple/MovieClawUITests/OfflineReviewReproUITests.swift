@@ -13,6 +13,7 @@ final class OfflineReviewReproUITests: XCTestCase {
     /// 台子里那部电影的文件号
     private let movieFileId = 1
     private let showId = 2
+    private var multiSeasonShowId: Int { Int(env["MC_OFFLINE_MULTI_SHOW"] ?? "") ?? 3 }
 
     override func setUp() {
         continueAfterFailure = false
@@ -248,6 +249,113 @@ final class OfflineReviewReproUITests: XCTestCase {
         openItemMenu(app, then: "下载")
         XCTAssertTrue(app.staticTexts["都已下载"].waitForExistence(timeout: 10), app.debugDescription)
         XCTAssertFalse(original.exists)
+    }
+
+    /// 多季剧按当前选中的季下载（issue #1309）：切到第 2 季打开下载面板，只请求第 2 季分集，范围与总大小只含第 2 季；
+    /// 下完第 2 季后，第 2 季提示「第 2 季能下的集都已在 iPhone 上」；切回第 1 季不受第 2 季已下载影响，仍显示「全部 3 集」且无已下载提示
+    @MainActor
+    func testMultiSeasonDownloadScopedToCurrentSeason() throws {
+        let backend = Backend(server: backendURL, username: username, password: password)
+        for season in [1, 2] {
+            backend.request("POST", "/playback/marks", body: ["media_item_id": multiSeasonShowId, "season_number": season, "played": false])
+        }
+        backend.request("POST", "/playback/marks", body: ["media_item_id": multiSeasonShowId, "season_number": 2, "episode_number": 1, "played": true])
+        defer {
+            for season in [1, 2] {
+                backend.request("POST", "/playback/marks", body: ["media_item_id": multiSeasonShowId, "season_number": season, "played": false])
+            }
+        }
+
+        let app = launch(reset: true, route: "/library/2/item/\(multiSeasonShowId)")
+        let seasonPicker = app.buttons["season-picker"]
+        XCTAssertTrue(seasonPicker.waitForExistence(timeout: 30), "多季剧应有季选择器\n\(app.debugDescription)")
+
+        // 切到第 2 季（S2E1 已看，锚点落在 S2E2）
+        seasonPicker.tap()
+        tapMenuItem(app, "第 2 季")
+        XCTAssertTrue(app.buttons["episode-2"].waitForExistence(timeout: 15), app.debugDescription)
+        let logBeforeOpen = proxyLog().count
+
+        openItemMenu(app, then: "下载")
+        let original = app.buttons["offline-profile-original"]
+        let scope = app.segmentedControls["offline-scope"]
+        XCTAssertTrue(original.waitForExistence(timeout: 30), app.debugDescription)
+        XCTAssertTrue(app.staticTexts["下载范围 · 第 2 季"].exists, "多季剧应在分组头标明当前季\n\(app.debugDescription)")
+        XCTAssertTrue(scope.buttons["第 2 集"].exists, "分段上当前集用短文案\n\(app.debugDescription)")
+        XCTAssertTrue(scope.buttons["未看 2 集"].isSelected, "默认选中本季未看 2 集，不含第 1 季\n\(app.debugDescription)")
+        XCTAssertTrue(scope.buttons["全部 3 集"].exists, "全部只算第 2 季 3 集\n\(app.debugDescription)")
+        XCTAssertFalse(app.staticTexts["offline-download-note"].exists, "第 2 季未下过时不该有已下载说明")
+        let detail = app.staticTexts["offline-scope-detail"]
+        XCTAssertEqual(detail.label, "第 2 季第 2～3 集，共 2 集")
+
+        // 打开面板只拉了第 2 季，不拉第 1 季
+        let recentLogs = Array(proxyLog().dropFirst(logBeforeOpen))
+        XCTAssertFalse(recentLogs.contains { $0.contains("/episodes?season_number=1") }, "打开第 2 季下载面板不该请求第 1 季：\(recentLogs)")
+
+        // 切换范围：第 2 集 / 全部 3 集 / 未看 2 集
+        scope.buttons["全部 3 集"].tap()
+        XCTAssertTrue(waitUntil(timeout: 5) { detail.label == "第 2 季第 1～3 集，共 3 集" }, detail.label)
+        scope.buttons["未看 2 集"].tap()
+        XCTAssertTrue(waitUntil(timeout: 5) { detail.label == "第 2 季第 2～3 集，共 2 集" }, detail.label)
+        snapshot("multi-season-s2-sheet")
+
+        // 下载第 2 季未看的 2 集（S2E2、S2E3）
+        original.tap()
+        app.buttons["offline-profile-confirm"].tap()
+        let downloaded = app.images.matching(NSPredicate(format: "label == '已下载'"))
+        XCTAssertTrue(waitUntil(timeout: 120) { downloaded.count == 2 }, "第 2 季应下完 2 集：\(downloaded.count)")
+        XCTAssertFalse(app.buttons["episode-1"].label.contains("已下载"))
+
+        // 再把第 2 季剩下的 S2E1 下完
+        app.buttons["episode-1"].tap()
+        openItemMenu(app, then: "下载")
+        XCTAssertTrue(original.waitForExistence(timeout: 30))
+        XCTAssertEqual(app.staticTexts["offline-download-note"].label, "已下载 2 集，不会重复下载")
+        XCTAssertFalse(scope.exists, "只剩第 1 集时不显示分段")
+        XCTAssertEqual(app.staticTexts["offline-scope-only"].label, "第 1 集")
+        XCTAssertEqual(app.staticTexts["offline-scope-detail"].label, "第 2 季第 1 集")
+        original.tap()
+        app.buttons["offline-profile-confirm"].tap()
+        XCTAssertTrue(waitUntil(timeout: 120) { downloaded.count == 3 }, "第 2 季 3 集应全下完：\(downloaded.count)")
+
+        // 第 2 季全下完后再次点下载：提示第 2 季已在本机，而非整部剧
+        openItemMenu(app, then: "下载")
+        XCTAssertTrue(app.staticTexts["都已下载"].waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label CONTAINS '第 2 季能下的集都已在'")).firstMatch.exists,
+                      "空态应指明是第 2 季都已下载\n\(app.debugDescription)")
+        snapshot("multi-season-s2-all-downloaded")
+        app.buttons["取消"].firstMatch.tap()
+        XCTAssertTrue(waitUntil(timeout: 5) { !app.staticTexts["都已下载"].exists })
+
+        // 切回第 1 季：第 1 季一集未下，不受第 2 季已下载影响
+        seasonPicker.tap()
+        tapMenuItem(app, "第 1 季")
+        XCTAssertTrue(app.buttons["episode-1"].waitForExistence(timeout: 15))
+        XCTAssertEqual(downloaded.count, 0, "下载第 2 季不该下载第 1 季")
+
+        openItemMenu(app, then: "下载")
+        XCTAssertTrue(original.waitForExistence(timeout: 30), app.debugDescription)
+        XCTAssertTrue(app.staticTexts["下载范围 · 第 1 季"].exists, app.debugDescription)
+        XCTAssertFalse(app.staticTexts["offline-download-note"].exists, "第 2 季的已下载不该出现在第 1 季说明里")
+        XCTAssertTrue(scope.buttons["第 1 集"].exists, app.debugDescription)
+        XCTAssertTrue(scope.buttons["全部 3 集"].isSelected, "第 1 季未下过且全未看，默认选全部 3 集（不是剩余）\n\(app.debugDescription)")
+        XCTAssertEqual(app.staticTexts["offline-scope-detail"].label, "第 1 季第 1～3 集，共 3 集")
+        snapshot("multi-season-s1-clean")
+        // 下载第 1 季第 1 集并标为已看：剩下的第 2～3 集全是未看，面板应直接显示「未看 2 集」而非「剩余 2 集」
+        scope.buttons["第 1 集"].tap()
+        original.tap()
+        app.buttons["offline-profile-confirm"].tap()
+        XCTAssertTrue(waitUntil(timeout: 120) { downloaded.count == 1 }, "第 1 季第 1 集应下完：\(downloaded.count)")
+        backend.request("POST", "/playback/marks", body: ["media_item_id": multiSeasonShowId, "season_number": 1, "episode_number": 1, "played": true])
+        app.buttons["episode-2"].tap()
+        openItemMenu(app, then: "下载")
+        XCTAssertTrue(original.waitForExistence(timeout: 30), app.debugDescription)
+        XCTAssertEqual(app.staticTexts["offline-download-note"].label, "已下载 1 集，不会重复下载")
+        XCTAssertTrue(scope.buttons["第 2 集"].exists, app.debugDescription)
+        XCTAssertTrue(scope.buttons["未看 2 集"].isSelected, "第 1 集已下且已看、剩下全未看时应叫「未看 2 集」\n\(app.debugDescription)")
+        XCTAssertEqual(app.staticTexts["offline-scope-detail"].label, "第 1 季第 2～3 集，共 2 集")
+        snapshot("multi-season-s1-watched-downloaded-shows-unwatched")
+        app.buttons["取消"].firstMatch.tap()
     }
 
     /// 转码档排队：服务端一次只转一份导出（别的设备 / 别人正在转时，这一集收到 503 排队）。

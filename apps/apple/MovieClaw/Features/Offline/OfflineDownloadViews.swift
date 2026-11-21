@@ -159,6 +159,10 @@ struct OfflineDownloadScope: Identifiable {
 struct OfflineDownloadChoices {
     var scopes: [OfflineDownloadScope]
     var note: String?
+    /// 多季剧时标明当前操作的季（如「第 2 季」「特别篇」）；单季剧为空
+    var seasonLabel: String?
+    /// 当前季是否已有本机副本（已下载或下载中）：用于区分空态是「都已下载」还是「本季无片源」
+    var hasLocal = false
 
     /// 一集在库的集与它在本机的状态
     struct Episode {
@@ -170,42 +174,57 @@ struct OfflineDownloadChoices {
         let local: Local?
     }
 
-    /// 范围规则（docs/design/offline-download.md §8）。候选 = 有文件、手机上还没有的集（下完的、在下的都不算）：
-    /// - 选中的集没下过：「第 N 集」；选中的集已下 / 在下：换成「接下来 5 集」（它之后还没下的 5 集，追剧边看边下）
-    /// - 「未看 N 集」：有没看的、且比剩余的少时才有，有它就默认选它
-    /// - 「全部 N 集」（这部剧一集都没下过）/「剩余 N 集」（下过一些）
+    /// 范围规则（docs/design/offline-download.md §8）。按当前季收敛，候选 = 本季有文件、手机上还没有的集（下完的、在下的都不算）：
+    /// - 选中的集没下过：「第 N 集」；选中的集已下 / 在下：换成「接下来 5 集」（本季里它之后还没下的 5 集，追剧边看边下）
+    /// - 「未看 N 集」：本季有没看的、且比剩余的少时才有，有它就默认选它
+    /// - 「全部 N 集」（本季一集都没下过）/「剩余 N 集」（本季下过一些）
     /// 内容相同的范围只留一个；只剩一个时面板不显示分段。`episodes` 按季、集排好序
     static func make(
-        episodes: [Episode], selected: (season: Int, episode: Int)?, selectedFile: Int?, multiSeason: Bool, nextCount: Int = 5
+        episodes: [Episode], selected: (season: Int, episode: Int)?, selectedFile: Int?, multiSeason: Bool,
+        season: Int? = nil, nextCount: Int = 5
     ) -> OfflineDownloadChoices {
-        func name(_ season: Int, _ episode: Int) -> String { multiSeason ? String(localized: .offlineSeasonEpisode(season, episode)) : String(localized: .mediaEpisodeNumber(episode)) }
+        let targetSeason = season ?? selected?.season ?? episodes.first?.season
+        let seasonEpisodes = targetSeason.map { s in episodes.filter { $0.season == s } } ?? episodes
+        func seasonName(_ s: Int) -> String {
+            s == 0 ? String(localized: .libraryItemSpecials) : String(localized: .libraryItemSeason(s))
+        }
+        func fullName(_ season: Int, _ episode: Int) -> String {
+            guard multiSeason else { return String(localized: .mediaEpisodeNumber(episode)) }
+            return season == 0
+                ? String(localized: .offlineSpecialsEpisode(episode))
+                : String(localized: .offlineSeasonEpisode(season, episode))
+        }
         /// 范围下方的说明：哪几集、共几集
         func describe(_ list: [Episode]) -> String {
             guard let first = list.first, let last = list.last else { return "" }
-            if list.count == 1 { return name(first.season, first.episode) }
+            if list.count == 1 { return fullName(first.season, first.episode) }
             if first.season == last.season, last.episode - first.episode + 1 == list.count {
-                return multiSeason
-                    ? String(localized: .offlineSeasonEpisodeRange(first.season, first.episode, last.episode, list.count))
-                    : String(localized: .offlineEpisodeRange(first.episode, last.episode, list.count))
+                if !multiSeason {
+                    return String(localized: .offlineEpisodeRange(first.episode, last.episode, list.count))
+                }
+                return first.season == 0
+                    ? String(localized: .offlineSpecialsEpisodeRange(first.episode, last.episode, list.count))
+                    : String(localized: .offlineSeasonEpisodeRange(first.season, first.episode, last.episode, list.count))
             }
-            return String(localized: .offlineFromEpisode(name(first.season, first.episode), list.count))
+            return String(localized: .offlineFromEpisode(fullName(first.season, first.episode), list.count))
         }
-        let candidates = episodes.filter { $0.file != nil && $0.local == nil }
-        let done = episodes.filter { $0.local == .done }.count, active = episodes.filter { $0.local == .active }.count
+        let candidates = seasonEpisodes.filter { $0.file != nil && $0.local == nil }
+        let done = seasonEpisodes.filter { $0.local == .done }.count
+        let active = seasonEpisodes.filter { $0.local == .active }.count
         var scopes: [OfflineDownloadScope] = []
         var notes: [String] = []
-        if let selected, let index = episodes.firstIndex(where: { $0.season == selected.season && $0.episode == selected.episode }) {
-            let current = episodes[index]
+        if let selected, let index = seasonEpisodes.firstIndex(where: { $0.season == selected.season && $0.episode == selected.episode }) {
+            let current = seasonEpisodes[index]
             if let local = current.local {
-                notes.append(local == .done ? String(localized: .offlineEpisodeDownloaded(name(current.season, current.episode)))
-                    : String(localized: .offlineEpisodeDownloading(name(current.season, current.episode))))
-                let next = Array(episodes[(index + 1)...].filter { $0.file != nil && $0.local == nil }.prefix(nextCount))
-                if !next.isEmpty, next.count < candidates.count {  // 正好是剩下的全部：只留「剩余」
+                notes.append(local == .done ? String(localized: .offlineEpisodeDownloaded(fullName(current.season, current.episode)))
+                    : String(localized: .offlineEpisodeDownloading(fullName(current.season, current.episode))))
+                let next = Array(seasonEpisodes[(index + 1)...].filter { $0.file != nil && $0.local == nil }.prefix(nextCount))
+                if !next.isEmpty, next.count < candidates.count {  // 正好是本季剩下的全部：只留「剩余」
                     scopes.append(.init(id: "next", label: String(localized: .offlineNextEpisodes(next.count)), fileIds: next.compactMap(\.file), detail: describe(next)))
                 }
             } else if let file = selectedFile ?? current.file {
-                scopes.append(.init(id: "selected", label: name(current.season, current.episode), fileIds: [file],
-                                    detail: name(current.season, current.episode)))
+                scopes.append(.init(id: "selected", label: String(localized: .mediaEpisodeNumber(current.episode)), fileIds: [file],
+                                    detail: fullName(current.season, current.episode)))
             }
         }
         if done + active > 0 {
@@ -214,12 +233,21 @@ struct OfflineDownloadChoices {
             notes.append(String(localized: .offlineNoRedownload(AppFormatting.list(parts))))
         }
         let unwatched = candidates.filter { !$0.played }
+        let hasWatched = seasonEpisodes.contains { $0.played }
         if !unwatched.isEmpty, unwatched.count < candidates.count {
             scopes.append(.init(id: "unwatched", label: String(localized: .offlineUnwatchedEpisodes(unwatched.count)), fileIds: unwatched.compactMap(\.file),
                                 detail: describe(unwatched), preferred: true))
         }
         if !candidates.isEmpty {
-            let label = done + active == 0 ? String(localized: .libraryItemAllEpisodeCount(candidates.count)) : String(localized: .offlineRemainingEpisodes(candidates.count))
+            // 本季已有看过的集（例如已下且已看），剩下的待下载集恰好全未看时，直接叫「未看 N 集」而非「剩余 N 集」
+            let label: String
+            if hasWatched, unwatched.count == candidates.count {
+                label = String(localized: .offlineUnwatchedEpisodes(candidates.count))
+            } else if done + active == 0 {
+                label = String(localized: .libraryItemAllEpisodeCount(candidates.count))
+            } else {
+                label = String(localized: .offlineRemainingEpisodes(candidates.count))
+            }
             scopes.append(.init(id: "all", label: label, fileIds: candidates.compactMap(\.file), detail: describe(candidates)))
         }
         // 内容相同的只留前一个（比如只剩选中的这一集）
@@ -231,7 +259,9 @@ struct OfflineDownloadChoices {
                 ?? (unwatched.count == candidates.count ? scopes.firstIndex { $0.id == "all" } : nil)
             if let fallback { scopes[fallback].preferred = true }
         }
-        return OfflineDownloadChoices(scopes: scopes, note: notes.isEmpty ? nil : notes.joined(separator: " · "))
+        let seasonLabel = multiSeason ? targetSeason.map(seasonName) : nil
+        return OfflineDownloadChoices(scopes: scopes, note: notes.isEmpty ? nil : notes.joined(separator: " · "),
+                                      seasonLabel: seasonLabel, hasLocal: done + active > 0)
     }
 }
 
@@ -265,6 +295,8 @@ struct OfflineProfileSheet: View {
     @Environment(Feedback.self) private var feedback
     @State private var scopes: [OfflineDownloadScope]?
     @State private var note: String?
+    @State private var seasonLabel: String?
+    @State private var hasLocal = false
     @State private var scopeId: String?
     /// 每个文件的可选档位（批量接口；旧服务器由逐集清单换算）
     @State private var entries: [Int: API.OfflineFileProfilesView] = [:]
@@ -289,7 +321,15 @@ struct OfflineProfileSheet: View {
         NavigationStack {
             Group {
                 if let scopes, scopes.isEmpty {
-                    ContentUnavailableView(String(localized: .offlineAllDownloaded), systemImage: "checkmark.circle", description: Text(String(localized: .offlineAllEpisodesHere(ClientPlatform.deviceName))))
+                    if hasLocal {
+                        let desc = seasonLabel.map { String(localized: .offlineSeasonEpisodesHere($0, ClientPlatform.deviceName)) }
+                            ?? String(localized: .offlineAllEpisodesHere(ClientPlatform.deviceName))
+                        ContentUnavailableView(String(localized: .offlineAllDownloaded), systemImage: "checkmark.circle", description: Text(desc))
+                    } else {
+                        let desc = seasonLabel.map { String(localized: .offlineSeasonNoDownloadableEpisodes($0)) }
+                            ?? String(localized: .offlineNoDownloadableEpisodesHint)
+                        ContentUnavailableView(String(localized: .offlineNoDownloadableEpisodes), systemImage: "film.stack", description: Text(desc))
+                    }
                 } else if let scopes {
                     content(scopes)
                 } else if let error {
@@ -319,6 +359,8 @@ struct OfflineProfileSheet: View {
                 let choices = try await loadChoices()
                 let scopes = choices.scopes
                 note = choices.note
+                seasonLabel = choices.seasonLabel
+                hasLocal = choices.hasLocal
                 scopeId = (scopes.first(where: \.preferred) ?? scopes.first)?.id
                 self.scopes = scopes
                 // 所有范围的文件一次问完：切范围不再发请求
@@ -353,7 +395,8 @@ struct OfflineProfileSheet: View {
                 .padding(.vertical, 2)
             }
             if ranged, let scope {
-                Section(String(localized: .offlineScope)) {
+                let header = seasonLabel.map { String(localized: .offlineScopeForSeason($0)) } ?? String(localized: .offlineScope)
+                Section(header) {
                     if scopes.count > 1 {
                         Picker(String(localized: .offlineScope), selection: Binding(mcGet: { scopeId ?? "" }, set: { scopeId = $0; startError = nil })) {
                             ForEach(scopes) { Text($0.label).tag($0.id) }

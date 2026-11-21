@@ -79,18 +79,33 @@ export class OfflineEpisodeChoice {
 export class OfflineDownloadChoices {
   scopes: OfflineDownloadScope[];
   note: string | null;
+  /** 多季剧时标明当前操作的季（如「第 2 季」「特别篇」）；单季剧为空 */
+  seasonLabel: string | null;
+  /** 当前季是否已有本机副本（已下载或下载中）：用于区分空态是「都已下载」还是「本季无片源」 */
+  hasLocal: boolean;
 
-  constructor(scopes: OfflineDownloadScope[], note: string | null) {
+  constructor(scopes: OfflineDownloadScope[], note: string | null,
+    seasonLabel: string | null = null, hasLocal: boolean = false) {
     this.scopes = scopes;
     this.note = note;
+    this.seasonLabel = seasonLabel;
+    this.hasLocal = hasLocal;
   }
 
   static make(episodes: OfflineEpisodeChoice[], selectedSeason: number | null,
     selectedEpisode: number | null, selectedFile: number | null,
-    multiSeason: boolean): OfflineDownloadChoices {
+    multiSeason: boolean, season: number | null = null): OfflineDownloadChoices {
     const nextCount: number = 5;
-    const name = (season: number, episode: number): string => {
-      return multiSeason ? `第 ${season} 季第 ${episode} 集` : `第 ${episode} 集`;
+    const targetSeason: number | null = season !== null ? season
+      : (selectedSeason !== null ? selectedSeason : (episodes.length > 0 ? episodes[0].season : null));
+    const seasonEpisodes: OfflineEpisodeChoice[] = targetSeason !== null
+      ? episodes.filter((ep: OfflineEpisodeChoice): boolean => ep.season === targetSeason)
+      : episodes;
+    const seasonName = (s: number): string => {
+      return s === 0 ? '特别篇' : `第 ${s} 季`;
+    };
+    const fullName = (s: number, ep: number): string => {
+      return multiSeason ? `${seasonName(s)}第 ${ep} 集` : `第 ${ep} 集`;
     };
     const describe = (list: OfflineEpisodeChoice[]): string => {
       if (list.length === 0) {
@@ -99,23 +114,23 @@ export class OfflineDownloadChoices {
       const first: OfflineEpisodeChoice = list[0];
       const last: OfflineEpisodeChoice = list[list.length - 1];
       if (list.length === 1) {
-        return name(first.season, first.episode);
+        return fullName(first.season, first.episode);
       }
       if (first.season === last.season && last.episode - first.episode + 1 === list.length) {
-        return `${multiSeason ? `第 ${first.season} 季` : ''}第 ${first.episode}～${last.episode} 集，共 ${list.length} 集`;
+        return `${multiSeason ? seasonName(first.season) : ''}第 ${first.episode}～${last.episode} 集，共 ${list.length} 集`;
       }
-      return `${name(first.season, first.episode)} 起，共 ${list.length} 集`;
+      return `${fullName(first.season, first.episode)} 起，共 ${list.length} 集`;
     };
-    // 候选 = 有文件、本机还没有的集（下完的、在下的都不算）
+    // 候选 = 本季有文件、本机还没有的集（下完的、在下的都不算）
     const candidates: OfflineEpisodeChoice[] = [];
-    for (const episode of episodes) {
+    for (const episode of seasonEpisodes) {
       if (episode.file !== null && episode.local === null) {
         candidates.push(episode);
       }
     }
     let done: number = 0;
     let active: number = 0;
-    for (const episode of episodes) {
+    for (const episode of seasonEpisodes) {
       if (episode.local === 'done') {
         done += 1;
       } else if (episode.local === 'active') {
@@ -126,20 +141,20 @@ export class OfflineDownloadChoices {
     const notes: string[] = [];
     if (selectedSeason !== null && selectedEpisode !== null) {
       let index: number = -1;
-      for (let i: number = 0; i < episodes.length; i++) {
-        if (episodes[i].season === selectedSeason && episodes[i].episode === selectedEpisode) {
+      for (let i: number = 0; i < seasonEpisodes.length; i++) {
+        if (seasonEpisodes[i].season === selectedSeason && seasonEpisodes[i].episode === selectedEpisode) {
           index = i;
           break;
         }
       }
       if (index >= 0) {
-        const current: OfflineEpisodeChoice = episodes[index];
+        const current: OfflineEpisodeChoice = seasonEpisodes[index];
         if (current.local !== null) {
-          // 选中的集已下 / 在下：说明一句，范围换成「接下来 N 集」（追剧边看边下）
-          notes.push(`${name(current.season, current.episode)}${current.local === 'done' ? '已下载' : '正在下载'}`);
+          // 选中的集已下 / 在下：说明一句，范围换成「接下来 N 集」（只在本季内取，追剧边看边下）
+          notes.push(`${fullName(current.season, current.episode)}${current.local === 'done' ? '已下载' : '正在下载'}`);
           const next: OfflineEpisodeChoice[] = [];
-          for (let i: number = index + 1; i < episodes.length && next.length < nextCount; i++) {
-            const candidate: OfflineEpisodeChoice = episodes[i];
+          for (let i: number = index + 1; i < seasonEpisodes.length && next.length < nextCount; i++) {
+            const candidate: OfflineEpisodeChoice = seasonEpisodes[i];
             if (candidate.file !== null && candidate.local === null) {
               next.push(candidate);
             }
@@ -151,8 +166,8 @@ export class OfflineDownloadChoices {
         } else {
           const file: number | null = selectedFile !== null ? selectedFile : current.file;
           if (file !== null) {
-            scopes.push(new OfflineDownloadScope('selected', name(current.season, current.episode),
-              [file], name(current.season, current.episode), false));
+            scopes.push(new OfflineDownloadScope('selected', `第 ${current.episode} 集`,
+              [file], fullName(current.season, current.episode), false));
           }
         }
       }
@@ -173,12 +188,27 @@ export class OfflineDownloadChoices {
         unwatched.push(candidate);
       }
     }
+    let hasWatched: boolean = false;
+    for (const episode of seasonEpisodes) {
+      if (episode.played) {
+        hasWatched = true;
+        break;
+      }
+    }
     if (unwatched.length > 0 && unwatched.length < candidates.length) {
       scopes.push(new OfflineDownloadScope('unwatched', `未看 ${unwatched.length} 集`,
         OfflineDownloadChoices.fileIdsOf(unwatched), describe(unwatched), true));
     }
     if (candidates.length > 0) {
-      const label: string = done + active === 0 ? `全部 ${candidates.length} 集` : `剩余 ${candidates.length} 集`;
+      // 本季已有看过的集（例如已下且已看），剩下的待下载集恰好全未看时，直接叫「未看 N 集」而非「剩余 N 集」
+      let label: string;
+      if (hasWatched && unwatched.length === candidates.length) {
+        label = `未看 ${candidates.length} 集`;
+      } else if (done + active === 0) {
+        label = `全部 ${candidates.length} 集`;
+      } else {
+        label = `剩余 ${candidates.length} 集`;
+      }
       scopes.push(new OfflineDownloadScope('all', label,
         OfflineDownloadChoices.fileIdsOf(candidates), describe(candidates), false));
     }
@@ -220,7 +250,9 @@ export class OfflineDownloadChoices {
         fallback.preferred = true;
       }
     }
-    return new OfflineDownloadChoices(deduped, notes.length > 0 ? notes.join(' · ') : null);
+    const seasonLabel: string | null = multiSeason && targetSeason !== null ? seasonName(targetSeason) : null;
+    return new OfflineDownloadChoices(deduped, notes.length > 0 ? notes.join(' · ') : null,
+      seasonLabel, done + active > 0);
   }
 
   private static fileIdsOf(list: OfflineEpisodeChoice[]): number[] {
@@ -736,6 +768,8 @@ export struct OfflineProfileSheet {
 
   @Local scopes: OfflineDownloadScope[] | null = null;
   @Local note: string | null = null;
+  @Local seasonLabel: string | null = null;
+  @Local hasLocal: boolean = false;
   @Local scopeId: string | null = null;
   /** 每个文件的可选档位（批量接口；旧服务器由逐集清单换算） */
   @Local entries: Map<number, OfflineFileProfilesView> = new Map<number, OfflineFileProfilesView>();
@@ -874,6 +908,8 @@ export struct OfflineProfileSheet {
     try {
       const result: OfflineDownloadChoices = await this.choices();
       this.note = result.note;
+      this.seasonLabel = result.seasonLabel;
+      this.hasLocal = result.hasLocal;
       this.scopes = result.scopes;
       let preferred: OfflineDownloadScope | null = null;
       for (const scope of result.scopes) {
@@ -1113,14 +1149,16 @@ export struct OfflineProfileSheet {
         .justifyContent(FlexAlign.Center)
       } else if (this.scopes !== null && this.scopes.length === 0) {
         Column({ space: 10 }) {
-          SymbolGlyph($r('sys.symbol.checkmark_circle'))
+          SymbolGlyph($r(this.hasLocal ? 'sys.symbol.checkmark_circle' : 'sys.symbol.film'))
             .fontSize(32)
-            .fontColor([Theme.ok])
-          Text('都已下载')
+            .fontColor([this.hasLocal ? Theme.ok : Theme.textMuted])
+          Text(this.hasLocal ? '都已下载' : '暂无可下载的分集')
             .fontSize(16)
             .fontWeight(600)
             .fontColor(Theme.text)
-          Text('这部剧能下的集都已在本机上')
+          Text(this.hasLocal
+            ? `${this.seasonLabel ?? '这部剧'}能下的集都已在本机上`
+            : `${this.seasonLabel ?? '这部剧'}还没有可下载的分集`)
             .fontSize(13)
             .fontColor(Theme.textMuted)
         }
@@ -1213,7 +1251,7 @@ export struct OfflineProfileSheet {
   @Builder
   ScopeSection() {
     Column({ space: 8 }) {
-      Text('下载范围')
+      Text(this.seasonLabel !== null ? `下载范围 · ${this.seasonLabel}` : '下载范围')
         .fontSize(13)
         .fontColor(Theme.textFaint)
       if ((this.scopes as OfflineDownloadScope[]).length > 1) {

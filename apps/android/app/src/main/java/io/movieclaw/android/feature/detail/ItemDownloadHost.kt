@@ -15,12 +15,13 @@ sealed interface DownloadSheetTarget {
 
 /**
  * 下载面板宿主（iOS 详情页里 `.sheet { OfflineProfileSheet(...) }` 的对应物）。
- * 剧集范围照 iOS `downloadChoices`：在库的集、各自的本机状态，选中的集 = 详情页选中的那一集。
+ * 剧集范围照 iOS `downloadChoices`：按当前选中的季，取本季在库的集与本机状态，选中的集 = 详情页选中的那一集。
  */
 @Composable
 fun ItemDownloadHost(
     detail: LibraryItemDetailView?,
     episodes: Map<Int, List<EpisodeView>>,
+    selectedSeason: Int?,
     selected: ItemDetailViewModel.SelectedUnit?,
     target: DownloadSheetTarget?,
     onDismiss: () -> Unit,
@@ -42,19 +43,27 @@ fun ItemDownloadHost(
             loadChoices = {
                 val store = offline.store()
                 val owned = detail.files.map { it.seasonNumber }.toSet()
-                val all = episodes.entries.filter { it.key in owned }.sortedBy { it.key }.flatMap { (season, list) ->
-                    list.filter { it.owned }.sortedBy { it.episodeNumber }.map { ep ->
-                        val unit = store.unit(detail.mediaItemId, season, ep.episodeNumber)
+                val targetSeason = selectedSeason
+                    ?: selected?.season
+                    ?: detail.seasons.firstOrNull { it > 0 && it in owned }
+                    ?: detail.seasons.firstOrNull { it in owned }
+                    ?: detail.seasons.firstOrNull()
+                val seasonList = if (targetSeason != null && targetSeason in owned) {
+                    episodes[targetSeason].orEmpty().filter { it.owned }.sortedBy { it.episodeNumber }.map { ep ->
+                        val unit = store.unit(detail.mediaItemId, targetSeason, ep.episodeNumber)
                         OfflineDownloadChoices.Episode(
-                            season = season,
+                            season = targetSeason,
                             episode = ep.episodeNumber,
                             file = ep.fileIds.firstOrNull(),
                             played = ep.played,
                             local = unit?.let { if (it.playable) "done" else "active" },
                         )
                     }
+                } else {
+                    emptyList()
                 }
-                OfflineDownloadChoices.make(all, selected?.let { it.season to it.episode }, null, detail.seasons.size > 1)
+                val currentSelected = selected?.takeIf { it.season == targetSeason }?.let { it.season to it.episode }
+                OfflineDownloadChoices.make(seasonList, currentSelected, null, detail.seasons.size > 1, season = targetSeason)
             },
             onDismiss = onDismiss,
         )

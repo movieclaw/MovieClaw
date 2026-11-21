@@ -24,7 +24,7 @@ struct LibraryWideActionLabel: View {
 ///   关掉播放器、服务端收下「停止」后重拉（`.playbackStopReported`），按钮立即跟上刚才看到的位置；
 /// - 收藏针对整部作品，已看针对当前单元（电影本身 / 选中的那一集），都走 `POST /playback/marks`；
 /// - 刮削进行中每 2 秒、章节图生成中每 3 秒（最多 20 次）重拉详情；
-/// - ⋯ 菜单（带图标、分区）：剧集下载（选中的集 / 未看的集 / 全部）/ 加入合集 / 分享 / 洗版 / 修正识别 / 刷新元数据 /
+/// - ⋯ 菜单（带图标、分区）：剧集下载（按当前季：选中的集 / 本季未看 / 本季全部）/ 加入合集 / 分享 / 洗版 / 修正识别 / 刷新元数据 /
 ///   重新生成章节 / 更换图片 / 转移到其他库 / 从媒体库删除——对话框各自是独立的 sheet 组件；
 /// - 页面底色取剧照露出部分底边的颜色，剧照底部渐变进去、整页铺满（同 Apple Music 专辑页，见 `HeroEdgeColor`）。
 struct LibraryItemDetailView: View {
@@ -42,6 +42,7 @@ struct LibraryItemDetailView: View {
     @State private var detail: API.LibraryItemDetailView?
     @State private var library: API.LibraryView?
     @State private var failed = false
+    @State private var selectedSeason: Int?
     @State private var selectedEpisode: SelectedEpisode?
     @State private var downloadingSeries = false
     @State private var confirmCancelDownloads = false
@@ -292,7 +293,8 @@ struct LibraryItemDetailView: View {
                         SeasonEpisodesSection(
                             libraryId: libraryId, detail: detail,
                             initialSeason: season, initialEpisode: episode,
-                            refreshKey: episodesVersion
+                            refreshKey: episodesVersion,
+                            onSeasonChange: { selectedSeason = $0 }
                         ) { selection in
                             if selection?.files.map(\.id) != selectedEpisode?.files.map(\.id) { selectedTrackFileId = nil }
                             selectedEpisode = selection
@@ -1394,22 +1396,31 @@ struct LibraryItemDetailView: View {
         return downloadableFiles.first?.id ?? selectedEpisode.episode.fileIds.first
     }
 
-    /// 右上角菜单「下载」的范围：选中的这一集 / 未看的集 / 全部（docs/design/offline-download.md §8）。
-    /// 本机已有的不算；空的范围、和「全部」一样的「未看」不给；有没看的默认选「未看」
-    /// 右上角「下载」的范围：取各季分集与本机状态，规则在 `OfflineDownloadChoices.make`
+    /// 右上角菜单「下载」的范围：按当前选中的季（选中的集 / 本季未看 / 本季全部，docs/design/offline-download.md §8）。
+    /// 只拉当前季的分集与本机状态，规则在 `OfflineDownloadChoices.make`
     private func downloadChoices(_ detail: API.LibraryItemDetailView) async throws -> OfflineDownloadChoices {
+        let ownedSeasons = Set(detail.files.map(\.seasonNumber))
+        let targetSeason = selectedSeason
+            ?? selectedEpisode?.season
+            ?? detail.seasons.first { $0 > 0 && ownedSeasons.contains($0) }
+            ?? detail.seasons.first { ownedSeasons.contains($0) }
+            ?? detail.seasons.first
+        guard let targetSeason else {
+            return OfflineDownloadChoices(scopes: [], note: nil)
+        }
         var episodes: [OfflineDownloadChoices.Episode] = []
-        for season in Set(detail.files.map(\.seasonNumber)).sorted() {
-            let list = try await api.libraryItemsListEpisodes(libraryId: libraryId, mediaItemId: itemId, seasonNumber: season).episodes
+        if ownedSeasons.contains(targetSeason) {
+            let list = try await api.libraryItemsListEpisodes(libraryId: libraryId, mediaItemId: itemId, seasonNumber: targetSeason).episodes
             for episode in list where episode.owned {
-                let unit = offlineStore.unit(mediaItemId: itemId, season: season, episode: episode.episodeNumber)
-                episodes.append(.init(season: season, episode: episode.episodeNumber, file: episode.fileIds.first,
+                let unit = offlineStore.unit(mediaItemId: itemId, season: targetSeason, episode: episode.episodeNumber)
+                episodes.append(.init(season: targetSeason, episode: episode.episodeNumber, file: episode.fileIds.first,
                                       played: episode.played, local: unit.map { $0.playable ? .done : .active }))
             }
         }
-        let selected = selectedEpisode.map { (season: $0.season, episode: $0.episode.episodeNumber) }
-        return OfflineDownloadChoices.make(episodes: episodes, selected: selected, selectedFile: selectedDownloadFile,
-                                           multiSeason: detail.seasons.count > 1)
+        let selected = selectedEpisode.flatMap { $0.season == targetSeason ? (season: $0.season, episode: $0.episode.episodeNumber) : nil }
+        return OfflineDownloadChoices.make(episodes: episodes, selected: selected,
+                                           selectedFile: selected != nil ? selectedDownloadFile : nil,
+                                           multiSeason: detail.seasons.count > 1, season: targetSeason)
     }
 
     private func restore(_ file: API.LibraryFileView) async {
@@ -1501,6 +1512,7 @@ struct SeasonEpisodesSection: View {
     var initialSeason: Int?
     var initialEpisode: Int?
     var refreshKey = 0
+    var onSeasonChange: (Int) -> Void = { _ in }
     var onEpisodeChange: (LibraryItemDetailView.SelectedEpisode?) -> Void
 
     @Environment(\.api) private var api
@@ -1692,7 +1704,10 @@ struct SeasonEpisodesSection: View {
                 .padding(.horizontal, cards.edge).padding(.vertical, 20)
             }
         }
-        .task(id: "\(currentSeason)|\(detail.fileCount)|\(reachability.isOffline)") { await load(reset: true) }
+        .task(id: "\(currentSeason)|\(detail.fileCount)|\(reachability.isOffline)") {
+            onSeasonChange(currentSeason)
+            await load(reset: true)
+        }
         .sheet(item: $pickFile) { target in
             OfflineProfileSheet(fileId: target.id, title: target.title)
                 .adaptiveDetents([.medium, .large])
