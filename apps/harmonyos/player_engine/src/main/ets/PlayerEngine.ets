@@ -33,6 +33,14 @@ export interface EngineSource {
    * 真冻结，AVPlayer 对这类源拒绝跳转转 mpv；直连 URL（/stream、/disc）走 HTTP
    * Range，seek 安全。缺省按 HLS 保守处理（旧调用方未标注时宁可转 mpv）。 */
   isHls?: boolean;
+  /** AVPlayer 冻结看门狗的触发拍数（1 拍 = 2 秒）；缺省 15 拍（30 秒）。
+   * 缺省值留给网盘直出（on_drive，可能被 302 到网盘直链或由服务端中继）：
+   * 服务端换连接续传最坏 ~25 秒才把流救回来，触发线必须盖过救援窗口。
+   * 本地盘/NAS 直出与 HLS 没有等救援一说，调用方传 6（12 秒）——histreamer
+   * 的解复用线程在 seek/暂停恢复后可能停止从满缓冲取数（状态 playing、时钟
+   * 停走、零 error，2026-11-21 取证），楔死确定性复现，12 秒判死换引擎比
+   * 30 秒少冻一半。 */
+  stallSamples?: number;
 }
 
 export interface EngineTrack {

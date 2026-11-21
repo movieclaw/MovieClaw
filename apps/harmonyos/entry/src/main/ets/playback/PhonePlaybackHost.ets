@@ -914,6 +914,14 @@ export class PhonePlaybackHost implements PlaybackTestHost {
     // seek 会假 seekDone 真冻结）。PhoneMedia 按此标注 isHls，AVPlayer 只拒 HLS 跳
     // 转，直连远程流照常续播。
     const isHls: boolean = (view.decision.tier ?? 0) > 0;
+    // AVP 冻结看门狗按源分档（2026-11-21 模拟器取证：histreamer 解复用线程在
+    // seek/暂停恢复后楔死与网络无关——服务器 8.5MB 秒到、引擎自身 HTTP 缓冲
+    // 满溢干等解复用器取数）：网盘直出（source.on_drive，可能被 302 到网盘直链
+    // 或由服务端中继）最坏要等 ~25 秒换连接续传救援，传 0 沿用引擎缺省 30 秒
+    // 让 AVP 吃到救回来的流；本地盘/NAS 直出与 HLS 没有等救援一说，6 拍
+    // （12 秒）判死换引擎，楔死时间砍一半多。老服务器无 on_drive 字段时按
+    // 本地口径 6 拍（12 秒时代的实测值，无已知误报）。
+    const stallSamples: number = !isHls && (view.source?.on_drive ?? false) ? 0 : 6;
     // 位置基准看会话视图的 timeline（服务端契约，与 Android 端同款）：
     // 'file' = 全片文件绝对时间轴（v0.51 起转码 HLS 带 copyts：全片绝对列表 +
     // EXT-X-START 标起播点）——引擎实报的就是文件绝对位置，origin 必须为 0，
@@ -957,7 +965,7 @@ export class PhonePlaybackHost implements PlaybackTestHost {
     await this.controller.open(new PhoneMedia(origin, view.watch?.duration_ms ?? 0,
       PlaybackTestProbe.mediaUrl(playbackUrl(AppModel.origin(), openUrl)), '', subtitleUrl, pgsPath,
       this.getUIContext().getHostContext()?.cacheDir ?? '', isHls,
-      `file:${view.decision.file_id ?? 0}`), this.surfaceId, intent, enginePref);
+      `file:${view.decision.file_id ?? 0}`, stallSamples), this.surfaceId, intent, enginePref);
     // 需要客户端渲染又没有现成文件：起后台预备（不阻塞起播；首抽可能要几分钟）
     if (pgsRender && nativeOrdinal === null && pgsPath.length === 0
       && this.subtitleIndex >= 0 && this.subtitleIndex < view.subtitle_urls.length) {

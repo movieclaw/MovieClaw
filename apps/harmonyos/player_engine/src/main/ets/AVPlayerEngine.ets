@@ -32,10 +32,17 @@ export class AVPlayerEngine implements PlayerEngine {
   // 的启动超时兜底，这里只在 startRenderFrame 后武装。
   // 2026-11-17 深夜实测：续播/暂停恢复的 Range 重取常被网盘 CDN 派成停顿/低速
   // （15~120KB/s）的坏连接；服务端中继已改为窗口测速+换连接续传（一条请求最
-  // 多 3 条上游连接，最坏 ~25 秒才续上流）。触发线必须盖过服务端重连窗口，
-  // 让 AVP 吃到救回来的流自己续播，而不是半路掐掉换 mpv。
+  // 多 3 条上游连接，最坏 ~25 秒才续上流）。网盘直出源的触发线必须盖过服务端
+  // 重连窗口，让 AVP 吃到救回来的流自己续播，而不是半路掐掉换 mpv。
+  // 2026-11-21 模拟器取证：NAS 直出同样 frozen——服务器 8.5MB 秒到、histreamer
+  // 自身的 4MB HTTP 缓存满溢（CacheBufferFullLoop 干等解复用器取数）、
+  // FfmpegDemuxerThread 连报 ret=61451 后熄火、音频解码全程只进 13 包，状态
+  // playing、时钟钉死、零 buffering 零 error：楔死在解复用线程，与网络无关且
+  // 确定性复现。本地源不必陪网盘等 30 秒：触发拍数随源走（EngineSource.
+  // stallSamples），网盘直出 15 拍，本地盘/NAS 直出与 HLS 6 拍（12 秒）。
   private static readonly stallSampleIntervalMs: number = 2000;
-  private static readonly stallSamplesToFire: number = 15;
+  /** 触发拍数随源走：open() 时取 EngineSource.stallSamples，缺省 15 拍。 */
+  private stallSamplesToFire: number = 15;
   private static readonly stallMinAdvanceMs: number = 50;
   private stallTimer: number = -1;
   private stallSamples: number = 0;
@@ -44,6 +51,9 @@ export class AVPlayerEngine implements PlayerEngine {
   private stallSeekActive: boolean = false;
 
   async open(source: EngineSource, surfaceId: string): Promise<void> {
+    // 0/缺省 = 引擎缺省 15 拍：老调用方与字幕下载等非播放路径不带这个字段。
+    const stallSamples = source.stallSamples;
+    this.stallSamplesToFire = stallSamples !== undefined && stallSamples > 0 ? stallSamples : 15;
     const player = await media.createAVPlayer();
     if (this.released) {
       await player.release();
@@ -265,7 +275,7 @@ export class AVPlayerEngine implements PlayerEngine {
     this.stallLastClockMs = -1;
     this.stallTimer = setInterval((): void => { this.sampleStall(); }, AVPlayerEngine.stallSampleIntervalMs);
     hilog.info(0x0000, 'MCSub', 'avplayer 停滞看门狗启动: interval=%{public}d ms 触发=%{public}d 拍',
-      AVPlayerEngine.stallSampleIntervalMs, AVPlayerEngine.stallSamplesToFire);
+      AVPlayerEngine.stallSampleIntervalMs, this.stallSamplesToFire);
   }
 
   private stopStallWatchdog(): void {
@@ -290,17 +300,17 @@ export class AVPlayerEngine implements PlayerEngine {
       return;
     }
     this.stallSamples++;
-    // 停滞过半（约 15 秒）先留痕：便于事后区分正常缓冲与逼近触发线的楔死。
-    if (this.stallSamples === Math.floor(AVPlayerEngine.stallSamplesToFire / 2)) {
+    // 停滞过半先留痕：便于事后区分正常缓冲与逼近触发线的楔死。
+    if (this.stallSamples === Math.floor(this.stallSamplesToFire / 2)) {
       hilog.warn(0x0000, 'MCSub', 'avplayer 时钟疑似停滞: current=%{public}d 已静止 %{public}d 拍',
         clockMs, this.stallSamples);
     }
-    if (this.stallSamples < AVPlayerEngine.stallSamplesToFire) { return; }
+    if (this.stallSamples < this.stallSamplesToFire) { return; }
     this.stallFired = true;
     this.stopStallWatchdog();
     hilog.error(0x0000, 'MCSub',
       'avplayer 时钟停滞: current=%{public}d 状态 playing 静止约 %{public}d 毫秒，通知宿主接管',
-      clockMs, AVPlayerEngine.stallSamplesToFire * AVPlayerEngine.stallSampleIntervalMs);
+      clockMs, this.stallSamplesToFire * AVPlayerEngine.stallSampleIntervalMs);
     const event = new EngineEvent();
     event.type = 'frozen';
     event.positionMs = Math.round(clockMs);
