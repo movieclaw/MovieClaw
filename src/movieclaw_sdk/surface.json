@@ -731,12 +731,13 @@
       "fields": {
         "definition_versions": "frozenset[int]",
         "handler": "JobHandler",
+        "max_parallel": "int | None",
         "title": "str | None"
       }
     },
     "kind": "registry",
     "stability": "experimental",
-    "version": "1.2"
+    "version": "1.3"
   },
   "kernel/durable-events": {
     "doc": "可靠事件的存储与投递：事务内写入、提交后投递、至少一次",

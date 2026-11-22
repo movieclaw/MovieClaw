@@ -187,7 +187,7 @@ class RegisteredJobHandler:
 
 JOB_HANDLERS: RegistryKey[RegisteredJobHandler] = RegistryKey(
     "job-handlers",
-    version="1.2",  # 1.2：进度与失败可携带本地化键和参数
+    version="1.3",  # 1.3：支持同类任务并行上限 max_parallel
     schema=RegisteredJobHandler,
     stability=Stability.EXPERIMENTAL,
     doc="持久化后台任务的处理器（领域插件贡献；第三方插件的任务类型自动带插件 id 前缀）",
