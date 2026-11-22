@@ -186,20 +186,28 @@ def contribute_job_handlers(ctx: Context, *modules: ModuleType) -> None:
 
 
 def register_job_handler(
-    job_type: str, *, definition_versions: Sequence[int] = (1,)
+    job_type: str,
+    *,
+    definition_versions: Sequence[int] = (1,),
+    max_parallel: int | None = None,
 ) -> Callable[[JobHandler], JobHandler]:
     """注册稳定任务类型的处理器；重复注册立即失败，避免升级后路由不确定。"""
     supported = frozenset(definition_versions)
     if not supported or any(version < 1 for version in supported):
         # i18n-ignore: developer error
         raise ValueError(f"后台任务定义版本不合法：{job_type}")
+    if max_parallel is not None and max_parallel < 1:
+        # i18n-ignore: developer error
+        raise ValueError(f"后台任务同类并行上限不合法：{job_type}")
 
     def decorator(handler: JobHandler) -> JobHandler:
         existing = _handlers.get(job_type)
         if existing is not None and existing.handler is not handler:
             # i18n-ignore: developer error
             raise RuntimeError(f"后台任务处理器重复注册：{job_type}")
-        _handlers[job_type] = RegisteredJobHandler(handler, supported)
+        _handlers[job_type] = RegisteredJobHandler(
+            handler, supported, max_parallel=max_parallel
+        )
         # 标记在函数上：插件据此把「本模块声明的处理器」贡献进内核注册表
         handler.__job_types__ = (*getattr(handler, "__job_types__", ()), job_type)  # type: ignore[attr-defined]
         return handler
@@ -799,8 +807,10 @@ class JobContext:
         *,
         lease_token: str,
         lease_lost: asyncio.Event,
+        attempt: int = 1,
     ) -> None:
         self.job_id = job_id
+        self.attempt = max(1, attempt)
         self._lease_token = lease_token
         self._lease_lost = lease_lost
         # progress_due 的节流时钟：初值取“过去”，任务的第一次写不被节流
@@ -1061,6 +1071,8 @@ class JobDispatcher:
         self._closing = False
         self._loop_task: asyncio.Task[None] | None = None
         self._running: dict[str, asyncio.Task[None]] = {}
+        self._running_types: dict[str, str] = {}
+        self._last_claimed_type: str | None = None
         self._waits: dict[tuple[str, asyncio.Task[None], str], int] = {}
         self._last_cleanup = 0.0
         self._last_recovery = 0.0
@@ -1094,6 +1106,7 @@ class JobDispatcher:
         if running:
             await asyncio.gather(*running, return_exceptions=True)
         self._running.clear()
+        self._running_types.clear()
         logger.info("持久化任务执行器已关闭，未完成任务已退回队列")
 
     def wake(self) -> None:
@@ -1127,6 +1140,9 @@ class JobDispatcher:
                     if claimed is None:
                         break
                     job_id, lease_token = claimed
+                    if self._last_claimed_type is not None:
+                        self._running_types[job_id] = self._last_claimed_type
+                        self._last_claimed_type = None
                     task = asyncio.create_task(
                         self._execute(job_id, lease_token), name=f"job-{job_id}"
                     )
@@ -1143,6 +1159,7 @@ class JobDispatcher:
 
     def _done(self, job_id: str) -> None:
         self._running.pop(job_id, None)
+        self._running_types.pop(job_id, None)
         self._wakeup.set()
 
     async def _recover_expired_jobs(self) -> None:
@@ -1226,6 +1243,21 @@ class JobDispatcher:
             ]
             if job_ids is not None:
                 conditions.append(Job.id.in_(job_ids))
+            elif self._running_types:
+                # 在 .limit(10) 前过滤已达同类上限的任务类型，防止大批慢任务造成队头阻塞、
+                # 把后面提交的扫描/入库等常规任务挡在候选窗口之外。
+                running_counts: dict[str, int] = {}
+                for running_type in self._running_types.values():
+                    running_counts[running_type] = running_counts.get(running_type, 0) + 1
+                saturated = [
+                    running_type
+                    for running_type, count in running_counts.items()
+                    if (reg := resolve_job_handler(running_type)) is not None
+                    and reg.max_parallel is not None
+                    and count >= reg.max_parallel
+                ]
+                if saturated:
+                    conditions.append(Job.job_type.not_in(saturated))
             if self._running:
                 # 回收租约后，先等本地旧协程退出再重领，否则会覆盖其 Task 引用，
                 # 旧协程的 done 回调还会误删新执行的引用。
@@ -1322,6 +1354,7 @@ class JobDispatcher:
                     await session.rollback()
                     continue
                 await notify_job_change()
+                self._last_claimed_type = candidate.job_type
                 return candidate.id, lease_token
         return None
 
@@ -1375,7 +1408,12 @@ class JobDispatcher:
                     },
                 )
             result = await registration.handler(
-                JobContext(job_id, lease_token=lease_token, lease_lost=lease_lost),
+                JobContext(
+                    job_id,
+                    lease_token=lease_token,
+                    lease_lost=lease_lost,
+                    attempt=job.attempt,
+                ),
                 input_data,
             )
             if lease_lost.is_set():

@@ -2093,6 +2093,15 @@
   "subtitleJob.rateLimitPaused": {
     "sourceHash": "e86fa5504f53f2fa2b4edeb6e9fa62ea42fa6d6df4d8333d12baae722fe40538"
   },
+  "subtitleJob.waitingProvider": {
+    "sourceHash": "0bf14323c90f24eb8ecbac04625bb4d7f692c744e38b2365ac00485094b3d4c8"
+  },
+  "subtitleJob.paced": {
+    "sourceHash": "7523ec72f291dfd2ee6f29934bef273a0b4b2801e9496692e202ac2c5b744bc3"
+  },
+  "subtitleJob.rateLimitRetry": {
+    "sourceHash": "77b72dbcd077598fe03fb43cc8cd0fc5cefe1df6a92d8bd27f4ebab5a0c67823"
+  },
   "subtitleJob.bilingualLabel": {
     "sourceHash": "eaf45548fe6c82d791a25abe69ce84c901843fa60d3e97f659629ccbd4194322"
   },

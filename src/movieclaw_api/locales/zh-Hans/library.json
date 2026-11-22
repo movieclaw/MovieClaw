@@ -511,7 +511,10 @@
     "asrWriteFailed": "台词已识别，但无法保存外挂字幕：{path}（{detail}）",
     "asrSource": "{source}（本地语音识别）",
     "completedAsr": "已识别出 {filename}（{count} 条台词，本地语音模型，未调用 AI）",
-    "asrRefused": "不能从音轨识别：{reason}"
+    "asrRefused": "不能从音轨识别：{reason}",
+    "waitingProvider": "排队等待当前字幕翻译完成后继续",
+    "paced": "正在按每 {seconds} 秒 1 块的节奏稳速翻译",
+    "rateLimitRetry": "模型服务持续限流，已完成的字幕块已保存，稍后将自动继续"
   },
   "duplicateScan": {
     "queued": "等待扫描重复文件",

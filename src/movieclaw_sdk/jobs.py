@@ -181,6 +181,8 @@ class RegisteredJobHandler:
     definition_versions: frozenset[int]
     #: 任务中心里这类任务的名字（不填显示任务类型）
     title: str | None = None
+    #: 同类任务同时运行上限（None = 不单独限制，共享全局执行器槽位）
+    max_parallel: int | None = None
 
 
 JOB_HANDLERS: RegistryKey[RegisteredJobHandler] = RegistryKey(

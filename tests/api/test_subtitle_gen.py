@@ -562,8 +562,9 @@ async def test_translate_checkpoint_cannot_bypass_failure_fuse(tmp_path: Path, m
             await translate.translate_events(bad_chat, events, CTX, "chs", file_id=30)
 
     checkpoint = json.loads(checkpoint_path.read_text(encoding="utf-8"))
-    # 有界并发允许同一批调用一起完成，因此熔断最多产生一个并发窗口的超调。
-    assert checkpoint["failed_blocks"] == list(range(translate.TRANSLATION_CONCURRENCY))
+    # 冷启动窗口为 2 且失败块不放大并发：10 块片子在 4/10 > 20% 时即熔断，
+    # 不再像旧版 8 路冷启动那样一口气烧掉 8 个块。
+    assert checkpoint["failed_blocks"] == [0, 1, 2, 3]
 
 
 async def test_translate_resume_retries_failed_blocks(tmp_path: Path, monkeypatch) -> None:
@@ -746,7 +747,7 @@ async def test_translate_untranslated_block_detected(tmp_path: Path, monkeypatch
 async def test_translate_uses_bounded_concurrency_and_reports_progress(
     tmp_path: Path, monkeypatch
 ) -> None:
-    """单片并发不超过初始上限，进度同时报告活动块和对白完成数。"""
+    """冷启动从慢启动窗口起步并平滑爬升至上限 8 路，进度同时报告活动块和对白完成数。"""
     monkeypatch.chdir(tmp_path)
     active = 0
     peak = 0
@@ -763,7 +764,7 @@ async def test_translate_uses_bounded_concurrency_and_reports_progress(
         active -= 1
         return json.dumps([{"i": e["i"], "t": f"译{e['i']}"} for e in block])
 
-    events = _events(500)  # 10 块，足以观察首批八路和第二批两路
+    events = _events(800)  # 16 块，足以验证慢启动（2 起步）并爬升至满速 8 路
     out, stats = await translate.translate_events(
         chat,
         events,
@@ -773,11 +774,13 @@ async def test_translate_uses_bounded_concurrency_and_reports_progress(
         progress=snapshots.append,
     )
 
+    first_active = next(snapshot for snapshot in snapshots if snapshot.active_blocks)
+    assert len(first_active.active_blocks) == translate.TRANSLATION_INITIAL_CONCURRENCY == 2
     assert peak == translate.TRANSLATION_CONCURRENCY == 8
     assert any(len(snapshot.active_blocks) == 8 for snapshot in snapshots)
-    assert snapshots[-1].done_blocks == stats.total_blocks == 10
-    assert snapshots[-1].done_events == snapshots[-1].total_events == 500
-    assert len(out) == 500
+    assert snapshots[-1].done_blocks == stats.total_blocks == 16
+    assert snapshots[-1].done_events == snapshots[-1].total_events == 800
+    assert len(out) == 800
 
 
 async def test_translate_reports_heartbeat_before_first_block_finishes(
@@ -830,6 +833,7 @@ async def test_translate_rate_limit_reduces_concurrency_and_retries(
         await asyncio.sleep(0.01)
         return json.dumps([{"i": e["i"], "t": f"译{e['i']}"} for e in block])
 
+    warm_throttle = translate.ProviderThrottle(initial_concurrency=8)
     out, stats = await translate.translate_events(
         chat,
         _events(500),
@@ -838,12 +842,257 @@ async def test_translate_rate_limit_reduces_concurrency_and_retries(
         file_id=32,
         progress=snapshots.append,
         phase=lambda _phase, message: messages.append(message["message"]),
+        throttle=warm_throttle,
     )
 
     assert len(out) == 500 and stats.failed_blocks == 0
     assert attempts[0] == 2
     assert any(snapshot.concurrency == 4 for snapshot in snapshots)
     assert any("已降至 4 路" in message for message in messages)
+
+
+def test_provider_throttle_deduplicates_wave_and_adapts_rpm_pacing(monkeypatch) -> None:
+    """同一波在途 429 只折半一次；并发降至 1 仍 429 时自动拉开发车间隔并可稳定恢复。"""
+    monkeypatch.setattr(translate, "_RATE_LIMIT_MIN_DELAY", 0.01)
+    monkeypatch.setattr(translate, "_PACING_MIN_INTERVAL", 2.0)
+    monkeypatch.setattr(translate, "_CONCURRENCY_RECOVERY_SUCCESSES", 4)
+    throttle = translate.ProviderThrottle(initial_concurrency=8)
+
+    epoch1 = throttle.reserve_dispatch(now=10.0)
+    # 同一波次 3 个在途请求连续回 429：只折半一次（8 → 4），不会连砍到 1
+    throttle.on_rate_limit(epoch1, retry_after=1.0, attempt=1, now=10.1)
+    throttle.on_rate_limit(epoch1, retry_after=1.0, attempt=1, now=10.2)
+    throttle.on_rate_limit(epoch1, retry_after=1.0, attempt=1, now=10.3)
+    assert throttle.concurrency == 4
+    assert throttle.ssthresh == 4
+    assert throttle.min_interval == 0.0
+
+    # 新波次再撞 429：4 → 2 → 1
+    epoch2 = throttle.reserve_dispatch(now=12.0)
+    throttle.on_rate_limit(epoch2, retry_after=1.0, attempt=1, now=12.1)
+    assert throttle.concurrency == 2
+    epoch3 = throttle.reserve_dispatch(now=14.0)
+    throttle.on_rate_limit(epoch3, retry_after=1.0, attempt=1, now=14.1)
+    assert throttle.concurrency == 1
+    assert throttle.min_interval == 0.0
+
+    # 并发已是 1 仍遇到新一轮 429（典型 RPM 限流）：切入 pacing 间隔
+    epoch4 = throttle.reserve_dispatch(now=16.0)
+    throttle.on_rate_limit(epoch4, retry_after=None, attempt=1, now=16.1)
+    assert throttle.concurrency == 1
+    assert throttle.min_interval == 2.0
+
+    epoch5 = throttle.reserve_dispatch(now=20.0)
+    throttle.on_rate_limit(epoch5, retry_after=None, attempt=2, now=20.1)
+    assert throttle.min_interval == 4.0
+
+    # 连续稳定完成后先衰减 pacing，再归零，最后才试探提升并发
+    for i in range(4):
+        assert throttle.on_success(now=30.0 + i) is False
+    assert throttle.min_interval == 3.0
+    for i in range(8):
+        assert throttle.on_success(now=40.0 + i) is False
+    assert throttle.min_interval == 1.69
+    for i in range(4):
+        assert throttle.on_success(now=50.0 + i) is False
+    assert throttle.min_interval == 0.0
+    assert throttle.concurrency == 1
+    # min_interval 归零后，再连续稳定 4 次恢复并发至 2
+    grew = [throttle.on_success(now=60.0 + i) for i in range(4)]
+    assert grew == [False, False, False, True]
+    assert throttle.concurrency == 2
+
+
+async def test_translate_shares_learned_throttle_across_episodes(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """跨集记忆：第 1 集探出端点只能单路稳速后，第 2 集直接沿用稳态不再冷启动冲击。"""
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(translate, "_RATE_LIMIT_MIN_DELAY", 0.005)
+    monkeypatch.setattr(translate, "_PACING_MIN_INTERVAL", 0.015)
+    monkeypatch.setattr(translate, "_CONCURRENCY_RECOVERY_SUCCESSES", 20)
+
+    in_flight = 0
+    ep2_peak = 0
+    ep2_rate_limits = 0
+    current_episode = 1
+    shared = translate.ProviderThrottle()
+
+    async def strict_chat(system: str, user: str, _call: translate.ChatCall) -> str:
+        nonlocal in_flight, ep2_peak, ep2_rate_limits
+        if "找出其中反复出现的人名" in user:
+            return "[]"
+        in_flight += 1
+        try:
+            if current_episode == 2:
+                ep2_peak = max(ep2_peak, in_flight)
+            if in_flight > 1:
+                if current_episode == 2:
+                    ep2_rate_limits += 1
+                raise translate.ChatRateLimited(0.005)
+            await asyncio.sleep(0.005)
+            block = _prompt_block(user)
+            return json.dumps([{"i": e["i"], "t": f"译{e['i']}"} for e in block])
+        finally:
+            in_flight -= 1
+
+    out1, stats1 = await translate.translate_events(
+        strict_chat, _events(200), CTX, "chs", file_id=501, throttle=shared
+    )
+    assert len(out1) == 200 and stats1.failed_blocks == 0
+    assert shared.concurrency == 1
+
+    current_episode = 2
+    out2, stats2 = await translate.translate_events(
+        strict_chat, _events(200), CTX, "chs", file_id=502, throttle=shared
+    )
+    assert len(out2) == 200 and stats2.failed_blocks == 0
+    assert ep2_peak == 1, "第 2 集应继承第 1 集学到的单并发上限，不再重新爆发"
+    assert ep2_rate_limits == 0
+
+
+async def test_translate_glossary_retries_rate_limit_instead_of_dropping(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """术语表抽取遇瞬时 429 应走节流器退避重试，而不是静默丢弃术语表。"""
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(translate, "_RATE_LIMIT_MIN_DELAY", 0.005)
+    glossary_calls = 0
+
+    async def chat(system: str, user: str, _call: translate.ChatCall) -> str:
+        nonlocal glossary_calls
+        if "找出其中反复出现的人名" in user:
+            glossary_calls += 1
+            if glossary_calls <= 2:
+                raise translate.ChatRateLimited(0.005)
+            return json.dumps({"items": [{"src": "Neo", "dst": "尼奥"}]})
+        block = _prompt_block(user)
+        return json.dumps([{"i": e["i"], "t": f"译{e['i']}"} for e in block])
+
+    throttle = translate.ProviderThrottle()
+    out, stats = await translate.translate_events(
+        chat, _events(50), CTX, "chs", file_id=503, throttle=throttle
+    )
+    assert glossary_calls == 3
+    assert stats.glossary == {"Neo": "尼奥"}
+    assert throttle.concurrency == 1
+    assert len(out) == 50
+
+
+async def test_translate_sustained_rate_limit_raises_retryable_and_saves_checkpoint(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """持续限流超出块内退避上限时抛 TranslationRateLimited（供任务级重试），且已完成块已落断点。"""
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(translate, "_RATE_LIMIT_MIN_DELAY", 0.001)
+    monkeypatch.setattr(translate, "_RATE_LIMIT_MAX_DELAY", 0.002)
+    monkeypatch.setattr(translate, "_RATE_LIMIT_MAX_RETRIES", 2)
+
+    async def chat(system: str, user: str, _call: translate.ChatCall) -> str:
+        if "找出其中反复出现的人名" in user:
+            return "[]"
+        block = _prompt_block(user)
+        if block[0]["i"] == 0:
+            return json.dumps([{"i": e["i"], "t": f"译{e['i']}"} for e in block])
+        raise translate.ChatRateLimited(0.001)
+
+    with pytest.raises(translate.TranslationRateLimited):
+        await translate.translate_events(chat, _events(100), CTX, "chs", file_id=504)
+
+    checkpoint = json.loads(
+        next((tmp_path / "data").rglob("*.checkpoint.json")).read_text(encoding="utf-8")
+    )
+    assert list(checkpoint["blocks"].keys()) == ["0"]
+
+
+async def test_provider_translation_slot_serializes_same_provider_and_allows_others() -> None:
+    """同供应商翻译阶段单飞并通知等待回调；不同供应商互不阻塞；取消可立即退出等待。"""
+    translate.reset_provider_throttles()
+    try:
+        entered_a1 = asyncio.Event()
+        release_a1 = asyncio.Event()
+        waited: list[str] = []
+        order: list[str] = []
+
+        async def worker_a1() -> None:
+            async with translate.provider_translation_slot("id:1"):
+                order.append("a1-start")
+                entered_a1.set()
+                await release_a1.wait()
+                order.append("a1-end")
+
+        async def worker_a2() -> None:
+            await entered_a1.wait()
+            async with translate.provider_translation_slot(
+                "id:1", on_wait=lambda: waited.append("a2")
+            ):
+                order.append("a2-start")
+
+        async def worker_b1() -> None:
+            await entered_a1.wait()
+            async with translate.provider_translation_slot("id:2"):
+                order.append("b1-start")
+
+        async def worker_a3_cancel() -> None:
+            await entered_a1.wait()
+            async with translate.provider_translation_slot(
+                "id:1", on_wait=lambda: waited.append("a3")
+            ):
+                order.append("a3-never")
+
+        t_a1 = asyncio.create_task(worker_a1())
+        t_a2 = asyncio.create_task(worker_a2())
+        t_b1 = asyncio.create_task(worker_b1())
+        t_a3 = asyncio.create_task(worker_a3_cancel())
+
+        await asyncio.wait_for(t_b1, timeout=1.0)
+        assert "b1-start" in order and "a2-start" not in order
+        assert "a2" in waited and "a3" in waited
+
+        t_a3.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await t_a3
+
+        release_a1.set()
+        await asyncio.gather(t_a1, t_a2)
+        assert order.index("a1-end") < order.index("a2-start")
+        assert "a3-never" not in order
+    finally:
+        translate.reset_provider_throttles()
+
+
+async def test_subtitle_job_handler_maps_sustained_rate_limit_to_progressive_retry(
+    monkeypatch,
+) -> None:
+    """持续限流不再直接转 JobFailed，而是按 attempt 渐进退避并推进供应商冷却窗口。"""
+    from movieclaw_api.services import jobs
+
+    translate.reset_provider_throttles()
+    try:
+        class Context:
+            def __init__(self, attempt: int) -> None:
+                self.attempt = attempt
+
+            async def update_progress(self, **_kwargs):  # noqa: ANN003
+                return None
+
+            async def cancel_requested(self) -> bool:
+                return False
+
+        async def rate_limited(_file_id, _target, state, **_kwargs):  # noqa: ANN001, ANN003
+            state.provider_key = "id:99"
+            raise translate.TranslationRateLimited(retry_after=10.0)
+
+        monkeypatch.setattr(tasks, "_run", rate_limited)
+        expected_delays = [(1, 60), (2, 120), (3, 240)]
+        for attempt, expected in expected_delays:
+            with pytest.raises(jobs.JobRetry) as caught:
+                await tasks._run_generation_job(Context(attempt), {"file_id": 101})
+            assert caught.value.code == "SUBTITLE_MODEL_RATE_LIMITED"
+            assert caught.value.delay_seconds == expected
+            assert translate.get_provider_throttle("id:99").wait_seconds() > expected - 5
+    finally:
+        translate.reset_provider_throttles()
 
 
 # ---------------------------------------------------------------------------

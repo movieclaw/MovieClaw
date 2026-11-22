@@ -179,6 +179,7 @@ class GenState:
     transcribe_position_seconds: float | None = None
     transcribe_duration_seconds: int | None = None
     transcribe_paused: bool = False
+    provider_key: str | None = None
     llm_usage: SubtitleLlmUsage = field(default_factory=SubtitleLlmUsage)
 
     def set_message(self, key: str, **params) -> None:
@@ -1339,7 +1340,7 @@ async def enqueue_generation_job(
             f"{subtitle_output_key(target_language, secondary_language)}"
         ),
         conflict_policy="return_existing",
-        max_attempts=2,
+        max_attempts=4,
         actor_kind=actor_kind,
         actor_name=actor_name,
         actor_id=actor_id,
@@ -1470,6 +1471,20 @@ def _translation_abort_reason(exc: translate.TranslationAborted) -> dict | str:
 _STOP_AT_ONCE_PHASES = frozenset({"preparing", "extracting", "ocr", "transcribing", "syncing"})
 #: 模型服务暂时不可用时，隔多久自动重试一次（从断点继续，不重复花钱）
 _MODEL_RETRY_DELAY_SECONDS = 30
+#: 持续限流转入任务级退避重试时的基础间隔与上限（按 attempt 渐进翻倍：60s → 120s → 240s）
+_RATE_LIMIT_RETRY_BASE_SECONDS = 60
+_RATE_LIMIT_RETRY_MAX_SECONDS = 300
+#: 字幕生成最多同时占用 2 个全局调度槽（1 集翻译 + 1 集预读取/同步检查，其余留给常规任务）
+SUBTITLE_JOB_MAX_PARALLEL = 2
+
+
+def _rate_limit_retry_delay(attempt: int, retry_after: float | None = None) -> int:
+    progressive = _RATE_LIMIT_RETRY_BASE_SECONDS * (2 ** max(0, attempt - 1))
+    suggested = int(retry_after + 0.999) if retry_after is not None and retry_after > 0 else 0
+    return min(
+        _RATE_LIMIT_RETRY_MAX_SECONDS,
+        max(_MODEL_RETRY_DELAY_SECONDS, progressive, suggested),
+    )
 
 
 def _model_setup_problem(message: str, key: str | None, params: dict | None) -> bool:
@@ -1489,7 +1504,7 @@ def _brief(exc: Exception, limit: int = 200) -> str:
     return text if len(text) <= limit else text[:limit] + "…"
 
 
-@jobs.register_job_handler("subtitle.generate")
+@jobs.register_job_handler("subtitle.generate", max_parallel=SUBTITLE_JOB_MAX_PARALLEL)
 async def _run_generation_job(
     context: jobs.JobContext, input_data: dict[str, object]
 ) -> dict[str, object]:
@@ -1636,7 +1651,26 @@ async def _run_generation_job(
                 {"type": "handoff_agent", "label": "交给 Agent", "label_key": "activity.jobs.agent"}
             ],
         ) from exc
-    except (LlmConnectError, LlmServerError, LlmRateLimitError) as exc:
+    except (translate.TranslationRateLimited, LlmRateLimitError) as exc:
+        if cancelled.is_set() or await context.cancel_requested():
+            raise jobs.JobCancelled from exc
+        delay = _rate_limit_retry_delay(getattr(context, "attempt", 1), exc.retry_after)
+        if state.provider_key:
+            translate.get_provider_throttle(state.provider_key).note_cooldown(delay)
+        raise jobs.JobRetry(
+            **stored_fields("library.subtitleJob.rateLimitRetry"),
+            delay_seconds=delay,
+            code="SUBTITLE_MODEL_RATE_LIMITED",
+            actions=[
+                {"type": "retry_job", "label": "重试", "label_key": "activity.jobs.retry"},
+                {
+                    "type": "handoff_agent",
+                    "label": "交给 Agent",
+                    "label_key": "activity.jobs.agent",
+                },
+            ],
+        ) from exc
+    except (LlmConnectError, LlmServerError) as exc:
         # 连不上、供应商 5xx：多半过一会儿自己恢复。说清楚是模型服务的问题、已完成
         # 的块都在断点里，交给调度器稍后自动重试——此前这里落进「未知错误」，
         # 用户只看到一句「任务遇到临时异常」，重试用尽后是「发生未知错误」。
@@ -2094,55 +2128,70 @@ async def _run(
                     active=active_count,
                 )
 
-    out_events, stats = await translate.translate_events(
-        chat,
-        events,
-        ctx,
-        target_language,
-        file_id=file_id,
-        secondary_language=secondary_language,
-        progress=_progress,
-        phase=_phase,
-        cancelled=cancelled,
-    )
+    provider_key = getattr(chat, "provider_key", None)
+    state.provider_key = provider_key
 
-    state.phase = "validating"
-    state.set_message("library.subtitleJob.validating")
-    state.active_blocks = ()
-    final_events, report = validate.finalize_events(
-        out_events,
-        stats.glossary,
-        target_language=target_language,
-        secondary_language=secondary_language,
-    )
-    # 超读速二次压缩（§3.3"浓缩优先"的闭环）：只回炉超标子集（通常 <10%），
-    # 压缩失败保留原译文——这是增益项，绝不因它废任务
-    compressed = 0
-    overruns = validate.overrun_indices(
-        final_events,
-        target_language=target_language,
-        secondary_language=secondary_language,
-    )
-    # 双语的两行就是语种边界，压缩模型再次改写容易破坏严格两行结构；本期
-    # 对双语只报告超读速，由首次翻译提示词负责浓缩。
-    if overruns and secondary_language is None:
-        state.phase = "compressing"
-        state.set_message("library.subtitleJob.compressing", count=len(overruns))
-        refined, compressed = await translate.compress_overruns(
+    def _waiting_provider() -> None:
+        state.phase = "preparing"
+        state.set_message("library.subtitleJob.waitingProvider")
+        state.active_blocks = ()
+        state.oldest_active_seconds = 0
+
+    async with translate.provider_translation_slot(
+        provider_key, on_wait=_waiting_provider
+    ) as throttle:
+        out_events, stats = await translate.translate_events(
             chat,
-            final_events,
-            overruns,
+            events,
             ctx,
             target_language,
-            secondary_language,
-            glossary=stats.glossary,
+            file_id=file_id,
+            secondary_language=secondary_language,
+            progress=_progress,
+            phase=_phase,
+            cancelled=cancelled,
+            throttle=throttle,
         )
-        if compressed:
-            final_events, report = validate.finalize_events(
-                refined,
-                stats.glossary,
-                target_language=target_language,
+
+        state.phase = "validating"
+        state.set_message("library.subtitleJob.validating")
+        state.active_blocks = ()
+        final_events, report = validate.finalize_events(
+            out_events,
+            stats.glossary,
+            target_language=target_language,
+            secondary_language=secondary_language,
+        )
+        # 超读速二次压缩（§3.3"浓缩优先"的闭环）：只回炉超标子集（通常 <10%），
+        # 压缩失败保留原译文——这是增益项，绝不因它废任务
+        compressed = 0
+        overruns = validate.overrun_indices(
+            final_events,
+            target_language=target_language,
+            secondary_language=secondary_language,
+        )
+        # 双语的两行就是语种边界，压缩模型再次改写容易破坏严格两行结构；本期
+        # 对双语只报告超读速，由首次翻译提示词负责浓缩。
+        if overruns and secondary_language is None:
+            state.phase = "compressing"
+            state.set_message("library.subtitleJob.compressing", count=len(overruns))
+            refined, compressed = await translate.compress_overruns(
+                chat,
+                final_events,
+                overruns,
+                ctx,
+                target_language,
+                secondary_language,
+                glossary=stats.glossary,
+                throttle=throttle,
+                cancelled=cancelled,
             )
+            if compressed:
+                final_events, report = validate.finalize_events(
+                    refined,
+                    stats.glossary,
+                    target_language=target_language,
+                )
     report.kept_original = stats.kept_original
     report.compressed = compressed
 
@@ -2502,6 +2551,11 @@ async def _build_chat(
             raise ValueError("字幕模型返回了意外的工具调用，正在重试结构化输出")
         return response.content or ""
 
+    chat.provider_key = (  # type: ignore[attr-defined]
+        f"id:{provider.provider_id}"
+        if provider.provider_id is not None
+        else f"name:{provider.name}"
+    )
     return chat
 
 
