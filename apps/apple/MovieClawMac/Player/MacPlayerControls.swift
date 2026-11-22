@@ -10,7 +10,7 @@ import SwiftUI
 //   下面垫一层淡的黑色渐变托字。图标大而实，播放键最大。
 // 开关类按钮的状态不只靠颜色（吸取 Apple Music 胶囊的教训）：字幕开着用实心气泡，关着用空心。
 
-/// 控制层尺寸：胶囊与字幕避让、右下角按钮都按它算
+/// 控制层尺寸：胶囊、居中与拖拽边界都按它算
 enum MacPlayerMetrics {
     static let panelHeight: CGFloat = 100
     static let panelMaxWidth: CGFloat = 720
@@ -18,10 +18,10 @@ enum MacPlayerMetrics {
     static let panelCorner: CGFloat = 22
     /// 面板两侧留的窗口边距上限（窄窗口按窗口宽的 5%）
     static let panelSideInset: CGFloat = 48
-    /// 面板顶边距窗口底边：字幕要抬到它上面
-    static var chromeHeight: CGFloat { panelBottom + panelHeight + 12 }
     /// 播放器的坐标空间（左上角为原点）：指针位置按它记，进度条据此算悬停在哪
     static let space = "mac-player"
+    /// 浮动控制条归一化位置的 `@AppStorage` 键（空串 = 默认底部居中）
+    static let controlBarPositionKey = "movieclaw.mac.player.controlBarPosition"
 }
 
 /// 左上角：（窗口模式下）红绿灯 + 返回按钮 + 片名两行
@@ -137,7 +137,7 @@ struct MacWindowControls: NSViewRepresentable {
     func sizeThatFits(_ proposal: ProposedViewSize, nsView: Container, context: Context) -> CGSize? { Self.size }
 }
 
-/// 底部的玻璃控制面板
+/// 浮动的玻璃控制面板（默认底部居中，按空白处可拖到画面任意位置）
 struct MacPlayerTransport: View {
     let controller: PlaybackController
     let trickplay: TrickplayImages
@@ -145,6 +145,9 @@ struct MacPlayerTransport: View {
     let isFullScreen: Bool
     /// 指针位置（播放器坐标空间），进度条的悬停预览用
     let pointer: CGPoint?
+    /// 当前舞台尺寸与控制条实时 frame（进度条缩略图预览防裁切、靠上自动向下翻转）
+    var stageSize: CGSize = .zero
+    var barFrame: CGRect = .zero
     @Binding var scrubMs: Int?
     @Binding var panel: MacPlayerPanelKind?
     /// 选集侧栏开着（`MacEpisodeSidebar`）；剧集才有这颗键
@@ -193,7 +196,8 @@ struct MacPlayerTransport: View {
                     .frame(minWidth: 46, alignment: .leading)
                     .accessibilityIdentifier("mac-player-time")
                     .accessibilityValue("\(position)")
-                MacScrubber(controller: controller, trickplay: trickplay, pointer: pointer, scrubMs: $scrubMs)
+                MacScrubber(controller: controller, trickplay: trickplay, pointer: pointer,
+                            stageSize: stageSize, barFrame: barFrame, scrubMs: $scrubMs)
                 // 不是正常速度时常驻一个角标，免得忘了自己开着倍速
                 if controller.rate != 1 {
                     Text(PlaybackSpeed.short(controller.rate))
@@ -314,6 +318,7 @@ private struct MacPlayerMoreMenu: View {
                 Text(String(localized: .playerControlsSpeed))
                 Text(PlaybackSpeed.label(controller.rate))
             }
+            MacControlBarResetMenuItem()
         } label: {
             Image(systemName: "ellipsis")
                 .font(.system(size: 17, weight: .semibold))
@@ -327,6 +332,20 @@ private struct MacPlayerMoreMenu: View {
         .help(String(localized: .commonMore))
         .accessibilityLabel(String(localized: .playerMacMore))
         .accessibilityIdentifier("mac-player-more")
+    }
+}
+
+/// 独立观察控制条位置：避免给 `MacPlayerMoreMenu` 引入 `@AppStorage` 导致时间轴 tick 破坏菜单隔离
+private struct MacControlBarResetMenuItem: View {
+    @AppStorage(MacPlayerMetrics.controlBarPositionKey) private var controlBarPosition = ""
+
+    var body: some View {
+        if !controlBarPosition.isEmpty {
+            Divider()
+            Button(String(localized: .playerMacResetControlBarPosition)) {
+                controlBarPosition = ""
+            }
+        }
     }
 }
 
@@ -455,6 +474,8 @@ struct MacScrubber: View {
     let controller: PlaybackController
     let trickplay: TrickplayImages
     let pointer: CGPoint?
+    let stageSize: CGSize
+    let barFrame: CGRect
     @Binding var scrubMs: Int?
 
     /// 缩略图宽（点）：雪碧图格子按它缩放
@@ -467,9 +488,20 @@ struct MacScrubber: View {
             let position = controller.timelineMs(fromFileMs: scrubMs ?? controller.positionMs)
             let buffered = controller.bufferedEndMs.map { controller.timelineMs(fromFileMs: $0) } ?? 0
             let playedX = width * fraction(position, of: duration)
-            let hoverX = hoverX(in: proxy.frame(in: .named(MacPlayerMetrics.space)))
+            let scrubberFrame = proxy.frame(in: .named(MacPlayerMetrics.space))
+            let hoverX = hoverX(in: scrubberFrame)
             let thick = hoverX != nil || scrubMs != nil
             let knob: CGFloat = thick ? 26 : 22
+            let activeX = scrubMs != nil ? playedX : hoverX
+            let previewPlacement = activeX.map {
+                MacControlBarLayout.scrubberPreviewPlacement(
+                    hoverX: $0,
+                    scrubberFrame: scrubberFrame,
+                    barFrame: barFrame,
+                    stage: stageSize,
+                    previewWidth: Self.previewWidth
+                )
+            }
             ZStack(alignment: .leading) {
                 Capsule().fill(.white.opacity(0.22))
                 Capsule().fill(.white.opacity(0.32))
@@ -495,12 +527,15 @@ struct MacScrubber: View {
             }
             .frame(maxHeight: .infinity)
             .contentShape(.rect)
-            .overlay(alignment: .bottom) {
-                // 悬停 / 拖动时的预览：拖动时跟着播放头，单纯悬停时跟着鼠标；底边在进度条上方 26 点
-                if duration > 0, let x = scrubMs != nil ? playedX : hoverX {
+            .overlay(alignment: previewPlacement?.opensDownward == true ? .top : .bottom) {
+                // 悬停 / 拖动时的预览：拖动时跟着播放头，单纯悬停时跟着鼠标；控制条靠上时自动向下翻转，左右夹在画面内
+                if duration > 0, let x = activeX, let previewPlacement {
                     preview(fileMs: fileMs(at: x, width: width, duration: duration))
                         .fixedSize()
-                        .offset(x: x - width / 2, y: -(proxy.size.height / 2 + 26))
+                        .offset(
+                            x: previewPlacement.offsetX,
+                            y: previewPlacement.opensDownward ? (proxy.size.height + 18) : -(proxy.size.height / 2 + 26)
+                        )
                         .allowsHitTesting(false)
                         .transition(.opacity)
                 }

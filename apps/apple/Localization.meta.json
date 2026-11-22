@@ -1717,6 +1717,9 @@
     "player.mac.more": {
       "sourceHash": "ed96666bfa6caf9b86cd806324880f05f1c472fec124ddaec3ab63bb8004a311"
     },
+    "player.mac.resetControlBarPosition": {
+      "sourceHash": "67b13eadb87e19354205c6d5074c1662c0390002227dec89de27f98444e6d5fe"
+    },
     "player.mac.unmuteShortcut": {
       "sourceHash": "f1a599a44532aeda7da13274d48443f6c445b0bcd0fb0b2ad9bab7f067e01b70"
     },

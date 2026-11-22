@@ -36,6 +36,7 @@ enum Formatters { static func clock(_ value: Double) -> String { String(Int(valu
 enum MacPlayerMetrics {
     static let panelHeight: CGFloat = 100
     static let panelCorner: CGFloat = 22
+    static let controlBarPositionKey = "movieclaw.mac.player.controlBarPosition"
 }
 struct MacVolumeControl: View {
     let volume: MacPlayerVolume
@@ -46,6 +47,8 @@ struct MacScrubber: View {
     let controller: PlaybackController
     let trickplay: TrickplayImages
     let pointer: CGPoint?
+    var stageSize: CGSize = .zero
+    var barFrame: CGRect = .zero
     @Binding var scrubMs: Int?
     var body: some View {
         let _ = Probe.scrubberRenders += 1
