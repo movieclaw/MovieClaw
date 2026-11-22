@@ -511,7 +511,10 @@
     "asrWriteFailed": "The dialogue was transcribed but the subtitles could not be saved: {path} ({detail})",
     "asrSource": "{source} (local speech recognition)",
     "completedAsr": "Transcribed {filename} ({count, plural, one {# line} other {# lines}}, local speech model, no AI calls)",
-    "asrRefused": "Cannot transcribe the audio: {reason}"
+    "asrRefused": "Cannot transcribe the audio: {reason}",
+    "waitingProvider": "Waiting for the current subtitle translation to finish before continuing",
+    "paced": "Translating at a steady pace of 1 block every {seconds, plural, one {# second} other {# seconds}}",
+    "rateLimitRetry": "The model service keeps rate-limiting. Finished blocks are saved and translation will resume automatically shortly"
   },
   "duplicateScan": {
     "queued": "Waiting to scan duplicate files",

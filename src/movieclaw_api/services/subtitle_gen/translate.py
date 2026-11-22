@@ -11,6 +11,7 @@ tasks 层用 movieclaw_llm 包装真实现，测试注入假实现。
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import hashlib
 import json
 import logging
@@ -18,10 +19,11 @@ import os
 import re
 import time
 from collections import deque
-from collections.abc import Awaitable, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal
+from weakref import WeakKeyDictionary
 
 from movieclaw_api.i18n.stored import stored_fields
 from movieclaw_api.services.subtitle_gen.extract import SubEvent, cache_dir
@@ -53,12 +55,15 @@ FAILED_BLOCK_ABORT_RATE = 0.2  # 失败块超 20% 中止任务（§3.6 熔断）
 # 唯一不依赖供应商能否关思考、能否调预算的兜底。
 _SPLIT_MIN_EVENTS = 4  # 少于这个条数不再拆（拆无可拆）
 _SPLIT_MAX_DEPTH = 2  # 最多拆两层（50→25→12），调用次数封顶 1+2+4=7 次
-# 单文件从 8 路并发起步；遇到 429 后协调器会自动降并发并退避，稳定完成
-# 一段时间后再逐级恢复。高延迟模型因此无需被最保守的供应商永久拖慢。
+# 单供应商冷启动从 2 路慢启动爬坡，上限 8 路；遇到 429 后按波次减半，降到 1 路
+# 仍限流时自动拉开请求发车间隔（适配 RPM 限流），并跨集记住当前供应商的稳态。
+TRANSLATION_INITIAL_CONCURRENCY = 2
 TRANSLATION_CONCURRENCY = 8
-_RATE_LIMIT_MAX_RETRIES = 5
+_RATE_LIMIT_MAX_RETRIES = 6
 _RATE_LIMIT_MIN_DELAY = 1.0
 _RATE_LIMIT_MAX_DELAY = 60.0
+_PACING_MIN_INTERVAL = 2.0
+_PACING_MAX_INTERVAL = 30.0
 _CONCURRENCY_RECOVERY_SUCCESSES = 8
 _PROGRESS_HEARTBEAT_SECONDS = 10.0
 
@@ -146,6 +151,202 @@ class ChatRateLimited(Exception):
         self.retry_after = retry_after
         # i18n-ignore: model prompt body and internal retry diagnostics
         super().__init__("模型请求触发限流")
+
+
+class TranslationRateLimited(Exception):
+    """持续限流超出单轮块内退避上限：已完成块已落断点，交由调度器延迟续译。"""
+
+    def __init__(self, retry_after: float | None = None) -> None:
+        self.retry_after = retry_after
+        # i18n-ignore: model prompt body and internal retry diagnostics
+        super().__init__("模型服务持续限流")
+
+
+class ProviderThrottle:
+    """按供应商实例共享的字幕拥塞控制器：慢启动 + 按波次去重 AIMD + RPM 节奏控制。
+
+    仅约束批量字幕管线（不阻塞交互式 Agent 对话）：
+    - 慢启动：冷启动从 ``TRANSLATION_INITIAL_CONCURRENCY`` 起步，稳定完成后快速爬升至上限；
+    - 去重降速：通过整数 ``_epoch`` 区分波次，同一波在途请求陆续回 429 只折半一次；
+    - RPM 节奏：并发降至 1 仍遇到新一轮 429 时自动拉开发车间隔 ``min_interval``，
+      连续稳定后再逐步衰减归零并恢复并发试探。
+    """
+
+    def __init__(
+        self,
+        *,
+        initial_concurrency: int | None = None,
+        max_concurrency: int | None = None,
+    ) -> None:
+        ceiling = max(1, TRANSLATION_CONCURRENCY if max_concurrency is None else max_concurrency)
+        start = (
+            TRANSLATION_INITIAL_CONCURRENCY
+            if initial_concurrency is None
+            else initial_concurrency
+        )
+        self.max_concurrency = ceiling
+        self.concurrency = max(1, min(ceiling, start))
+        self.ssthresh = ceiling
+        self.min_interval = 0.0
+        self.cooldown_until = 0.0
+        self.next_dispatch_at = 0.0
+        self.stable_successes = 0
+        self.had_congestion = False
+        self._epoch = 0
+
+    def ready_at(self) -> float:
+        return max(self.cooldown_until, self.next_dispatch_at)
+
+    def wait_seconds(self, now: float | None = None) -> float:
+        current = time.monotonic() if now is None else now
+        return max(0.0, self.ready_at() - current)
+
+    def reserve_dispatch(self, now: float | None = None) -> int:
+        current = time.monotonic() if now is None else now
+        if self.min_interval > 0:
+            self.next_dispatch_at = max(current, self.next_dispatch_at) + self.min_interval
+        return self._epoch
+
+    def note_cooldown(self, delay: float, now: float | None = None) -> None:
+        current = time.monotonic() if now is None else now
+        until = current + max(0.0, delay)
+        self.cooldown_until = max(self.cooldown_until, until)
+        self.next_dispatch_at = max(self.next_dispatch_at, self.cooldown_until)
+
+    def on_rate_limit(
+        self,
+        dispatch_epoch: int,
+        *,
+        retry_after: float | None = None,
+        attempt: int = 1,
+        now: float | None = None,
+    ) -> tuple[float, int, float]:
+        current = time.monotonic() if now is None else now
+        previous_concurrency = self.concurrency
+        previous_interval = self.min_interval
+        suggested = retry_after if retry_after is not None else float(2 ** min(attempt, 6))
+        retry_delay = min(_RATE_LIMIT_MAX_DELAY, max(_RATE_LIMIT_MIN_DELAY, suggested))
+        self.note_cooldown(retry_delay, current)
+        if dispatch_epoch == self._epoch:
+            self._epoch += 1
+            self.had_congestion = True
+            self.stable_successes = 0
+            if self.concurrency > 1:
+                self.ssthresh = max(1, self.concurrency // 2)
+                self.concurrency = self.ssthresh
+            else:
+                self.ssthresh = 1
+                if retry_after is not None and retry_after > 0:
+                    self.min_interval = min(
+                        _PACING_MAX_INTERVAL,
+                        max(self.min_interval, _PACING_MIN_INTERVAL, retry_after),
+                    )
+                else:
+                    self.min_interval = min(
+                        _PACING_MAX_INTERVAL,
+                        max(_PACING_MIN_INTERVAL, self.min_interval * 2.0),
+                    )
+        return retry_delay, previous_concurrency, previous_interval
+
+    def on_success(
+        self,
+        *,
+        allow_concurrency_growth: bool = True,
+        now: float | None = None,
+    ) -> bool:
+        current = time.monotonic() if now is None else now
+        if self.min_interval > 0:
+            self.stable_successes += 1
+            if self.stable_successes >= _CONCURRENCY_RECOVERY_SUCCESSES:
+                self.stable_successes = 0
+                if self.min_interval <= _PACING_MIN_INTERVAL:
+                    self.min_interval = 0.0
+                else:
+                    self.min_interval = round(self.min_interval * 0.75, 2)
+            return False
+        if not allow_concurrency_growth:
+            return False
+        if self.concurrency < self.ssthresh:
+            if current >= self.cooldown_until:
+                self.concurrency = min(self.ssthresh, self.concurrency + 1)
+                self.stable_successes = 0
+                return True
+            return False
+        if self.concurrency < self.max_concurrency:
+            self.stable_successes += 1
+            if (
+                self.stable_successes >= _CONCURRENCY_RECOVERY_SUCCESSES
+                and current >= self.cooldown_until
+            ):
+                self.concurrency += 1
+                self.stable_successes = 0
+                return True
+        return False
+
+
+_provider_throttles: dict[str, ProviderThrottle] = {}
+_provider_locks: WeakKeyDictionary[asyncio.AbstractEventLoop, dict[str, asyncio.Lock]] = (
+    WeakKeyDictionary()
+)
+
+
+def get_provider_throttle(provider_key: str) -> ProviderThrottle:
+    throttle = _provider_throttles.get(provider_key)
+    if throttle is None:
+        throttle = ProviderThrottle()
+        _provider_throttles[provider_key] = throttle
+    return throttle
+
+
+def reset_provider_throttles() -> None:
+    """重置进程内供应商拥塞状态与翻译锁（仅供测试隔离使用）。"""
+    _provider_throttles.clear()
+    _provider_locks.clear()
+
+
+def _provider_lock(provider_key: str) -> asyncio.Lock:
+    loop = asyncio.get_running_loop()
+    locks = _provider_locks.setdefault(loop, {})
+    lock = locks.get(provider_key)
+    if lock is None:
+        lock = asyncio.Lock()
+        locks[provider_key] = lock
+    return lock
+
+
+@contextlib.asynccontextmanager
+async def provider_translation_slot(
+    provider_key: str | None,
+    *,
+    on_wait: Callable[[], None] | None = None,
+) -> AsyncIterator[ProviderThrottle]:
+    """同供应商的字幕翻译单飞入口：消除多任务并发乘数，同时共享跨集拥塞状态。"""
+    if not provider_key:
+        yield ProviderThrottle()
+        return
+    throttle = get_provider_throttle(provider_key)
+    lock = _provider_lock(provider_key)
+    if lock.locked() and on_wait is not None:
+        on_wait()
+    await lock.acquire()
+    try:
+        yield throttle
+    finally:
+        lock.release()
+
+
+async def _wait_for_throttle(
+    throttle: ProviderThrottle,
+    *,
+    cancelled: Callable[[], bool] | None = None,
+) -> None:
+    while True:
+        if cancelled is not None and cancelled():
+            raise TranslationAborted(stored_fields("library.subtitleJob.cancelledSaved"))
+        delay = throttle.wait_seconds()
+        if delay <= 0:
+            return
+        await asyncio.sleep(min(1.0, delay))
 
 
 class ChatOutputTruncated(ValueError):
@@ -296,33 +497,62 @@ async def build_glossary(
     ctx: FilmContext,
     target_language: str,
     secondary_language: str | None = None,
+    *,
+    throttle: ProviderThrottle | None = None,
+    cancelled: Callable[[], bool] | None = None,
 ) -> dict[str, str]:
-    """第一遍：抽样建术语表（失败不阻断任务——空表照样翻，§3.1）。"""
+    """第一遍：抽样建术语表（非限流失败不阻断任务——空表照样翻，§3.1）。"""
     step = max(1, len(events) // 300)
     sample = "\n".join(t for _, _, t in events[::step][:300])
     lang = _output_description(target_language, secondary_language)
-    try:
-        raw = await chat(
-            # i18n-ignore: model prompt body and internal retry diagnostics
-            f"你是影视字幕翻译助理。影片：{_film_intro(ctx)}",
-            _GLOSSARY_PROMPT.format(lang=lang) + "\n\n" + sample,
-            ChatCall(
-                purpose="glossary",
-                event_count=min(300, len(events)),
-                bilingual=secondary_language is not None,
-            ),
-        )
-        entries = _parse_json_block(raw)
-        glossary = {
-            str(e["src"]): str(e["dst"])
-            for e in entries
-            if isinstance(e, dict) and e.get("src") and e.get("dst")
-        }
-        logger.info("术语表建立完成：%d 条", len(glossary))
-        return glossary
-    except Exception as exc:  # noqa: BLE001 -- 术语表失败不值得废整个任务
-        logger.warning("术语表抽取失败（继续无术语表翻译）：%s", exc)
-        return {}
+    active_throttle = throttle or ProviderThrottle()
+    # i18n-ignore: model prompt body and internal retry diagnostics
+    system = f"你是影视字幕翻译助理。影片：{_film_intro(ctx)}"
+    user = _GLOSSARY_PROMPT.format(lang=lang) + "\n\n" + sample
+    for attempt in range(_RATE_LIMIT_MAX_RETRIES + 1):
+        await _wait_for_throttle(active_throttle, cancelled=cancelled)
+        dispatch_epoch = active_throttle.reserve_dispatch()
+        try:
+            raw = await chat(
+                system,
+                user,
+                ChatCall(
+                    purpose="glossary",
+                    event_count=min(300, len(events)),
+                    bilingual=secondary_language is not None,
+                    attempt=attempt + 1,
+                ),
+            )
+            active_throttle.on_success(allow_concurrency_growth=False)
+            entries = _parse_json_block(raw)
+            glossary = {
+                str(e["src"]): str(e["dst"])
+                for e in entries
+                if isinstance(e, dict) and e.get("src") and e.get("dst")
+            }
+            logger.info("术语表建立完成：%d 条", len(glossary))
+            return glossary
+        except ChatRateLimited as exc:
+            delay, prev_c, _ = active_throttle.on_rate_limit(
+                dispatch_epoch,
+                retry_after=exc.retry_after,
+                attempt=attempt + 1,
+            )
+            if attempt >= _RATE_LIMIT_MAX_RETRIES:
+                raise TranslationRateLimited(exc.retry_after) from exc
+            logger.warning(
+                "术语表抽取触发模型限流（并发 %d → %d，%.1f 秒后重试第 %d 次）",
+                prev_c,
+                active_throttle.concurrency,
+                delay,
+                attempt + 1,
+            )
+        except (TranslationAborted, TranslationRateLimited, asyncio.CancelledError):
+            raise
+        except Exception as exc:  # noqa: BLE001 -- 术语表失败不值得废整个任务
+            logger.warning("术语表抽取失败（继续无术语表翻译）：%s", exc)
+            return {}
+    return {}
 
 
 # ---------------------------------------------------------------------------
@@ -658,10 +888,12 @@ async def translate_events(
     progress: Callable[[TranslationProgress], None] | None = None,
     phase: Callable[[str, dict], None] | None = None,
     cancelled: Callable[[], bool] | None = None,
+    throttle: ProviderThrottle | None = None,
 ) -> tuple[list[SubEvent], TranslationStats]:
     """整片翻译：术语表 → 分块翻译（带断点/重试/熔断）→ 保时间轴回填。"""
     stats = TranslationStats()
     has_truncated_failure = False
+    active_throttle = throttle or ProviderThrottle()
     output_key = (
         target_language if secondary_language is None else f"{target_language}-{secondary_language}"
     )
@@ -705,7 +937,6 @@ async def translate_events(
             "断点中有 %d 个失败块（此前保留原文），本次续传将重新翻译",
             len(checkpoint.failed_blocks),
         )
-    target_concurrency = TRANSLATION_CONCURRENCY
     active_started: dict[int, float] = {}
     last_completed_at: float | None = None
 
@@ -725,7 +956,7 @@ async def translate_events(
                 done_events=sum(len(blocks[bi]) for bi in translated),
                 total_events=len(events),
                 active_blocks=active,
-                concurrency=target_concurrency,
+                concurrency=active_throttle.concurrency,
                 oldest_active_seconds=max(0, int(oldest_active)),
                 last_completed_seconds_ago=(
                     max(0, int(now - last_completed_at)) if last_completed_at is not None else None
@@ -735,6 +966,23 @@ async def translate_events(
             )
         )
 
+    def _emit_running_phase() -> None:
+        if phase is None:
+            return
+        if active_throttle.min_interval > 0:
+            phase(
+                "translating",
+                stored_fields(
+                    "library.subtitleJob.paced",
+                    seconds=max(1, int(round(active_throttle.min_interval))),
+                ),
+            )
+        else:
+            phase(
+                "translating",
+                stored_fields("library.subtitleJob.parallel", count=active_throttle.concurrency),
+            )
+
     notify()
     if checkpoint.glossary:
         glossary = checkpoint.glossary
@@ -742,7 +990,15 @@ async def translate_events(
         if phase is not None:
             phase("glossary", stored_fields("library.subtitleJob.glossary"))
         glossary_task = asyncio.create_task(
-            build_glossary(chat, events, ctx, target_language, secondary_language),
+            build_glossary(
+                chat,
+                events,
+                ctx,
+                target_language,
+                secondary_language,
+                throttle=active_throttle,
+                cancelled=cancelled,
+            ),
             name="subtitle-build-glossary",
         )
         glossary_started = time.monotonic()
@@ -770,21 +1026,20 @@ async def translate_events(
         checkpoint.save()
     stats.glossary = glossary
     system = system_prompt(ctx, glossary, target_language, secondary_language)
-    if phase is not None:
-        phase(
-            "translating", stored_fields("library.subtitleJob.parallel", count=target_concurrency)
-        )
+    _emit_running_phase()
 
     remaining = deque(bi for bi in range(stats.total_blocks) if bi not in translated)
-    running: dict[asyncio.Task[tuple[int, list[str], bool, int, bool]], int] = {}
+    running: dict[asyncio.Task[tuple[int, list[str], bool, int, bool]], tuple[int, int]] = {}
     rate_limit_attempts: dict[int, int] = {}
-    stable_successes = 0
-    cooldown_until = 0.0
+
+    def _active_block_numbers() -> tuple[int, ...]:
+        return tuple(sorted(bi + 1 for bi, _ in running.values()))
 
     def schedule() -> None:
-        if time.monotonic() < cooldown_until:
-            return
-        while len(running) < target_concurrency and remaining:
+        while len(running) < active_throttle.concurrency and remaining:
+            if active_throttle.wait_seconds() > 0:
+                return
+            dispatch_epoch = active_throttle.reserve_dispatch()
             bi = remaining.popleft()
             block = blocks[bi]
             previous_source = (
@@ -812,35 +1067,27 @@ async def translate_events(
                 ),
                 name=f"subtitle-translate-block-{bi + 1}",
             )
-            running[task] = bi
+            running[task] = (bi, dispatch_epoch)
             active_started[bi] = time.monotonic()
 
     schedule()
-    notify(tuple(sorted(bi + 1 for bi in running.values())))
+    notify(_active_block_numbers())
     try:
         while running or remaining:
             if cancelled is not None and cancelled():
                 raise TranslationAborted(stored_fields("library.subtitleJob.cancelledSaved"))
 
             if not running:
-                # 限流后没有在途调用时，小步等待以便及时响应用户停止。
-                while time.monotonic() < cooldown_until:
-                    if cancelled is not None and cancelled():
-                        raise TranslationAborted(
-                            stored_fields("library.subtitleJob.cancelledSaved")
-                        )
-                    delay = max(0.0, cooldown_until - time.monotonic())
-                    if delay <= 0:
-                        break
-                    await asyncio.sleep(min(1.0, delay))
+                # 限流或节奏等待且没有在途调用时，小步等待以便及时响应用户停止。
+                await _wait_for_throttle(active_throttle, cancelled=cancelled)
                 schedule()
-                notify(tuple(sorted(bi + 1 for bi in running.values())))
+                notify(_active_block_numbers())
                 continue
 
-            cooldown_left = max(0.0, cooldown_until - time.monotonic())
+            ready_wait = active_throttle.wait_seconds()
             wait_timeout = _PROGRESS_HEARTBEAT_SECONDS
-            if cooldown_left:
-                wait_timeout = min(wait_timeout, cooldown_left)
+            if ready_wait > 0 and len(running) < active_throttle.concurrency and remaining:
+                wait_timeout = min(wait_timeout, ready_wait)
             done, _pending = await asyncio.wait(
                 running,
                 return_when=asyncio.FIRST_COMPLETED,
@@ -848,47 +1095,41 @@ async def translate_events(
             )
             if not done:
                 schedule()
-                notify(tuple(sorted(bi + 1 for bi in running.values())))
+                notify(_active_block_numbers())
                 continue
             # 同一批完成的调用中即使有一个抛错，也要先把其他成功结果写入断点，
             # 避免上游瞬时错误让已经付费完成的块白白丢失。
-            ordered_done = sorted(done, key=lambda task: running[task])
+            ordered_done = sorted(done, key=lambda task: running[task][0])
             finished_blocks = {task: running.pop(task) for task in ordered_done}
-            for bi in finished_blocks.values():
+            for bi, _epoch in finished_blocks.values():
                 active_started.pop(bi, None)
             # 同一事件循环 tick 内完成的块按原顺序落断点，文件始终由这个
             # 协调器单写，避免多个模型回调同时覆盖 checkpoint。
             results: list[tuple[int, list[str], bool, int, bool]] = []
-            rate_limited: list[int] = []
-            retry_delay = 0.0
+            rate_limited: list[tuple[int, int, float | None, int]] = []
             first_error: BaseException | None = None
             for task in ordered_done:
                 try:
                     results.append(task.result())
                 except ChatRateLimited as exc:
                     stats.rate_limit_count += 1
-                    bi = finished_blocks[task]
+                    bi, dispatch_epoch = finished_blocks[task]
                     attempt = rate_limit_attempts.get(bi, 0) + 1
                     rate_limit_attempts[bi] = attempt
                     if attempt > _RATE_LIMIT_MAX_RETRIES:
+                        active_throttle.on_rate_limit(
+                            dispatch_epoch,
+                            retry_after=exc.retry_after,
+                            attempt=attempt,
+                        )
                         if first_error is None:
-                            first_error = TranslationAborted(
-                                stored_fields("library.subtitleJob.rateLimitPaused")
-                            )
+                            first_error = TranslationRateLimited(exc.retry_after)
                         continue
-                    rate_limited.append(bi)
-                    suggested = (
-                        exc.retry_after
-                        if exc.retry_after is not None
-                        else float(2 ** min(attempt, 5))
-                    )
-                    retry_delay = max(
-                        retry_delay,
-                        min(_RATE_LIMIT_MAX_DELAY, max(_RATE_LIMIT_MIN_DELAY, suggested)),
-                    )
+                    rate_limited.append((bi, dispatch_epoch, exc.retry_after, attempt))
                 except BaseException as exc:  # noqa: BLE001 -- 写完同批成功断点再原样抛出
                     if first_error is None:
                         first_error = exc
+            clean_successes = 0
             for bi, result, block_failed, validation_retries, block_truncated in results:
                 rate_limit_attempts.pop(bi, None)
                 stats.validation_retries += validation_retries
@@ -901,27 +1142,34 @@ async def translate_events(
                         has_truncated_failure = True
                     stats.kept_original += len(blocks[bi])
                 else:
+                    clean_successes += 1
                     # 历史失败块这次翻成了：从断点的失败名单里销账，
                     # 否则下次续传还会白白重译一遍已经成功的块。
                     checkpoint.failed_blocks.discard(bi)
                 checkpoint.save()
                 last_completed_at = time.monotonic()
-                notify(tuple(sorted(index + 1 for index in running.values())))
+                notify(_active_block_numbers())
 
             if rate_limited:
                 # 限流块放回队首，同一波 429 只降一次并发；已在途调用不取消，
                 # 以免供应商其实已经开始计费却丢掉返回结果。
-                for bi in reversed(rate_limited):
+                for bi, *_ in reversed(rate_limited):
                     remaining.appendleft(bi)
-                previous_concurrency = target_concurrency
-                target_concurrency = max(1, target_concurrency // 2)
-                stable_successes = 0
-                cooldown_until = max(cooldown_until, time.monotonic() + retry_delay)
-                wait_seconds = max(1, int(retry_delay + 0.999))
+                previous_concurrency = active_throttle.concurrency
+                max_delay = 0.0
+                for _bi, dispatch_epoch, retry_after, attempt in rate_limited:
+                    delay, _, _ = active_throttle.on_rate_limit(
+                        dispatch_epoch,
+                        retry_after=retry_after,
+                        attempt=attempt,
+                    )
+                    max_delay = max(max_delay, delay)
+                wait_seconds = max(1, int(max_delay + 0.999))
                 logger.warning(
-                    "字幕翻译触发模型限流：并发 %d → %d，%d 秒后重试 %d 个块",
+                    "字幕翻译触发模型限流：并发 %d → %d，节奏间隔 %.1fs，%d 秒后重试 %d 个块",
                     previous_concurrency,
-                    target_concurrency,
+                    active_throttle.concurrency,
+                    active_throttle.min_interval,
                     wait_seconds,
                     len(rate_limited),
                 )
@@ -930,33 +1178,29 @@ async def translate_events(
                         "translating",
                         stored_fields(
                             "library.subtitleJob.rateLimited",
-                            count=target_concurrency,
+                            count=active_throttle.concurrency,
                             seconds=wait_seconds,
                         ),
                     )
             else:
-                stable_successes += len(results)
-                if (
-                    target_concurrency < TRANSLATION_CONCURRENCY
-                    and stable_successes >= _CONCURRENCY_RECOVERY_SUCCESSES
-                    and time.monotonic() >= cooldown_until
-                ):
-                    target_concurrency += 1
-                    stable_successes = 0
-                    logger.info("模型调用已稳定，字幕翻译并发恢复至 %d", target_concurrency)
+                grew = False
+                for _ in range(clean_successes):
+                    if active_throttle.on_success():
+                        grew = True
+                if grew and active_throttle.had_congestion:
+                    logger.info(
+                        "模型调用已稳定，字幕翻译并发恢复至 %d", active_throttle.concurrency
+                    )
                     if phase is not None:
                         phase(
                             "translating",
                             stored_fields(
-                                "library.subtitleJob.recovered", count=target_concurrency
+                                "library.subtitleJob.recovered", count=active_throttle.concurrency
                             ),
                         )
-                elif phase is not None and results and time.monotonic() >= cooldown_until:
-                    phase(
-                        "translating",
-                        stored_fields("library.subtitleJob.parallel", count=target_concurrency),
-                    )
-            notify(tuple(sorted(index + 1 for index in running.values())))
+                elif results and active_throttle.wait_seconds() <= 0:
+                    _emit_running_phase()
+            notify(_active_block_numbers())
             if first_error is not None:
                 raise first_error
             if (
@@ -972,7 +1216,7 @@ async def translate_events(
                     failed_block_truncated=has_truncated_failure,
                 )
             schedule()
-            notify(tuple(sorted(bi + 1 for bi in running.values())))
+            notify(_active_block_numbers())
     finally:
         for task in running:
             task.cancel()
@@ -1030,6 +1274,9 @@ async def compress_overruns(
     target_language: str,
     secondary_language: str | None = None,
     glossary: dict[str, str] | None = None,
+    *,
+    throttle: ProviderThrottle | None = None,
+    cancelled: Callable[[], bool] | None = None,
 ) -> tuple[list[SubEvent], int]:
     """对超读速事件做限字数压缩重写；失败保留原译文。返回 (事件, 成功数)。
 
@@ -1047,33 +1294,56 @@ async def compress_overruns(
 
     out = list(events)
     compressed = 0
+    active_throttle = throttle or ProviderThrottle()
     # 必须带术语表：压缩是对译文的二次改写，空表会让模型把人名地名重新
     # 意译一遍，全片一致性正好毁在这批被改写的行上。
     system = system_prompt(ctx, glossary or {}, target_language, secondary_language)
     for batch_start in range(0, len(todo), _COMPRESS_BATCH):
+        if cancelled is not None and cancelled():
+            break
         batch = todo[batch_start : batch_start + _COMPRESS_BATCH]
         payload = json.dumps(
             [{"i": i, "t": t, "max_chars": limit} for i, t, limit in batch],
             ensure_ascii=False,
         )
-        try:
-            raw = await chat(
-                system,
-                _COMPRESS_PROMPT.format(payload=payload),
-                ChatCall(
-                    purpose="compress",
-                    event_count=len(batch),
-                    bilingual=secondary_language is not None,
-                ),
-            )
-            parsed = _parse_json_block(raw)
-            by_index = {
-                int(item["i"]): str(item["t"]).strip()
-                for item in parsed
-                if isinstance(item, dict) and "i" in item and "t" in item
-            }
-        except Exception as exc:  # noqa: BLE001 -- 压缩是增益项,失败保留原译文
-            logger.warning("超读速条目压缩失败（保留原译文）：%s", exc)
+        by_index: dict[int, str] | None = None
+        for attempt in range(_RATE_LIMIT_MAX_RETRIES + 1):
+            try:
+                await _wait_for_throttle(active_throttle, cancelled=cancelled)
+                dispatch_epoch = active_throttle.reserve_dispatch()
+                raw = await chat(
+                    system,
+                    _COMPRESS_PROMPT.format(payload=payload),
+                    ChatCall(
+                        purpose="compress",
+                        event_count=len(batch),
+                        bilingual=secondary_language is not None,
+                        attempt=attempt + 1,
+                    ),
+                )
+                active_throttle.on_success(allow_concurrency_growth=False)
+                parsed = _parse_json_block(raw)
+                by_index = {
+                    int(item["i"]): str(item["t"]).strip()
+                    for item in parsed
+                    if isinstance(item, dict) and "i" in item and "t" in item
+                }
+                break
+            except ChatRateLimited as exc:
+                active_throttle.on_rate_limit(
+                    dispatch_epoch,
+                    retry_after=exc.retry_after,
+                    attempt=attempt + 1,
+                )
+                if attempt >= _RATE_LIMIT_MAX_RETRIES:
+                    logger.warning("超读速条目压缩持续触发限流（保留原译文）")
+                    break
+            except TranslationAborted:
+                return out, compressed
+            except Exception as exc:  # noqa: BLE001 -- 压缩是增益项,失败保留原译文
+                logger.warning("超读速条目压缩失败（保留原译文）：%s", exc)
+                break
+        if by_index is None:
             continue
         for i, original, _limit in batch:
             text = by_index.get(i, "").strip()

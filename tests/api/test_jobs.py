@@ -904,3 +904,66 @@ async def test_job_wait_timeout_and_cancellation_keep_parent_lock_and_release_ca
         release.set()
     await _wait_status(ref.job.id, JobStatus.SUCCEEDED)
     await asyncio.wait_for(child_started.wait(), timeout=2)
+
+
+async def test_handler_max_parallel_limits_type_without_starving_other_jobs(
+    job_db, monkeypatch
+) -> None:
+    """同类任务上限在 SQL 候选窗口前生效：大批慢任务不会占满全局槽位，也不会队头阻塞常规任务。"""
+    active_heavy = 0
+    peak_heavy = 0
+    heavy_started = asyncio.Event()
+    release_heavy = asyncio.Event()
+    light_done: list[int] = []
+
+    async def heavy(context, data):
+        nonlocal active_heavy, peak_heavy
+        active_heavy += 1
+        peak_heavy = max(peak_heavy, active_heavy)
+        if active_heavy == 2:
+            heavy_started.set()
+        try:
+            await release_heavy.wait()
+            return {"i": data["i"]}
+        finally:
+            active_heavy -= 1
+
+    async def light(context, data):
+        light_done.append(data["i"])
+        return {"i": data["i"]}
+
+    monkeypatch.setitem(
+        jobs._handlers,
+        "test.heavy",
+        jobs.RegisteredJobHandler(heavy, frozenset({1}), max_parallel=2),
+    )
+    monkeypatch.setitem(
+        jobs._handlers,
+        "test.light",
+        jobs.RegisteredJobHandler(light, frozenset({1})),
+    )
+
+    heavy_ids: list[str] = []
+    light_ids: list[str] = []
+    async with job_db.session() as session:
+        # 故意先塞 12 条（超过 _claim_one 的 limit(10) 候选窗），再塞常规任务
+        for i in range(12):
+            res = await jobs.create_job(session, job_type="test.heavy", input_data={"i": i})
+            heavy_ids.append(res.job.id)
+        for i in range(2):
+            res = await jobs.create_job(session, job_type="test.light", input_data={"i": i})
+            light_ids.append(res.job.id)
+
+    await jobs.init_job_dispatcher(max_parallel=4)
+    try:
+        await asyncio.wait_for(heavy_started.wait(), timeout=3)
+        # 两条 light 任务必须立即利用剩余 2 个全局槽位完成，不等 heavy 释放
+        for jid in light_ids:
+            await _wait_status(jid, JobStatus.SUCCEEDED, timeout=3)
+        assert sorted(light_done) == [0, 1]
+        assert peak_heavy == 2
+    finally:
+        release_heavy.set()
+    for jid in heavy_ids:
+        await _wait_status(jid, JobStatus.SUCCEEDED, timeout=5)
+    assert peak_heavy == 2
