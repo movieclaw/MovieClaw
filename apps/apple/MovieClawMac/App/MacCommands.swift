@@ -13,6 +13,7 @@ struct MacCommands: Commands {
     @FocusedValue(\.macFocusSearch) private var focusSearch
     @Environment(\.openWindow) private var openWindow
     @AppStorage(MacPlayerWindow.floatsOnTopKey) private var floatsOnTop = true
+    @AppStorage(MacControlBarLayout.storageKey) private var controlBarPosition = ""
     private let updater = MacUpdater.shared
 
     var body: some Commands {
@@ -57,6 +58,8 @@ struct MacCommands: Commands {
         CommandGroup(after: .windowSize) {
             Divider()
             Toggle(String(localized: .playerWindowAlwaysOnTop), isOn: $floatsOnTop)
+            Button(String(localized: .playerMacResetControlBarPosition)) { controlBarPosition = "" }
+                .disabled(controlBarPosition.isEmpty)
         }
         CommandMenu(String(localized: .navNativeAccount)) {
             if case .ready = model.phase {

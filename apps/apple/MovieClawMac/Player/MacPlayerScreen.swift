@@ -142,6 +142,14 @@ private struct MacPlayerContent: View {
     @State private var startedUnit: PlaybackUnit?
     @State private var sleepGuard = MacDisplaySleepGuard()
     @FocusState private var keyFocus: Bool
+    /// 浮动控制条持久化位置（归一化比例，空串 = 默认底部居中）
+    @AppStorage(MacControlBarLayout.storageKey) private var rawControlBarPosition = ""
+    /// 拖动控制条期间的起点、实时原点与居中吸附态
+    @State private var dragStartOrigin: CGPoint?
+    @State private var dragOrigin: CGPoint?
+    @State private var snappedCenter = false
+    /// 右下角提示卡片当前实际尺寸（用于与浮动控制条的冲突避让）
+    @State private var cornerSize: CGSize = .zero
 
     var body: some View {
         GeometryReader { proxy in
@@ -256,6 +264,14 @@ private struct MacPlayerContent: View {
         .onChange(of: controller.session?.segments?.count) {
             debugLog("片段标记 \(controller.session?.segments?.map { "\($0.type) \($0.startMs / 1000)～\($0.endMs / 1000) 秒" } ?? [])") // i18n-ignore: debug log
         }
+        .onChange(of: rawControlBarPosition) { _, new in
+            if new.isEmpty {
+                dragStartOrigin = nil
+                dragOrigin = nil
+                snappedCenter = false
+                showChrome()
+            }
+        }
         .onAppear {
             // 接过键盘：空格、方向键直接给播放器（侧边栏搜索框之前拿着焦点时也一样）
             keyFocus = true
@@ -325,112 +341,182 @@ private struct MacPlayerContent: View {
     // MARK: 控制层
 
     private func chrome(size: CGSize) -> some View {
-        ZStack {
-            // 托字的渐变：顶部压暗给片名，底部由下往上 30%→0 给玻璃面板（HIG：clear 玻璃在亮画面上要垫压暗层）
+        let barFrame = transportFrame(in: size)
+        let showBottomGradient = MacControlBarLayout.showsBottomGradient(
+            barFrame: barFrame,
+            stage: size,
+            hasCustomPosition: hasCustomControlBarPosition,
+            isDragging: isDraggingTransport
+        )
+        let panelPlacement = MacControlBarLayout.tracksPanelPlacement(barFrame: barFrame, stage: size)
+
+        return ZStack(alignment: .topLeading) {
+            // 托字的渐变：顶部压暗给片名，底部由下往上 30%→0 给玻璃面板（控制条拖离底部后淡出）
             VStack(spacing: 0) {
                 LinearGradient(colors: [.black.opacity(0.55), .clear], startPoint: .top, endPoint: .bottom)
                     .frame(height: 120)
                 Spacer(minLength: 0)
                 LinearGradient(colors: [.clear, .black.opacity(0.3)], startPoint: .top, endPoint: .bottom)
                     .frame(height: 200)
+                    .opacity(showBottomGradient ? 1 : 0)
+                    .animation(.easeInOut(duration: 0.25), value: showBottomGradient)
             }
             .allowsHitTesting(false)
 
-            VStack(spacing: 0) {
-                HStack {
-                    MacPlayerTopBar(controller: controller, showsWindowControls: !window.isFullScreen, close: close)
-                        .onTapGesture(perform: doubleClickToggleFullScreen)
-                    Spacer(minLength: 0)
-                }
-                // 窗口模式：红绿灯落在系统标题栏原来的位置（左 19、中线距顶 26），打开播放器时不跳
-                .padding(.leading, window.isFullScreen ? 20 : 19)
-                .padding(.top, window.isFullScreen ? 16 : 9)
+            HStack {
+                MacPlayerTopBar(controller: controller, showsWindowControls: !window.isFullScreen, close: close)
+                    .onTapGesture(perform: doubleClickToggleFullScreen)
                 Spacer(minLength: 0)
-                MacPlayerTransport(
-                    controller: controller, trickplay: trickplay, volume: volume, isFullScreen: window.isFullScreen,
-                    pointer: pointer, scrubMs: $scrubMs, panel: $panel, episodesOpen: $episodesOpen, togglePlay: { togglePlay(flashes: false) },
-                    skip: { seek(by: $0, flashes: false) }, toggleFullScreen: toggleFullScreen
-                )
-                // 双击控制面板的空白处也全屏（同 Infuse：双击播放器任意位置）；按钮、进度条、音量自己接点击，不受影响
-                .contentShape(.rect(cornerRadius: MacPlayerMetrics.panelCorner))
-                .onTapGesture(perform: doubleClickToggleFullScreen)
-                .overlay(alignment: .bottomTrailing) {
-                    // 面板从胶囊右上角往左上长：宽不超出窗口左边，高不顶出窗口（小窗口里列表自己滚）
-                    panelView(maxWidth: (size.width + panelWidth(size)) / 2 - 12,
-                              maxHeight: max(min(160, size.height - 190), min(380, size.height - 260)))
-                        .offset(y: -(MacPlayerMetrics.panelHeight + 10))
-                }
-                .frame(width: panelWidth(size))
-                .padding(.bottom, MacPlayerMetrics.panelBottom)
             }
+            // 窗口模式：红绿灯落在系统标题栏原来的位置（左 19、中线距顶 26），打开播放器时不跳
+            .padding(.leading, window.isFullScreen ? 20 : 19)
+            .padding(.top, window.isFullScreen ? 16 : 9)
+
+            // 横向吸附到中线时闪一条淡辅助线，松手即隐
+            if isDraggingTransport, snappedCenter {
+                let guideHeight = max(0, size.height - MacControlBarLayout.marginTop - MacControlBarLayout.marginBottom)
+                Rectangle()
+                    .fill(LinearGradient(colors: [.clear, .white.opacity(0.75), .clear], startPoint: .top, endPoint: .bottom))
+                    .frame(width: 1.5, height: guideHeight)
+                    .position(x: size.width / 2, y: MacControlBarLayout.marginTop + guideHeight / 2)
+                    .allowsHitTesting(false)
+                    .transition(.opacity)
+            }
+
+            MacPlayerTransport(
+                controller: controller, trickplay: trickplay, volume: volume, isFullScreen: window.isFullScreen,
+                pointer: pointer, stageSize: size, barFrame: barFrame,
+                scrubMs: $scrubMs, panel: $panel, episodesOpen: $episodesOpen,
+                togglePlay: { togglePlay(flashes: false) },
+                skip: { seek(by: $0, flashes: false) },
+                toggleFullScreen: toggleFullScreen
+            )
+            .frame(width: barFrame.width)
+            // 双击控制面板的空白处也全屏（同 Infuse：双击播放器任意位置）；按钮、进度条、音量自己接点击，不受影响
+            .contentShape(.rect(cornerRadius: MacPlayerMetrics.panelCorner))
+            .scaleEffect(isDraggingTransport ? 1.012 : 1)
+            .shadow(color: .black.opacity(isDraggingTransport ? 0.35 : 0), radius: isDraggingTransport ? 18 : 0, y: isDraggingTransport ? 8 : 0)
+            .onTapGesture(perform: doubleClickToggleFullScreen)
+            .gesture(transportDragGesture(in: size, currentOrigin: barFrame.origin, panelWidth: barFrame.width))
+            .overlay(alignment: panelPlacement.overlayAlignment) {
+                // 面板按控制条所在象限向上 / 向下、向左 / 向右自适应展开，宽与高均不顶出窗口
+                panelView(placement: panelPlacement)
+                    .offset(y: panelPlacement.opensDownward ? (MacPlayerMetrics.panelHeight + 10) : -(MacPlayerMetrics.panelHeight + 10))
+            }
+            .offset(x: barFrame.minX, y: barFrame.minY)
+            .animation(.easeOut(duration: 0.14), value: isDraggingTransport)
+            .animation(isDraggingTransport ? nil : .snappy(duration: 0.28), value: rawControlBarPosition)
         }
     }
 
-    /// 控制胶囊的宽：两侧留窗口宽的 5%（至多 48），最宽 720
-    private func panelWidth(_ size: CGSize) -> CGFloat {
-        max(0, min(size.width - min(MacPlayerMetrics.panelSideInset, size.width * 0.05) * 2, MacPlayerMetrics.panelMaxWidth))
-    }
-
     @ViewBuilder
-    private func panelView(maxWidth: CGFloat, maxHeight: CGFloat) -> some View {
+    private func panelView(placement: MacControlBarLayout.TracksPanelPlacement) -> some View {
         switch panel {
         case .tracks:
-            MacTracksPanel(controller: controller, maxWidth: maxWidth, maxHeight: maxHeight) { panel = nil }
-                .transition(.opacity.combined(with: .scale(scale: 0.96, anchor: .bottomTrailing)))
+            MacTracksPanel(controller: controller, maxWidth: placement.maxWidth, maxHeight: placement.maxHeight) { panel = nil }
+                .transition(.opacity.combined(with: .scale(scale: 0.96, anchor: placement.scaleAnchor)))
         case nil:
             EmptyView()
         }
     }
 
-    /// 右下角：换画质建议 / 自动跳过的提示 / 跳过片头 / 下一集卡片（同一个角落，同时只出一个）。控制层出现时让到面板上方
+    private func transportDragGesture(in stage: CGSize, currentOrigin: CGPoint, panelWidth: CGFloat) -> some Gesture {
+        DragGesture(minimumDistance: MacControlBarLayout.dragThreshold, coordinateSpace: .named(MacPlayerMetrics.space))
+            .onChanged { value in
+                if dragStartOrigin == nil {
+                    dragStartOrigin = currentOrigin
+                    panel = nil
+                }
+                let start = dragStartOrigin ?? currentOrigin
+                let resolved = MacControlBarLayout.clampedDragOrigin(
+                    startOrigin: start,
+                    translation: value.translation,
+                    stage: stage,
+                    panelWidth: panelWidth
+                )
+                if resolved.snappedCenter, !snappedCenter {
+                    NSHapticFeedbackManager.defaultPerformer.perform(.alignment, performanceTime: .now)
+                }
+                dragOrigin = resolved.origin
+                snappedCenter = resolved.snappedCenter
+                showChrome()
+            }
+            .onEnded { value in
+                let start = dragStartOrigin ?? currentOrigin
+                let resolved = MacControlBarLayout.clampedDragOrigin(
+                    startOrigin: start,
+                    translation: value.translation,
+                    stage: stage,
+                    panelWidth: panelWidth
+                )
+                let persisted = MacControlBarLayout.persistPosition(for: resolved.origin, stage: stage, panelWidth: panelWidth)
+                rawControlBarPosition = persisted?.encoded ?? ""
+                dragStartOrigin = nil
+                dragOrigin = nil
+                snappedCenter = false
+                showChrome()
+            }
+    }
+
+    /// 右下角：换画质建议 / 自动跳过的提示 / 跳过片头 / 下一集卡片（同一个角落，同时只出一个）。始终锚在右下角，仅与浮动控制条冲突时让到其上方
     private var contextualCorner: some View {
+        let bottom = MacControlBarLayout.cornerBottomPadding(
+            chromeVisible: chromeVisible,
+            barFrame: transportFrame(in: size),
+            stage: size,
+            cornerSize: cornerSize
+        )
         // 叠放而不是横排：换下来的那个淡出期间还占着位置，横排会把新来的挤出窗口右边
-        ZStack(alignment: .bottomTrailing) {
+        return ZStack(alignment: .bottomTrailing) {
             Color.clear
                 .allowsHitTesting(false)
-            if let offer = controller.qualityOffer {
-                MacQualityOfferCard(offer: offer, accept: controller.acceptQualityOffer, dismiss: controller.dismissQualityOffer)
+            ZStack(alignment: .bottomTrailing) {
+                if let offer = controller.qualityOffer {
+                    MacQualityOfferCard(offer: offer, accept: controller.acceptQualityOffer, dismiss: controller.dismissQualityOffer)
+                        .transition(Self.cornerTransition)
+                } else if let notice = controller.skipNotice {
+                    // 提示优先于跳过按钮（撤回后回到片头里，提示收起才轮到按钮）
+                    MacSkipNotice(notice: notice, undo: controller.undoAutoSkip, decline: controller.declineIntroAutoSkip)
+                        .transition(Self.cornerTransition)
+                        .task(id: notice.id) {
+                            try? await Task.sleep(for: .milliseconds(notice.durationMs))
+                            controller.expireSkipNotice(notice.id)
+                        }
+                } else if let segment = controller.skipSegment {
+                    MacSkipButton(segment: segment, action: controller.skipCurrentSegment)
+                        .transition(Self.cornerTransition)
+                } else if controller.showsUpNext, let next = controller.nextEpisode {
+                    MacUpNextCard(
+                        episode: next,
+                        still: controller.scope.api.image(next.stillUrl, width: ImageWidth.macCard(MacUpNextCard.stillWidth)),
+                        countdown: controller.autoNextArmed ? controller.autoNextProgress : nil,
+                        stillWatching: controller.asksStillWatching,
+                        play: {
+                            controller.noteUserActivity()
+                            controller.playNext()
+                        },
+                        dismiss: {
+                            controller.noteUserActivity()
+                            controller.nextDismissed = true
+                        }
+                    )
                     .transition(Self.cornerTransition)
-            } else if let notice = controller.skipNotice {
-                // 提示优先于跳过按钮（撤回后回到片头里，提示收起才轮到按钮）
-                MacSkipNotice(notice: notice, undo: controller.undoAutoSkip, decline: controller.declineIntroAutoSkip)
-                    .transition(Self.cornerTransition)
-                    .task(id: notice.id) {
-                        try? await Task.sleep(for: .milliseconds(notice.durationMs))
-                        controller.expireSkipNotice(notice.id)
-                    }
-            } else if let segment = controller.skipSegment {
-                MacSkipButton(segment: segment, action: controller.skipCurrentSegment)
-                    .transition(Self.cornerTransition)
-            } else if controller.showsUpNext, let next = controller.nextEpisode {
-                MacUpNextCard(
-                    episode: next,
-                    still: controller.scope.api.image(next.stillUrl, width: ImageWidth.macCard(MacUpNextCard.stillWidth)),
-                    countdown: controller.autoNextArmed ? controller.autoNextProgress : nil,
-                    stillWatching: controller.asksStillWatching,
-                    play: {
-                        controller.noteUserActivity()
-                        controller.playNext()
-                    },
-                    dismiss: {
-                        controller.noteUserActivity()
-                        controller.nextDismissed = true
-                    }
-                )
-                .transition(Self.cornerTransition)
-                // 倒计时的钟：卡片在才走（同 iPhone、Apple TV 版）
-                .task {
-                    while !Task.isCancelled {
-                        try? await Task.sleep(for: .milliseconds(100))
-                        controller.advanceAutoNext(by: 0.1)
+                    // 倒计时的钟：卡片在才走（同 iPhone、Apple TV 版）
+                    .task {
+                        while !Task.isCancelled {
+                            try? await Task.sleep(for: .milliseconds(100))
+                            controller.advanceAutoNext(by: 0.1)
+                        }
                     }
                 }
             }
+            .onGeometryChange(for: CGSize.self) { $0.size } action: { cornerSize = $0 }
         }
         .padding(.trailing, 32)
-        .padding(.bottom, chromeVisible ? MacPlayerMetrics.chromeHeight + 12 : 32)
+        .padding(.bottom, bottom)
         .opacity(isModal ? 0 : 1)
         .animation(.easeInOut(duration: 0.25), value: cornerKey)
+        .animation(isDraggingTransport ? nil : .easeInOut(duration: 0.22), value: bottom)
     }
 
     /// 右下角元素的进出：原地淡入淡出、略微缩放，不跟着换下来的那个滑位置
@@ -464,16 +550,33 @@ private struct MacPlayerContent: View {
         controller.paused && !controller.wantsPlay && !controller.phase.isBusy && controller.session != nil
     }
 
-    /// 控制层必须常显：暂停时用户在找进度；正在拖；面板或菜单开着；鼠标停在控件上；正在起播 / 缓冲（看得到进度与返回键）；播完了
+    private var storedControlBarPosition: MacControlBarPosition? {
+        MacControlBarPosition.decode(rawControlBarPosition)
+    }
+
+    private var hasCustomControlBarPosition: Bool {
+        storedControlBarPosition != nil
+    }
+
+    private var isDraggingTransport: Bool {
+        dragOrigin != nil
+    }
+
+    private func transportFrame(in stage: CGSize) -> CGRect {
+        MacControlBarLayout.resolveFrame(stored: storedControlBarPosition, dragOrigin: dragOrigin, stage: stage)
+    }
+
+    /// 控制层必须常显：暂停时用户在找进度；正在拖进度条或控制条；面板或菜单开着；鼠标停在控件上；正在起播 / 缓冲；播完了
     private var chromeMustStayVisible: Bool {
-        userPaused || scrubMs != nil || panel != nil || menuOpen || pointerOnChrome || isModal || controller.phase.isBusy
+        userPaused || scrubMs != nil || isDraggingTransport || panel != nil || menuOpen || pointerOnChrome || isModal || controller.phase.isBusy
             || controller.phase == .ended
     }
 
-    /// 指针停在控件一带：左上角片名（顶上 70 点、左半边）或底部控制面板那一条
+    /// 指针停在控件一带：左上角片名（顶上 70 点、左半边）或浮动控制条实时 frame
     private var pointerOnChrome: Bool {
         guard let pointer, size.height > 0, pointer.x <= size.width else { return false }
-        return (pointer.y < 70 && pointer.x < size.width / 2) || pointer.y > size.height - MacPlayerMetrics.chromeHeight - 4
+        return (pointer.y < 70 && pointer.x < size.width / 2)
+            || MacControlBarLayout.pointerHitsTransport(pointer, barFrame: transportFrame(in: size))
     }
 
     /// 侧栏和画面并排（窗口够宽）；窄窗口里侧栏浮在画面上
@@ -502,16 +605,19 @@ private struct MacPlayerContent: View {
 
     // MARK: 字幕避让
 
-    /// 控制层出现时字幕该抬到多高：字幕底边（距画面底部 bottomPercent%）若会落进面板所在的那一条，
-    /// 就抬到面板顶边之上；画面有黑边、本来就够高时不变
+    /// 控制层出现时字幕该抬到多高：仅当浮动控制条实际 frame 与底部字幕区相交时，
+    /// 才把字幕抬到控制条顶边之上；控制条拖到上方或画面有黑边不重叠时不动
     private func liftedSubtitleStyle(size: CGSize) -> SubtitleStyle {
         var style = controller.subtitleStyle
         guard chromeVisible, !isModal, let videoSize = controller.engine?.videoSize, size.height > 0 else { return style }
         let rect = Self.fittedRect(videoSize, in: size)
         guard rect.height > 0 else { return style }
-        let chromeTop = size.height - MacPlayerMetrics.chromeHeight
-        let needed = (rect.maxY - chromeTop) / rect.height * 100
-        if needed > style.bottomPercent { style.bottomPercent = min(40, needed.rounded(.up)) }
+        style.bottomPercent = MacControlBarLayout.subtitleLiftBottomPercent(
+            basePercent: style.bottomPercent,
+            barFrame: transportFrame(in: size),
+            videoRect: rect,
+            stage: size
+        )
         return style
     }
 
@@ -540,9 +646,9 @@ private struct MacPlayerContent: View {
         pointer = point
         if point != nil {
             showChrome()
-        } else if chromeVisible, scrubMs == nil, panel == nil, !menuOpen, !isModal, !controller.phase.isBusy, controller.phase != .ended {
+        } else if chromeVisible, scrubMs == nil, !isDraggingTransport, panel == nil, !menuOpen, !isModal, !controller.phase.isBusy, controller.phase != .ended {
             // 指针离开播放器：控制层（含左上角返回）立刻淡出，不等 3 秒无操作。
-            // 拖进度条拖出窗口、面板 / 菜单或对话框开着、起播中、播完时照旧留着
+            // 拖进度条或控制条拖出窗口、面板 / 菜单或对话框开着、起播中、播完时照旧留着
             chromeVisible = false
         }
     }
@@ -574,7 +680,8 @@ private struct MacPlayerContent: View {
 
     /// 控件之间的空白处：单击不做事，双击全屏（连击数按 AppKit 事件认，同画面上的双击）
     private func doubleClickToggleFullScreen() {
-        if (NSApp.currentEvent?.clickCount ?? 1) >= 2 { toggleFullScreen() }
+        guard let event = NSApp.currentEvent, event.type == .leftMouseUp || event.type == .leftMouseDown else { return }
+        if event.clickCount >= 2 { toggleFullScreen() }
     }
 
     private func toggleFullScreen() {
