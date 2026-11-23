@@ -1704,3 +1704,70 @@ def test_keeping_a_strm_never_trashes_the_cloud_file_it_may_point_to(client, tmp
     assert not strm.exists()
     state = json.loads(client.state_path.read_text(encoding="utf-8"))  # type: ignore[attr-defined]
     assert "deleted" not in state
+
+
+def test_purge_never_deletes_a_cloud_file_a_strm_of_the_same_episode_may_need(client, tmp_path):
+    """#1320：修复前就进了回收站的网盘原件（同一集还有 .strm 指着它）。
+
+    无论到期清理（一个文件，远低于批量护栏）还是回收站里手动立即清理，只要同一集还有
+    不在这次删除里的 strm，就不删网盘上的文件。strm 先清掉之后，同一份网盘文件照常删；
+    没有 strm 的网盘文件从头到尾照常删。
+    """
+    from movieclaw_api.services.library import recycle
+
+    view = _create_library(client, tmp_path)
+    library_id = view["id"]
+    strm = tmp_path / "staging" / "奥本海默 (2023)" / "Oppenheimer.2023.1080p.strm"
+    strm.parent.mkdir(parents=True)
+    strm.write_text("http://p115.invalid:8000?pickcode=synthetic1320\n", encoding="utf-8")
+    _scan(client, library_id, backfill_existing_specs=False)
+    rows = ledger(client, library_id)
+    cloud, pointer, other = rows["f-opp"], rows[str(strm)], rows["f-dune"]
+    assert pointer["media_item_id"] == cloud["media_item_id"] != other["media_item_id"]
+
+    def deleted() -> list[str]:
+        state = json.loads(client.state_path.read_text(encoding="utf-8"))  # type: ignore[attr-defined]
+        return sorted(state.get("deleted", []))
+
+    # 旧版本留下的回收记录：网盘原件已到期待删；另一部片（没有 strm）也到期
+    for key in ("f-opp", "f-dune"):
+        call(client, _trash_due, rows[key]["id"])
+    call(client, recycle.purge_due_files)
+    assert deleted() == ["f-dune"]  # 没有 strm 依赖的照常删
+    assert ledger(client, library_id)["f-opp"]["state"] == "trashed"
+
+    # 回收站里手动立即清理也一样拦下
+    purged = client.post("/api/v1/libraries/trashed-files/purge", json={"ids": [cloud["id"]]})
+    assert purged.status_code == 200, purged.text
+    assert purged.json()["data"]["done"] == 0
+    assert deleted() == ["f-dune"]
+
+    # 回收站里的 strm 也算：它可能被恢复
+    call(client, _trash_due, pointer["id"])
+    purged = client.post("/api/v1/libraries/trashed-files/purge", json={"ids": [cloud["id"]]})
+    assert purged.json()["data"]["done"] == 0
+    assert deleted() == ["f-dune"]
+
+    # strm 清掉之后，没有谁还会依赖这份网盘文件：照常删
+    purged = client.post("/api/v1/libraries/trashed-files/purge", json={"ids": [pointer["id"]]})
+    assert purged.json()["data"]["done"] == 1, purged.text
+    call(client, recycle.purge_due_files)
+    assert deleted() == ["f-dune", "f-opp"]
+    assert "f-opp" not in ledger(client, library_id)
+
+
+def test_deleting_a_whole_item_with_its_strm_still_deletes_the_cloud_file(client, tmp_path):
+    """strm 和网盘文件一起删（删整个条目）：不存在剩下的依赖，照常先删网盘。"""
+    view = _create_library(client, tmp_path)
+    library_id = view["id"]
+    strm = tmp_path / "staging" / "奥本海默 (2023)" / "Oppenheimer.2023.1080p.strm"
+    strm.parent.mkdir(parents=True)
+    strm.write_text("http://p115.invalid:8000?pickcode=synthetic1320\n", encoding="utf-8")
+    _scan(client, library_id, backfill_existing_specs=False)
+    rows = ledger(client, library_id)
+    item_id = rows["f-opp"]["media_item_id"]
+    assert rows[str(strm)]["media_item_id"] == item_id
+    done = client.delete(f"/api/v1/libraries/{library_id}/items/{item_id}")
+    assert done.status_code == 200, done.text
+    state = json.loads(client.state_path.read_text(encoding="utf-8"))  # type: ignore[attr-defined]
+    assert state["deleted"] == ["f-opp"]

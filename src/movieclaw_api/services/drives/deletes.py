@@ -26,6 +26,7 @@ from movieclaw_api.services.drives import gateway
 from movieclaw_api.services.drives.messages import error_reference
 from movieclaw_api.services.drives.registry import backends
 from movieclaw_db.engine import get_database
+from movieclaw_db.models.library_file import LibraryFile
 from movieclaw_db.models.library_file_replica import (
     REPLICA_DELETING,
     REPLICA_FAILED,
@@ -118,6 +119,46 @@ async def _unwritable_reason(
     return None
 
 
+async def _strm_dependent_reason(replicas: list[LibraryFileReplica], ids: set[int]) -> str | None:
+    """同一集还有不在这次删除里的 .strm：返回拒绝原因（#1320）。
+
+    宿主核实不了 strm 指向谁（115 一类直链按提取码，台账里没有），而外部工具常为网盘
+    文件生成 strm 放进同一个库。证明不了它不依赖这份网盘文件，就不删：已经在回收站里的
+    旧记录、小批量的到期清理都一样。strm 一起删（或那一集根本没有 strm）照常删。
+    """
+    live = {r.library_file_id for r in replicas if needs_remote_call(r)}
+    if not live:
+        return None
+    async with get_database().session() as session:
+        units = (
+            await session.execute(
+                select(
+                    LibraryFile.media_item_id, LibraryFile.season_number, LibraryFile.episode_number
+                ).where(
+                    LibraryFile.id.in_(live),  # type: ignore[union-attr]
+                    LibraryFile.media_item_id.is_not(None),  # type: ignore[union-attr]
+                )
+            )
+        ).all()
+        for media_item_id, season, episode in set(units):
+            pointer = (
+                await session.execute(
+                    select(LibraryFile.id)
+                    .where(
+                        LibraryFile.media_item_id == media_item_id,
+                        LibraryFile.season_number == season,
+                        LibraryFile.episode_number == episode,
+                        LibraryFile.strm_path(),
+                        LibraryFile.id.not_in(ids),  # type: ignore[union-attr]
+                    )
+                    .limit(1)
+                )
+            ).first()
+            if pointer is not None:
+                return t("errors.drives.strmDependent")
+    return None
+
+
 def needs_remote_call(replica: LibraryFileReplica) -> bool:
     """网盘上可能还有这个文件（要真的去删）。"""
     if not replica.remote_id:
@@ -147,7 +188,7 @@ async def delete_cloud_copies(file_ids: Iterable[int]) -> str | None:
     by_account: dict[int, list[LibraryFileReplica]] = {}
     for replica in replicas:
         by_account.setdefault(replica.account_id, []).append(replica)
-    blocked = await _unwritable_reason(by_account)
+    blocked = await _unwritable_reason(by_account) or await _strm_dependent_reason(replicas, ids)
     if blocked is not None:
         return blocked
     done: list[LibraryFileReplica] = []
