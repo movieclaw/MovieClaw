@@ -22,6 +22,7 @@ def checker():
 
 
 def test_truncated_no_audio_cannot_pass_full_checker(checker, tmp_path, monkeypatch):
+    import movieclaw_api
     from movieclaw_api.services.playback import ffmpeg_args, hwprobe
 
     def fake_run(argv, **kwargs):
@@ -49,6 +50,7 @@ def test_truncated_no_audio_cannot_pass_full_checker(checker, tmp_path, monkeypa
             kwargs["stdout"].write("frame=1\ndrop_frames=0\nprogress=end\n")
         return subprocess.CompletedProcess(argv, 0, stdout=b"", stderr=b"")
 
+    monkeypatch.setattr(movieclaw_api, "__version__", "0.51.0")
     monkeypatch.setattr(checker, "inventory", lambda: {})
     monkeypatch.setattr(checker.subprocess, "run", fake_run)
     monkeypatch.setattr(
