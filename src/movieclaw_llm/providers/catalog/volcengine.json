@@ -1,6 +1,6 @@
 {
  "api": "https://ark.cn-beijing.volces.com/api/v3",
- "fetched_at": "2026-10-30T10:25:11Z",
+ "fetched_at": "2026-11-23T10:46:35Z",
  "license": "models.dev, MIT License, Copyright (c) 2025 models.dev",
  "models": {
   "deepseek-v4-flash-ga-260731": {
@@ -585,7 +585,7 @@
     "field": "reasoning_content"
    },
    "limit": {
-    "context": 256000,
+    "context": 1024000,
     "output": 256000
    },
    "modalities": {
@@ -724,7 +724,7 @@
     "field": "reasoning_content"
    },
    "limit": {
-    "context": 256000,
+    "context": 1024000,
     "output": 256000
    },
    "modalities": {

@@ -1,9 +1,14 @@
 {
  "api": null,
- "fetched_at": "2026-10-30T10:25:11Z",
+ "fetched_at": "2026-11-23T10:46:35Z",
  "license": "models.dev, MIT License, Copyright (c) 2025 models.dev",
  "models": {
   "chatgpt-image-latest": {
+   "cost": {
+    "cache_read": 1.25,
+    "input": 5,
+    "output": 10
+   },
    "limit": {
     "context": 0,
     "input": 0,
@@ -870,7 +875,7 @@
     }
    ],
    "release_date": "2026-04-23",
-   "temperature": false,
+   "temperature": true,
    "tool_call": true
   },
   "gpt-5.5-pro": {
@@ -979,7 +984,7 @@
     }
    ],
    "release_date": "2026-07-09",
-   "temperature": false,
+   "temperature": true,
    "tool_call": true
   },
   "gpt-5.6-luna": {
@@ -1038,7 +1043,7 @@
     }
    ],
    "release_date": "2026-07-09",
-   "temperature": false,
+   "temperature": true,
    "tool_call": true
   },
   "gpt-5.6-sol": {
@@ -1097,7 +1102,7 @@
     }
    ],
    "release_date": "2026-07-09",
-   "temperature": false,
+   "temperature": true,
    "tool_call": true
   },
   "gpt-5.6-terra": {
@@ -1156,7 +1161,7 @@
     }
    ],
    "release_date": "2026-07-09",
-   "temperature": false,
+   "temperature": true,
    "tool_call": true
   },
   "gpt-6-astra": {
@@ -1273,7 +1278,7 @@
     }
    ],
    "release_date": "2026-09-22",
-   "temperature": false,
+   "temperature": true,
    "tool_call": true
   },
   "gpt-6-sol": {
@@ -1332,7 +1337,7 @@
     }
    ],
    "release_date": "2026-09-22",
-   "temperature": false,
+   "temperature": true,
    "tool_call": true
   },
   "gpt-6.1-sol": {
@@ -1449,6 +1454,122 @@
     }
    ],
    "release_date": "2026-10-26",
+   "temperature": true,
+   "tool_call": true
+  },
+  "gpt-6.2-astra": {
+   "cost": {
+    "cache_read": 0.4,
+    "cache_write": 10,
+    "context_over_200k": {
+     "cache_read": 0.8,
+     "cache_write": 20,
+     "input": 16,
+     "output": 60
+    },
+    "input": 8,
+    "output": 40,
+    "tiers": [
+     {
+      "cache_read": 0.8,
+      "cache_write": 20,
+      "input": 16,
+      "output": 60,
+      "tier": {
+       "size": 272000,
+       "type": "context"
+      }
+     }
+    ]
+   },
+   "limit": {
+    "context": 1050000,
+    "input": 922000,
+    "output": 128000
+   },
+   "modalities": {
+    "input": [
+     "text",
+     "image",
+     "pdf"
+    ],
+    "output": [
+     "text"
+    ]
+   },
+   "name": "GPT-6.2 Astra",
+   "reasoning": true,
+   "reasoning_options": [
+    {
+     "type": "effort",
+     "values": [
+      "low",
+      "medium",
+      "high",
+      "xhigh",
+      "max"
+     ]
+    }
+   ],
+   "release_date": "2026-11-17",
+   "temperature": false,
+   "tool_call": true
+  },
+  "gpt-6.2-sol": {
+   "cost": {
+    "cache_read": 0.1,
+    "cache_write": 2.5,
+    "context_over_200k": {
+     "cache_read": 0.2,
+     "cache_write": 5,
+     "input": 4,
+     "output": 15
+    },
+    "input": 2,
+    "output": 10,
+    "tiers": [
+     {
+      "cache_read": 0.2,
+      "cache_write": 5,
+      "input": 4,
+      "output": 15,
+      "tier": {
+       "size": 272000,
+       "type": "context"
+      }
+     }
+    ]
+   },
+   "limit": {
+    "context": 1050000,
+    "input": 922000,
+    "output": 128000
+   },
+   "modalities": {
+    "input": [
+     "text",
+     "image",
+     "pdf"
+    ],
+    "output": [
+     "text"
+    ]
+   },
+   "name": "GPT-6.2 Sol",
+   "reasoning": true,
+   "reasoning_options": [
+    {
+     "type": "effort",
+     "values": [
+      "low",
+      "medium",
+      "high",
+      "xhigh",
+      "max"
+     ]
+    }
+   ],
+   "release_date": "2026-11-17",
    "temperature": false,
    "tool_call": true
   },
@@ -1508,7 +1629,7 @@
     }
    ],
    "release_date": "2026-08-07",
-   "temperature": false,
+   "temperature": true,
    "tool_call": true
   },
   "gpt-daybreak-red-latest": {
@@ -1576,6 +1697,11 @@
    "type": "image"
   },
   "gpt-image-1.5": {
+   "cost": {
+    "cache_read": 1.25,
+    "input": 5,
+    "output": 10
+   },
    "limit": {
     "context": 0,
     "input": 0,
@@ -1600,11 +1726,6 @@
    "type": "image"
   },
   "gpt-image-2": {
-   "cost": {
-    "cache_read": 1.25,
-    "input": 5,
-    "output": 30
-   },
    "limit": {
     "context": 0,
     "input": 0,

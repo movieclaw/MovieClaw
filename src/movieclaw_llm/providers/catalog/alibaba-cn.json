@@ -1,6 +1,6 @@
 {
  "api": "https://dashscope.aliyuncs.com/compatible-mode/v1",
- "fetched_at": "2026-10-30T10:25:11Z",
+ "fetched_at": "2026-11-23T10:46:35Z",
  "license": "models.dev, MIT License, Copyright (c) 2025 models.dev",
  "models": {
   "MiniMax-M2.5": {
@@ -1985,7 +1985,8 @@
    "modalities": {
     "input": [
      "text",
-     "image"
+     "image",
+     "video"
     ],
     "output": [
      "text"

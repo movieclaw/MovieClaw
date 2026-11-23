@@ -1,6 +1,6 @@
 {
  "api": null,
- "fetched_at": "2026-10-30T10:25:11Z",
+ "fetched_at": "2026-11-23T10:46:35Z",
  "license": "models.dev, MIT License, Copyright (c) 2025 models.dev",
  "models": {
   "claude-fable-5": {
@@ -78,6 +78,45 @@
     }
    ],
    "release_date": "2026-09-01",
+   "temperature": false,
+   "tool_call": true
+  },
+  "claude-fable-5-2": {
+   "cost": {
+    "cache_read": 0.2,
+    "cache_write": 10,
+    "input": 8,
+    "output": 40
+   },
+   "limit": {
+    "context": 1000000,
+    "output": 128000
+   },
+   "modalities": {
+    "input": [
+     "text",
+     "image",
+     "pdf"
+    ],
+    "output": [
+     "text"
+    ]
+   },
+   "name": "Claude Fable 5.2",
+   "reasoning": true,
+   "reasoning_options": [
+    {
+     "type": "effort",
+     "values": [
+      "low",
+      "medium",
+      "high",
+      "xhigh",
+      "max"
+     ]
+    }
+   ],
+   "release_date": "2026-11-09",
    "temperature": false,
    "tool_call": true
   },
@@ -511,6 +550,7 @@
     }
    ],
    "release_date": "2025-09-29",
+   "status": "deprecated",
    "temperature": true,
    "tool_call": true
   },
@@ -544,6 +584,7 @@
     }
    ],
    "release_date": "2025-09-29",
+   "status": "deprecated",
    "temperature": true,
    "tool_call": true
   },

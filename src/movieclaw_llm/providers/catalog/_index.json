@@ -10,6 +10,11 @@
   "name": "Abacus"
  },
  {
+  "api": "https://api.abliteratedllm.dev/v1",
+  "id": "abliteratedllm",
+  "name": "AbliteratedLLM"
+ },
+ {
   "api": "https://api.abliteration.ai/v1",
   "id": "abliteration-ai",
   "name": "abliteration.ai"
@@ -18,6 +23,16 @@
   "api": "https://api.above.dev/v1",
   "id": "above",
   "name": "above.dev"
+ },
+ {
+  "api": "https://api.prod.adaptionlabs.ai/api/v1",
+  "id": "adaption",
+  "name": "Adaption"
+ },
+ {
+  "api": "https://adzukiai.com/v1",
+  "id": "adzuki",
+  "name": "Adzuki AI"
  },
  {
   "api": "https://agentrouter.org/v1",
@@ -45,6 +60,11 @@
   "name": "ai&"
  },
  {
+  "api": "https://aigrow.gg/v1",
+  "id": "aigrow",
+  "name": "AIGROW"
+ },
+ {
   "api": null,
   "id": "aihubmix",
   "name": "AIHubMix"
@@ -60,12 +80,22 @@
   "name": "ainetcafe"
  },
  {
+  "api": "https://api.aipowergrid.io/v1",
+  "id": "aipg",
+  "name": "AI Power Grid"
+ },
+ {
+  "api": "https://aistupidlevel.info/v1",
+  "id": "aistupidlevel",
+  "name": "AI Stupid Level"
+ },
+ {
   "api": "https://api.aixy-gateway.com/v1",
   "id": "aixy",
   "name": "Aixy"
  },
  {
-  "api": "https://aki.io/v1",
+  "api": "https://aki.io/openai/v1",
   "id": "aki-io",
   "name": "AKI.IO"
  },
@@ -115,6 +145,11 @@
   "name": "AMD"
  },
  {
+  "api": "https://api.anonrouter.ai/v1",
+  "id": "anonrouter",
+  "name": "AnonRouter"
+ },
+ {
   "api": null,
   "id": "anthropic",
   "name": "Anthropic"
@@ -123,6 +158,11 @@
   "api": "https://api.anyapi.ai/v1",
   "id": "anyapi",
   "name": "AnyAPI"
+ },
+ {
+  "api": "https://api.apiko.app/v1",
+  "id": "apiko",
+  "name": "APIKO"
  },
  {
   "api": "https://api.arcee.ai/api/v1",
@@ -135,9 +175,19 @@
   "name": "Atomic Chat"
  },
  {
+  "api": "https://api.augureai.ca/v1",
+  "id": "augure",
+  "name": "Augure"
+ },
+ {
   "api": "https://api.auriko.ai/v1",
   "id": "auriko",
   "name": "Auriko"
+ },
+ {
+  "api": "https://api.autarcho.com/v1",
+  "id": "autarcho",
+  "name": "Autarcho"
  },
  {
   "api": null,
@@ -150,7 +200,7 @@
   "name": "Azure Cognitive Services"
  },
  {
-  "api": "https://api.tbox.cn/api/llm/v1",
+  "api": "https://api.ant-ling.com/v1",
   "id": "bailing",
   "name": "Bailing"
  },
@@ -185,9 +235,39 @@
   "name": "Boundless"
  },
  {
+  "api": "https://router.bumo.ai/v1",
+  "id": "bumo",
+  "name": "Bumo Router"
+ },
+ {
+  "api": "https://ark.ap-southeast.bytepluses.com/api/v3",
+  "id": "byteplus",
+  "name": "BytePlus ModelArk"
+ },
+ {
+  "api": "https://api.cedarllm.com/v1",
+  "id": "cedarllm",
+  "name": "CedarLLM"
+ },
+ {
   "api": null,
   "id": "cerebras",
   "name": "Cerebras"
+ },
+ {
+  "api": "https://api.cheapaimodel.ai/v1",
+  "id": "cheapaimodel",
+  "name": "cheapaimodel"
+ },
+ {
+  "api": "https://api.cheapest-token.com/v1",
+  "id": "cheapest-token",
+  "name": "CheapestToken"
+ },
+ {
+  "api": "https://cheapllm.shop/v1",
+  "id": "cheapllm",
+  "name": "cheapllm.shop"
  },
  {
   "api": "https://llm.chutes.ai/v1",
@@ -208,6 +288,11 @@
   "api": "https://api.cline.bot/api/v1",
   "id": "cline-pass",
   "name": "ClinePass"
+ },
+ {
+  "api": "https://api.cloudcode.one/v1",
+  "id": "cloudcode",
+  "name": "CloudCode.ONE"
  },
  {
   "api": "https://api-sherlock.cloudferro.com/openai/v1/",
@@ -233,6 +318,16 @@
   "api": "https://api.commandcode.ai/provider/v1",
   "id": "commandcode",
   "name": "CommandCode"
+ },
+ {
+  "api": "https://api.concentrate.ai/v1",
+  "id": "concentrate",
+  "name": "Concentrate"
+ },
+ {
+  "api": "https://api.confidential.ai/v1",
+  "id": "confidential-ai",
+  "name": "Confidential AI"
  },
  {
   "api": "https://inference.coralbricks.ai/v1",
@@ -285,6 +380,16 @@
   "name": "DInference"
  },
  {
+  "api": "https://gateway.dothoosh.com/v1",
+  "id": "dothoosh",
+  "name": "DotHoosh"
+ },
+ {
+  "api": "https://api.doubleword.ai/v1",
+  "id": "doubleword",
+  "name": "Doubleword"
+ },
+ {
   "api": "https://chat.d.run/v1",
   "id": "drun",
   "name": "D.Run (China)"
@@ -315,9 +420,19 @@
   "name": "engy"
  },
  {
+  "api": "https://api.entrim.ai/v1",
+  "id": "entrim",
+  "name": "Entrim"
+ },
+ {
   "api": "https://models.think.evroc.com/v1",
   "id": "evroc",
   "name": "evroc"
+ },
+ {
+  "api": "https://api.ezkielyna.store/v1",
+  "id": "ezkielyna",
+  "name": "Ezkielyna"
  },
  {
   "api": "https://go.fastrouter.ai/api/v1",
@@ -325,14 +440,29 @@
   "name": "FastRouter"
  },
  {
+  "api": "https://api.ai.50x.energy/v1",
+  "id": "fiftyx",
+  "name": "50X"
+ },
+ {
   "api": "https://api.fireworks.ai/inference/v1/",
   "id": "fireworks-ai",
   "name": "Fireworks AI"
  },
  {
+  "api": "https://api.fortytwo.network/v1",
+  "id": "fortytwo",
+  "name": "Fortytwo"
+ },
+ {
   "api": "https://cc.freemodel.dev/v1",
   "id": "freemodel",
   "name": "FreeModel"
+ },
+ {
+  "api": "https://llm.scalefrequency.com/v2",
+  "id": "frequency",
+  "name": "Frequency"
  },
  {
   "api": "https://api.friendli.ai/serverless/v1",
@@ -343,6 +473,11 @@
   "api": "https://app.frogbot.ai/api/v1",
   "id": "frogbot",
   "name": "FrogBot"
+ },
+ {
+  "api": "https://gisoo.pro/api/v1",
+  "id": "gisoo",
+  "name": "Gisoo"
  },
  {
   "api": "https://api.githubcopilot.com",
@@ -375,6 +510,11 @@
   "name": "Vertex (Anthropic)"
  },
  {
+  "api": "https://model.graphn.ai/v1",
+  "id": "graphn",
+  "name": "GraphN"
+ },
+ {
   "api": "https://api.greenpt.ai/v1",
   "id": "greenpt",
   "name": "GreenPT"
@@ -390,9 +530,19 @@
   "name": "Helicone"
  },
  {
-  "api": "https://inference.hetzner.com/api/v1",
+  "api": "https://inference.hetzner.com/v1",
   "id": "hetzner",
   "name": "Hetzner"
+ },
+ {
+  "api": "https://api.withhopper.com/v1",
+  "id": "hopper",
+  "name": "Hopper"
+ },
+ {
+  "api": "https://router.hostinger.com/v1",
+  "id": "hostinger-router",
+  "name": "Hostinger Router"
  },
  {
   "api": "https://api.hpc-ai.com/inference/v1",
@@ -400,9 +550,24 @@
   "name": "HPC-AI"
  },
  {
+  "api": "https://api.modelarts-maas.com/openai/v1",
+  "id": "huawei-maas",
+  "name": "Huawei Cloud MAAS"
+ },
+ {
+  "api": "https://api.hubris.pw/v1",
+  "id": "hubris",
+  "name": "Hubris"
+ },
+ {
   "api": "https://router.huggingface.co/v1",
   "id": "huggingface",
   "name": "Hugging Face"
+ },
+ {
+  "api": "https://api.node.humainaic.com/v1",
+  "id": "humain",
+  "name": "HUMAIN"
  },
  {
   "api": "https://hyper.charm.land/v1",
@@ -435,9 +600,34 @@
   "name": "Infer by Flow7"
  },
  {
+  "api": "https://api.inferall.ai/v1",
+  "id": "inferall",
+  "name": "InferAll"
+ },
+ {
   "api": "https://inference.net/v1",
   "id": "inference",
   "name": "Inference"
+ },
+ {
+  "api": "https://gateway.inference.coop/v1",
+  "id": "inference-coop",
+  "name": "Inference Cooperative"
+ },
+ {
+  "api": "https://api.inferenceapis.com/v1",
+  "id": "inferenceapis",
+  "name": "Inference APIs"
+ },
+ {
+  "api": "https://api.inferris.ai/v1",
+  "id": "inferris",
+  "name": "Inferris"
+ },
+ {
+  "api": "https://api.infersia.com/v1",
+  "id": "infersia",
+  "name": "Infersia"
  },
  {
   "api": "https://model.inferx.net/endpoints/v1",
@@ -455,9 +645,19 @@
   "name": "IO.NET"
  },
  {
+  "api": "https://api.isoquant.ai/v1",
+  "id": "isoquant",
+  "name": "Isoquant"
+ },
+ {
   "api": "https://api.iteracompute.com/v1",
   "id": "iteracompute",
   "name": "IteraCompute"
+ },
+ {
+  "api": "https://jadai.freesrv.com/v1",
+  "id": "jad-ai",
+  "name": "Jad AI"
  },
  {
   "api": "https://api.jalapeno-cloud.ai/v1",
@@ -468,6 +668,21 @@
   "api": "https://api.jiekou.ai/openai",
   "id": "jiekou",
   "name": "Jiekou.AI"
+ },
+ {
+  "api": "https://gate.joingonka.ai/v1",
+  "id": "joingonka",
+  "name": "JoinGonka"
+ },
+ {
+  "api": "https://jzstoken.com/api/v1",
+  "id": "jzstoken",
+  "name": "JZSTOKEN"
+ },
+ {
+  "api": "https://api.keln.ai/v1",
+  "id": "keln",
+  "name": "Keln"
  },
  {
   "api": "https://kenari.id/v1",
@@ -490,9 +705,24 @@
   "name": "Kimi For Coding (kimi.ai)"
  },
  {
+  "api": "https://api.kitani.ai/v1",
+  "id": "kitani",
+  "name": "Kitani"
+ },
+ {
+  "api": "https://api.klavo.ru/v1",
+  "id": "klavo",
+  "name": "Klavo AI"
+ },
+ {
   "api": "https://api-gw.klok.ipaas.se/proxy/kloker-key/v1",
   "id": "klokintegration",
   "name": "klokintegration.se"
+ },
+ {
+  "api": "https://korouter.ai/v1",
+  "id": "korouter",
+  "name": "KoRouter"
  },
  {
   "api": "https://api.koscompute.com/v1",
@@ -505,14 +735,19 @@
   "name": "KUAE Cloud Coding Plan"
  },
  {
-  "api": "https://api.getlilac.com/v1",
-  "id": "lilac",
-  "name": "Lilac"
+  "api": "https://api.kunavo.com/v1",
+  "id": "kunavo",
+  "name": "Kunavo"
  },
  {
   "api": "https://router.inference.ai.exchange/v1",
   "id": "liquid",
   "name": "Liquid Inference"
+ },
+ {
+  "api": "https://api.lithosai.cloud/v1",
+  "id": "lithosai",
+  "name": "LithosAI"
  },
  {
   "api": "https://api.llmgateway.io/v1",
@@ -540,6 +775,11 @@
   "name": "LMStudio"
  },
  {
+  "api": "https://api.logits.com/v1",
+  "id": "logits",
+  "name": "Logits"
+ },
+ {
   "api": "https://api.longcat.chat/openai",
   "id": "longcat",
   "name": "LongCat"
@@ -555,9 +795,19 @@
   "name": "LucidQuery"
  },
  {
+  "api": "https://api.lyceum.technology/openai/v1",
+  "id": "lyceum",
+  "name": "Lyceum"
+ },
+ {
   "api": "http://127.0.0.1:8081/v1",
   "id": "lynkr",
   "name": "Lynkr"
+ },
+ {
+  "api": "https://api.mallardai.co.uk/v1",
+  "id": "mallard",
+  "name": "Mallard AI"
  },
  {
   "api": "https://api.meganova.ai/v1",
@@ -568,6 +818,11 @@
   "api": "https://api.melious.ai/v1",
   "id": "melious",
   "name": "Melious"
+ },
+ {
+  "api": "https://meragpt.com/v1",
+  "id": "meragpt",
+  "name": "meraGPT"
  },
  {
   "api": "https://api-gateway.merge.dev/v1/ai-sdk",
@@ -640,6 +895,11 @@
   "name": "Modular"
  },
  {
+  "api": "https://api.moneo.one/v1",
+  "id": "moneo",
+  "name": "Moneo"
+ },
+ {
   "api": "https://api.moonshot.ai/v1",
   "id": "moonshotai",
   "name": "Moonshot AI"
@@ -700,6 +960,16 @@
   "name": "Neuralwatt"
  },
  {
+  "api": "https://api.nodecode.ai/v1",
+  "id": "nodecode",
+  "name": "Nodecode"
+ },
+ {
+  "api": "https://nokeep.ai/v1",
+  "id": "nokeep",
+  "name": "nokeep"
+ },
+ {
   "api": "https://api.nova.amazon.com/v1",
   "id": "nova",
   "name": "Nova"
@@ -713,6 +983,16 @@
   "api": "https://integrate.api.nvidia.com/v1",
   "id": "nvidia",
   "name": "Nvidia"
+ },
+ {
+  "api": "https://oathbreaker.ai/v1",
+  "id": "oathbreaker",
+  "name": "Oathbreaker AI"
+ },
+ {
+  "api": "https://obscurify.ai/v1",
+  "id": "obscurify",
+  "name": "Obscurify.ai"
  },
  {
   "api": "https://inference.generativeai.us-chicago-1.oci.oraclecloud.com/openai/v1",
@@ -765,9 +1045,19 @@
   "name": "OrcaRouter"
  },
  {
+  "api": "https://api.outerlabs.ai/v1",
+  "id": "outerlabs",
+  "name": "Outer Labs"
+ },
+ {
   "api": "https://oai.endpoints.kepler.ai.cloud.ovh.net/v1",
   "id": "ovhcloud",
   "name": "OVHcloud AI Endpoints"
+ },
+ {
+  "api": "https://paraloncloud.com/v1",
+  "id": "paraloncloud",
+  "name": "ParalonCloud"
  },
  {
   "api": "https://api.paretoinference.com/v1",
@@ -790,6 +1080,16 @@
   "name": "Perplexity Agent"
  },
  {
+  "api": "https://inference.phala.com/v1",
+  "id": "phala",
+  "name": "Phala"
+ },
+ {
+  "api": "https://router.phase.xyz/v1",
+  "id": "phase",
+  "name": "Phase Router"
+ },
+ {
   "api": "https://api.fastino.ai/v1",
   "id": "pioneer",
   "name": "Pioneer"
@@ -805,6 +1105,16 @@
   "name": "Poolside"
  },
  {
+  "api": "https://api.powerspring.eu/v1",
+  "id": "powerspring",
+  "name": "Powerspring"
+ },
+ {
+  "api": "https://api.primalabs.ai/v1",
+  "id": "primalabs",
+  "name": "PrimaLabs"
+ },
+ {
   "api": "https://api.pinference.ai/api/v1",
   "id": "prime",
   "name": "Prime Inference"
@@ -813,6 +1123,11 @@
   "api": "http://localhost:8080/v1",
   "id": "privatemode-ai",
   "name": "Privatemode AI"
+ },
+ {
+  "api": "https://proxystacks.com/v1",
+  "id": "proxystacks",
+  "name": "ProxyStacks Relay"
  },
  {
   "api": "https://api.qhaigc.net/v1",
@@ -830,9 +1145,19 @@
   "name": "QVAC"
  },
  {
+  "api": "https://api.rayline.ai/v1",
+  "id": "rayline",
+  "name": "Rayline"
+ },
+ {
   "api": "https://api.reflection.ai/openai/v1",
   "id": "reflection",
   "name": "Reflection"
+ },
+ {
+  "api": "https://api.refuseless.com/v1",
+  "id": "refuseless",
+  "name": "Refuseless"
  },
  {
   "api": "https://api.regolo.ai/v1",
@@ -850,9 +1175,24 @@
   "name": "routing.run"
  },
  {
+  "api": "https://www.ruapi.ai/v1",
+  "id": "ruapi",
+  "name": "RuAPI"
+ },
+ {
+  "api": "https://api.runcrate.ai/v1",
+  "id": "runcrate",
+  "name": "Runcrate"
+ },
+ {
   "api": "https://api.runinfra.ai/v1",
   "id": "runinfra",
   "name": "RunInfra"
+ },
+ {
+  "api": "https://api.privatedeskai.com/v1",
+  "id": "sagg",
+  "name": "SAGG"
  },
  {
   "api": "https://api.sakana.ai/v1",
@@ -870,12 +1210,17 @@
   "name": "SambaNova"
  },
  {
+  "api": "https://api.sandbase.ai/v1",
+  "id": "sandbase",
+  "name": "SandBase"
+ },
+ {
   "api": null,
   "id": "sap-ai-core",
   "name": "SAP AI Core"
  },
  {
-  "api": "https://api.sarvam.ai/v1",
+  "api": "https://api.sarvam.ai/v2",
   "id": "sarvam",
   "name": "Sarvam AI"
  },
@@ -915,6 +1260,16 @@
   "name": "Snowflake Cortex"
  },
  {
+  "api": "https://router.sokkan.ch/v1",
+  "id": "sokkan",
+  "name": "SOKKAN Router"
+ },
+ {
+  "api": "https://api.sparrowcodes.com/v1",
+  "id": "sparrowcodes",
+  "name": "SparrowCodes"
+ },
+ {
   "api": "https://api.openai-compat.model-serving.eu01.onstackit.cloud/v1",
   "id": "stackit",
   "name": "STACKIT"
@@ -923,6 +1278,11 @@
   "api": "https://api.stdcmpt.com/v1",
   "id": "standardcompute",
   "name": "Standard Compute"
+ },
+ {
+  "api": "https://api.steadyrouter.com/v1",
+  "id": "steadyrouter",
+  "name": "SteadyRouter"
  },
  {
   "api": "https://api.stepfun.com/v1",
@@ -945,6 +1305,11 @@
   "name": "StepFun Step Plan (China)"
  },
  {
+  "api": "https://llm.stoney-cloud.com/v1",
+  "id": "stepping-stone",
+  "name": "stepping stone AG"
+ },
+ {
   "api": "https://api.subconscious.dev/v1",
   "id": "subconscious",
   "name": "Subconscious"
@@ -955,14 +1320,29 @@
   "name": "submodel"
  },
  {
+  "api": "https://api.superbot.gg/v1",
+  "id": "superbot-gg",
+  "name": "superbot"
+ },
+ {
   "api": "https://api.synthetic.new/openai/v1",
   "id": "synthetic",
   "name": "Synthetic"
  },
  {
-  "api": "https://api.temprhq.io/v1",
-  "id": "tempr",
-  "name": "Tempr Gateway"
+  "api": "https://synthorai.io/v1",
+  "id": "synthorai",
+  "name": "Synthorai"
+ },
+ {
+  "api": "https://api.teamorouter.com/v1",
+  "id": "teamorouter",
+  "name": "TeamoRouter"
+ },
+ {
+  "api": "https://api.teapotrouter.com/v1",
+  "id": "teapot-router",
+  "name": "Teapot Router"
  },
  {
   "api": "https://api.lkeap.cloud.tencent.com/coding/v3",
@@ -970,7 +1350,7 @@
   "name": "Tencent Coding Plan (China)"
  },
  {
-  "api": "https://api.lkeap.cloud.tencent.com/plan/v3",
+  "api": "https://tokenhub.tencentmaas.com/plan/v3",
   "id": "tencent-token-plan",
   "name": "Tencent Token Plan"
  },
@@ -985,9 +1365,19 @@
   "name": "TensorX"
  },
  {
+  "api": "https://console.tenstorrent.com/v1",
+  "id": "tenstorrent",
+  "name": "Tenstorrent"
+ },
+ {
   "api": "https://api.thegrid.ai/v1",
   "id": "the-grid-ai",
   "name": "The Grid AI"
+ },
+ {
+  "api": "https://api.therouter.ai/v1",
+  "id": "therouter",
+  "name": "TheRouter"
  },
  {
   "api": "https://tinker.thinkingmachines.dev/services/tinker-prod/anthropic/api/v1",
@@ -1000,6 +1390,11 @@
   "name": "Tinfoil"
  },
  {
+  "api": "https://toapis.com/v1",
+  "id": "toapis",
+  "name": "ToAPIs"
+ },
+ {
   "api": null,
   "id": "togetherai",
   "name": "Together AI"
@@ -1010,14 +1405,34 @@
   "name": "TokenGo"
  },
  {
+  "api": "https://api.tokenify.dev/v1",
+  "id": "tokenify",
+  "name": "Tokenify"
+ },
+ {
+  "api": "https://api.tokenlab.sh/v1",
+  "id": "tokenlab",
+  "name": "TokenLab"
+ },
+ {
   "api": "https://api.tokenrouter.com/v1",
   "id": "tokenrouter",
   "name": "TokenRouter"
  },
  {
+  "api": "https://api.tokenwatt.io/v1",
+  "id": "tokenwatt",
+  "name": "TokenWatt"
+ },
+ {
   "api": "https://api.trustedrouter.com/v1",
   "id": "trustedrouter",
   "name": "TrustedRouter"
+ },
+ {
+  "api": "https://api.trustedtokens.eu/v1",
+  "id": "trustedtokens",
+  "name": "TrustedTokens"
  },
  {
   "api": "https://api.code.umans.ai/v1",
@@ -1030,9 +1445,29 @@
   "name": "Umans AI Coding Plan"
  },
  {
+  "api": "https://api.unbiased.ai/v1",
+  "id": "unbiased",
+  "name": "Pareto by Unbiased"
+ },
+ {
+  "api": "https://uncensuredai.com/v1",
+  "id": "uncensuredai",
+  "name": "UncensuredAI"
+ },
+ {
   "api": "https://api.unorouter.com/v1",
   "id": "unorouter",
   "name": "UnoRouter"
+ },
+ {
+  "api": "https://api.unrestricted.sh/v1",
+  "id": "unrestricted",
+  "name": "Unrestricted"
+ },
+ {
+  "api": "https://api.uplinkswitch.com/v1",
+  "id": "uplinkswitch",
+  "name": "UplinkSwitch"
  },
  {
   "api": "https://api.upstage.ai/v1/solar",
@@ -1053,6 +1488,11 @@
   "api": null,
   "id": "vercel",
   "name": "Vercel AI Gateway"
+ },
+ {
+  "api": "https://inference.verda.com/v1",
+  "id": "verda",
+  "name": "Verda"
  },
  {
   "api": "https://api.lab.vispark.in/v1",
@@ -1090,6 +1530,11 @@
   "name": "Wallaby"
  },
  {
+  "api": "https://inference.runanywhere.ai/v1",
+  "id": "wally",
+  "name": "Wally"
+ },
+ {
   "api": "https://api.inference.wandb.ai/v1",
   "id": "wandb",
   "name": "CoreWeave"
@@ -1098,6 +1543,11 @@
   "api": null,
   "id": "watsonx",
   "name": "watsonx.ai"
+ },
+ {
+  "api": "https://api.watt-cloud.com/v1",
+  "id": "watt",
+  "name": "Watt Cloud"
  },
  {
   "api": null,
@@ -1130,6 +1580,11 @@
   "name": "Xpersona"
  },
  {
+  "api": "https://xxapi.ai/v1",
+  "id": "xxapi",
+  "name": "xxapi"
+ },
+ {
   "api": "https://api.z.ai/api/paas/v4",
   "id": "zai",
   "name": "Z.AI"
@@ -1155,6 +1610,11 @@
   "name": "ZenMux"
  },
  {
+  "api": "https://api.zerogpu.ai/v1",
+  "id": "zerogpu",
+  "name": "ZeroGPU"
+ },
+ {
   "api": "https://open.bigmodel.cn/api/paas/v4",
   "id": "zhipuai",
   "name": "Zhipu AI"
@@ -1163,5 +1623,10 @@
   "api": "https://open.bigmodel.cn/api/coding/paas/v4",
   "id": "zhipuai-coding-plan",
   "name": "Zhipu AI Coding Plan"
+ },
+ {
+  "api": "https://zro.moonmath.ai/v1",
+  "id": "zro",
+  "name": "Zro"
  }
 ]
