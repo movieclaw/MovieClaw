@@ -1632,3 +1632,75 @@ def test_delete_rechecks_owner_after_reading_plan(client, tmp_path, monkeypatch)
             assert (owner.library_file_id, owner.state) == (file_id, "verified")
 
     call(client, check)
+
+
+def test_keeping_a_strm_never_trashes_the_cloud_file_it_may_point_to(client, tmp_path):
+    """#1320：.strm 与它指向的那份只在网盘上的文件落进同一集，重复清理选「留 strm」。
+
+    宿主核实不了 strm 指向谁（115 一类直链按提取码，台账里没有），只能保守：留的是 strm
+    时不清理带网盘副本的那一行——否则到期清理（小批量不触发护栏）会删掉 strm 唯一能
+    播的网盘文件。反过来留实体、清掉 strm 指针照常可以。
+    """
+    from movieclaw_api.services.library import recycle
+    from movieclaw_api.services.library.duplicates import detect_duplicates
+
+    view = _create_library(client, tmp_path)
+    library_id = view["id"]
+    # 外部工具为网盘文件生成的播放指针（合成地址，不会真的去连）
+    strm = tmp_path / "staging" / "奥本海默 (2023)" / "Oppenheimer.2023.1080p.strm"
+    strm.parent.mkdir(parents=True)
+    strm.write_text("http://p115.invalid:8000?pickcode=synthetic1320\n", encoding="utf-8")
+    _scan(client, library_id, backfill_existing_specs=False)
+    rows = ledger(client, library_id)
+    cloud, pointer = rows["f-opp"], rows[str(strm)]
+    assert cloud["local_bytes"] is False and cloud["replica_state"] == "verified"
+    assert pointer["media_item_id"] == cloud["media_item_id"]
+
+    async def unit_files() -> set[int]:
+        async with get_database().session() as session:
+            report = await detect_duplicates(session, media_item_id=cloud["media_item_id"])
+        return {f.row.id for d in report.items for s in d.seasons for u in s.units for f in u.files}
+
+    from movieclaw_db.engine import get_database
+
+    assert call(client, unit_files) == {cloud["id"], pointer["id"]}
+
+    resolved = client.post(
+        "/api/v1/libraries/duplicate-files/resolve",
+        json={
+            "media_item_id": cloud["media_item_id"],
+            "season_number": 0,
+            "episode_number": 0,
+            "keep_file_id": pointer["id"],
+        },
+    )
+    assert resolved.status_code == 200, resolved.text
+    result = resolved.json()["data"]
+    assert result["done"] == 0
+    assert [(f["id"], f["error"]) for f in result["failed"]] == [
+        (cloud["id"], "留的是 strm，它可能正指着这份网盘文件，不能从这里清理")
+    ]
+    rows = ledger(client, library_id)
+    assert rows["f-opp"]["state"] == "in_place"  # 网盘文件留在原位，不进回收站
+    assert rows[str(strm)]["state"] == "in_place"
+    # 到期清理跑一轮（一个文件，远低于批量护栏）：网盘上什么都没删
+    call(client, recycle.purge_due_files)
+    state = json.loads(client.state_path.read_text(encoding="utf-8"))  # type: ignore[attr-defined]
+    assert "deleted" not in state
+
+    # 反过来留网盘那份：清掉的只是本地的 strm 指针，网盘不动
+    resolved = client.post(
+        "/api/v1/libraries/duplicate-files/resolve",
+        json={
+            "media_item_id": cloud["media_item_id"],
+            "season_number": 0,
+            "episode_number": 0,
+            "keep_file_id": cloud["id"],
+        },
+    )
+    assert resolved.status_code == 200, resolved.text
+    rows = ledger(client, library_id)
+    assert rows["f-opp"]["state"] == "in_place"
+    assert not strm.exists()
+    state = json.loads(client.state_path.read_text(encoding="utf-8"))  # type: ignore[attr-defined]
+    assert "deleted" not in state

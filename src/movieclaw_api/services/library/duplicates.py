@@ -49,8 +49,10 @@ from movieclaw_api.services.library.origin import origin_of
 from movieclaw_api.services.library.recycle import recycle_file
 from movieclaw_db.models import FileState, LibraryFile, MediaItem, utcnow
 from movieclaw_db.models.library import Library
+from movieclaw_db.models.library_file_replica import LibraryFileReplica
 from movieclaw_matcher.decision import compare_ladder, ladder_vector
 from movieclaw_matcher.models import QualitySnapshot, RuleSetSpec
+from movieclaw_playback.streaming import is_strm
 
 logger = logging.getLogger("movieclaw_api.library.duplicates")
 
@@ -673,6 +675,26 @@ def _note_reference(keep: DupFile, gone: DupFile, bucket: Bucket) -> dict:
     )
 
 
+async def _strm_may_point_to(session: AsyncSession, unit: DupUnit, keep: DupFile) -> set[int]:
+    """留的是 strm 时，单元里有网盘副本的实体行（#1320）。
+
+    strm 只是指针，宿主核实不了它指向谁（115 一类直链按提取码，台账里没有），
+    而它很可能就指着同一集的那份网盘文件。清掉那一行，到期清理会删网盘上的文件，
+    strm 就成了死链——所以留 strm 时这些行一律不清，让用户自己去确认。
+    """
+    if not is_strm(keep.row.file_path):
+        return set()
+    ids = [f.row.id for f in unit.files if f is not keep and not is_strm(f.row.file_path)]
+    if not ids:
+        return set()
+    rows = await session.execute(
+        select(LibraryFileReplica.library_file_id).where(
+            LibraryFileReplica.library_file_id.in_(ids)  # type: ignore[attr-defined]
+        )
+    )
+    return set(rows.scalars())
+
+
 async def recycle_extras(
     session: AsyncSession,
     unit: DupUnit,
@@ -692,11 +714,19 @@ async def recycle_extras(
     """
     # 展示用的名字与 id 先取出来，失败分支不再碰 ORM
     marks = {id(f): (f.row.id or 0, f.file_name) for f in unit.files}
+    on_drive = await _strm_may_point_to(session, unit, keep)
     for f in unit.files:
         if f is keep or (f.kept and not include_kept):
             continue
         row = f.row
         outcome.library_ids.add(row.library_id)
+        if row.id in on_drive:
+            file_id, file_name = marks[id(f)]
+            outcome.failed.append(
+                (file_id, file_name, source_text("library.duplicates.strmTarget"))
+            )
+            outcome.failure_refs[file_id] = reference("library.duplicates.strmTarget")
+            continue
         try:
             result = await recycle_file(
                 session,
