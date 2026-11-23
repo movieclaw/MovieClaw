@@ -153,6 +153,7 @@
     },
     "recycleFailed": "Could not move to the recycle bin: {detail}",
     "readOnly": "This file is on a read-only source and can’t be cleaned up from here.",
+    "strmTarget": "The copy you’re keeping is a .strm that may point to this cloud file, so it can’t be cleaned up from here.",
     "unitChanged": "This unit no longer has duplicate files. A scan or upgrade may have changed it. Refresh the list.",
     "episodeRequired": "Select an episode to keep a specific file.",
     "fileChanged": "The file to keep is no longer in this unit. The file set changed; refresh the list.",
