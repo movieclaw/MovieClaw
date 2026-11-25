@@ -501,6 +501,7 @@ _BADGE_FIELDS = (
     "dynamic_range",
     "progress_percent",
     "unplayed_count",
+    "user_rating",
 )
 
 
@@ -601,6 +602,7 @@ def test_wall_routes_declare_the_badges_query_param() -> None:
         ("/api/v1/libraries/{library_id}/items/{media_item_id}/similar", "get"),
         ("/api/v1/collections/{collection_id}/items", "get"),
         ("/api/v1/playback/favorites", "get"),
+        ("/api/v1/playback/rated", "get"),
     ]
     for path, method in walls:
         params = {p["name"]: p for p in spec["paths"][path][method]["parameters"]}
