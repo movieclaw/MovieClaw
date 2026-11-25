@@ -63,6 +63,7 @@ export function usePosterBadgeDescriptions(set: PosterBadgeSet | null): string[]
   const t = useTranslations();
   if (!set) return [];
   return [
+    set.myRating != null ? t("library.posterBadges.myRating", { rating: set.myRating.toFixed(1) }) : null,
     set.rating != null ? t("library.posterBadges.rating", { rating: set.rating.toFixed(1) }) : null,
     set.status ? t(`library.posterBadges.${set.status}`) : null,
     set.resolution,
@@ -117,6 +118,15 @@ export function PosterBadgeOverlay({
           className="pointer-events-none absolute inset-x-2 top-2 z-10 flex items-start justify-between gap-1"
         >
           <div className="flex shrink-0 flex-col items-start gap-1">
+            {set.myRating != null && (
+              <span
+                data-badge="my-rating"
+                className={`tnum flex items-center gap-0.5 rounded-md border border-[var(--accent)]/50 bg-black/75 px-1.5 py-0.5 text-micro font-bold leading-[14px] tracking-wide text-[var(--accent)] ${reveal}`}
+              >
+                <StarIcon className="size-2.5 text-[var(--accent)]" />
+                {set.myRating.toFixed(1)}
+              </span>
+            )}
             {set.rating != null && (
               <span
                 data-badge="rating"

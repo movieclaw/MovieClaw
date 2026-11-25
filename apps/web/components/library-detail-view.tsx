@@ -226,6 +226,7 @@ function sortOptions(
     // 其他库的默认档本来就是按时间，不重复摆
     ...(timeline ? [] : ([["release_date", t("library.sort.releaseDate")]] as [WallSortPref, string][])),
     ["rating", t("library.sort.rating")],
+    ["my_rating", t("library.sort.myRating")],
     ["runtime", t("library.sort.runtime")],
     ["size", t("library.sort.size")],
     ["last_played", t("library.sort.lastPlayed")],
@@ -237,7 +238,7 @@ function sortOptions(
 function writeFilterToUrl(filter: LibraryFilter): void {
   if (typeof window === "undefined") return;
   const params = new URLSearchParams(window.location.search);
-  for (const key of ["g", "c", "d", "w", "rating_gte", "rt", "lang", "res", "hdr", "stock", "actor"])
+  for (const key of ["g", "c", "d", "w", "rating_gte", "my_rating_gte", "rt", "lang", "res", "hdr", "stock", "actor"])
     params.delete(key);
   filterQuery(filter, params);
   const rest = params.toString();
