@@ -101,8 +101,8 @@ async def ensure_local_assets(media_item_id: int, *, force: bool = False) -> Non
             return
         meta = await MediaItemRepository(session).get_metadata(media_item_id)
         if meta is None:
+            # 先不入会话：下面提前 commit 时不该把空档案行写进去；有改动时末尾 add
             meta = MediaMetadata(media_item_id=media_item_id)
-            session.add(meta)
         rows = (
             await session.execute(
                 select(LibraryFile, Library)
@@ -123,6 +123,8 @@ async def ensure_local_assets(media_item_id: int, *, force: bool = False) -> Non
         poster_rel = str(poster_dest.relative_to(assets_root()))
         backdrop_rel = str(backdrop_dest.relative_to(assets_root()))
         changed = False
+        # 抓帧要排闸、解码视频：先把连接还回池子，改动留到末尾 commit（#1327）
+        await session.commit()
 
         poster_ready = meta.poster_file == poster_rel and await asyncio.to_thread(
             poster_dest.is_file
