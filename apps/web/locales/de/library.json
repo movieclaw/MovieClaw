@@ -295,7 +295,14 @@
     "genresMeta": "Eingebaut · Eine Kachel pro Genre ({count, plural, one {# Mediathek} other {# Mediatheken}})",
     "libraryMeta": "Mediathek {name}",
     "kindMeta": "Alle {kind} ({count, plural, one {# Mediathek} other {# Mediatheken}})",
-    "collectionMeta": "Sammlung · {sort}"
+    "collectionMeta": "Sammlung · {sort}",
+    "rated": "Meine Bestbewerteten",
+    "myRating": "Meine Bewertung",
+    "myLowestRated": "Meine niedrigsten Bewertungen",
+    "myRatingHint": "Nach deiner Bewertung sortiert",
+    "recentRated": "Zuletzt bewertet",
+    "firstRated": "Zuerst bewertet",
+    "ratedAtHint": "Bewertungsdatum"
   },
   "confirm": {
     "scanIntro": "Dieser Scan sucht nach Änderungen in den Mediathek-Ordnern:",
@@ -635,7 +642,8 @@
     "smallToLarge": "Klein → groß",
     "largeToSmall": "Groß → klein",
     "random": "Zufällig",
-    "reverseHint": "{label}, {direction}; erneut auswählen zum Umkehren"
+    "reverseHint": "{label}, {direction}; erneut auswählen zum Umkehren",
+    "myRating": "Meine Bewertung"
   },
   "issues": {
     "title": "Probleme",
@@ -736,7 +744,8 @@
     "dropCondition": "„<strong>{dimension} = {value}</strong>“ entfernen",
     "relaxedCount": "→ {count, plural, one {# Titel} other {# Titel}}",
     "viewCount": "{count, plural, one {# Titel} other {# Titel}} ansehen",
-    "selectedSuffix": " · {count} ausgewählt"
+    "selectedSuffix": " · {count} ausgewählt",
+    "myRating": "Meine Bewertung"
   },
   "cloudPicker": {
     "enterFolder": "Öffne zuerst den Ordner, den du hinzufügen möchtest",
@@ -1005,7 +1014,13 @@
     "airExpectedShort": "Erwartet",
     "airThisWeek": "Diese Woche",
     "airNextWeek": "Nächste Woche",
-    "airLater": "Später"
+    "airLater": "Später",
+    "myRating": "Meine Bewertung",
+    "rate": "Bewerten",
+    "rateTitle": "{title} bewerten",
+    "rateStars": "{stars} Sterne",
+    "clearRating": "Bewertung entfernen",
+    "rateFailed": "Bewertung konnte nicht gespeichert werden. Bitte später erneut versuchen."
   },
   "transfer": {
     "librariesFailed": "Mediatheken konnten nicht geladen werden. Bitte versuche es erneut.",
@@ -1736,7 +1751,8 @@
     "unfinished": "Nicht beendet",
     "watching": "Angefangen",
     "played": "Gesehen",
-    "favorite": "Meine Favoriten"
+    "favorite": "Meine Favoriten",
+    "rated": "Von mir bewertet"
   },
   "watchFilter": {
     "all": "Alle Gesehen-Status",
@@ -1768,7 +1784,9 @@
     "unwatched": "{count, plural, one {# ungesehene Folge} other {# ungesehene Folgen}}",
     "progress": "{percent} % gesehen",
     "rating": "Bewertung {rating}",
-    "detailStatus": "Ausstrahlungsstatus: {status}"
+    "detailStatus": "Ausstrahlungsstatus: {status}",
+    "toggleMyRating": "Meine Bewertung",
+    "myRating": "Meine Bewertung {rating}"
   },
   "externalPlayer": {
     "openWith": "In {player} öffnen",

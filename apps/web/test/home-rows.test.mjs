@@ -60,9 +60,9 @@ test("隐藏或移除合集行同步移除虚拟库卡片，恢复显示后保�
   assert.deepEqual(cards([{ ...pref, hidden: false }]), [8]);
 });
 
-test("空清单 = 出厂布局：三个内置行 + 每库一行最近添加", () => {
+test("空清单 = 出厂布局：内置行 + 每库一行最近添加", () => {
   const rows = buildHomeRows({ rows: [] }, LIBS, COLS);
-  assert.deepEqual(ids(rows), ["up-next", "favorites", "libraries", "lib:1", "lib:2", "lib:3"]);
+  assert.deepEqual(ids(rows), ["up-next", "favorites", "rated", "libraries", "lib:1", "lib:2", "lib:3"]);
   assert.equal(rowTitle(find(rows, "lib:1")), "最近添加的电影");
   assert.equal(find(rows, "lib:1").sort, "added_at");
   assert.equal(find(rows, "lib:1").builtin, true);
@@ -75,7 +75,7 @@ test("存过的按存的顺序在前，没存过的内置行与默认库行补�
     COLS,
   );
   // lib:1 / lib:3 是没存过的库行：插在最后一条库行（lib:2）之后；内置行追加在末尾
-  assert.deepEqual(ids(rows), ["lib:2", "lib:1", "lib:3", "up-next", "favorites", "libraries"]);
+  assert.deepEqual(ids(rows), ["lib:2", "lib:1", "lib:3", "up-next", "favorites", "rated", "libraries"]);
 });
 
 test("新库的默认行插在最后一条库行之后，不落到合集行后面", () => {
@@ -90,7 +90,7 @@ test("新库的默认行插在最后一条库行之后，不落到合集行后�
     LIBS,
     COLS,
   );
-  assert.deepEqual(ids(rows), ["up-next", "lib:1", "lib:2", "lib:3", "row:c", "favorites", "libraries"]);
+  assert.deepEqual(ids(rows), ["up-next", "lib:1", "lib:2", "lib:3", "row:c", "favorites", "rated", "libraries"]);
 });
 
 test("指向已删库 / 不可见合集 / 仅管理的库的行静默消失", () => {
@@ -107,7 +107,7 @@ test("指向已删库 / 不可见合集 / 仅管理的库的行静默消失", ()
     [...LIBS, lib(4, "仅管理", "movie", { viewer_access: false })],
     COLS,
   );
-  assert.deepEqual(ids(rows), ["row:c", "up-next", "favorites", "libraries", "lib:1", "lib:2", "lib:3"]);
+  assert.deepEqual(ids(rows), ["row:c", "up-next", "favorites", "rated", "libraries", "lib:1", "lib:2", "lib:3"]);
 });
 
 test("从首页排除的库不给默认行，用户自己加的行仍尊重", () => {
@@ -115,6 +115,7 @@ test("从首页排除的库不给默认行，用户自己加的行仍尊重", ()
   assert.deepEqual(ids(buildHomeRows({ rows: [] }, libs, [])), [
     "up-next",
     "favorites",
+    "rated",
     "libraries",
     "lib:1",
   ]);
@@ -274,8 +275,8 @@ test("新行 id 是 row: 加 6 位 base36；拖到某一位越界原样返回", 
   assert.equal(newRowId(() => 0), "row:000000");
   const rows = withoutKinds(buildHomeRows({ rows: [] }, LIBS, COLS));
   assert.deepEqual(ids(moveRowTo(rows, 0, -1)), ids(rows));
-  assert.deepEqual(ids(moveRowTo(rows, 5, 0)).slice(0, 3), ["lib:3", "up-next", "favorites"]);
-  assert.deepEqual(ids(moveRowTo(rows, 3, 2)).slice(0, 4), ["up-next", "favorites", "lib:1", "libraries"]);
+  assert.deepEqual(ids(moveRowTo(rows, 6, 0)).slice(0, 3), ["lib:3", "up-next", "favorites"]);
+  assert.deepEqual(ids(moveRowTo(rows, 4, 2)).slice(0, 5), ["up-next", "favorites", "lib:1", "rated", "libraries"]);
   assert.equal(newLibraryRow(LIBS[0], "row:abc").id, "row:abc");
 });
 
@@ -286,7 +287,7 @@ test("管理员「从首页排除」的库：存过的默认行也不出现，�
     libs,
     [],
   );
-  assert.deepEqual(ids(rows), ["row:v", "lib:1", "up-next", "favorites", "libraries"]);
+  assert.deepEqual(ids(rows), ["row:v", "lib:1", "up-next", "favorites", "rated", "libraries"]);
 });
 
 test("「最近观看」与「只看没看过的」互斥：以排序为准，开关作废", () => {
@@ -305,7 +306,7 @@ test("一条库行都没有时，新库的默认行插在「我的媒体库」�
     LIBS,
     COLS,
   );
-  assert.deepEqual(ids(rows), ["up-next", "libraries", "lib:1", "lib:2", "lib:3", "row:c", "favorites"]);
+  assert.deepEqual(ids(rows), ["up-next", "libraries", "lib:1", "lib:2", "lib:3", "row:c", "favorites", "rated"]);
 });
 
 // ---------------------------------------------------------------------------
@@ -315,7 +316,7 @@ test("一条库行都没有时，新库的默认行插在「我的媒体库」�
 test("出厂布局不带类型行：「全部电影」要主动添加才出现", () => {
   const rows = buildHomeRows({ rows: [] }, LIBS, COLS);
   // 类型色块行（genres:*）是另一回事，有自己的用例
-  assert.deepEqual(ids(rows), ["up-next", "favorites", "libraries", "lib:1", "lib:2", "lib:3"]);
+  assert.deepEqual(ids(rows), ["up-next", "favorites", "rated", "libraries", "lib:1", "lib:2", "lib:3"]);
   assert.equal(rows.some((row) => row.kind === "media-kind"), false);
   // 升级前存的清单也不补类型行
   const saved = buildHomeRows({ rows: [{ id: "up-next" }, { id: "lib:2" }] }, LIBS, COLS);
@@ -389,9 +390,10 @@ test("类型行的排序预设按类型裁剪；新加的类型行从最近添�
 
 test("类型色块行：出厂布局紧跟「我的媒体库」，只给有库的类型", () => {
   const rows = buildHomeRows({ rows: [] }, LIBS, COLS);
-  assert.deepEqual(allIds(rows).slice(0, 5), [
+  assert.deepEqual(allIds(rows).slice(0, 6), [
     "up-next",
     "favorites",
+    "rated",
     "libraries",
     "genres:movie",
     "genres:tv",
