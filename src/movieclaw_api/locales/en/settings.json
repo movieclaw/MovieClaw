@@ -362,7 +362,9 @@
       "systemAlertRaised": "Issue needs attention",
       "systemAlertResolved": "Issue resolved",
       "systemUpdateAvailable": "Update available",
-      "systemTipSuggested": "Usage suggestion"
+      "systemTipSuggested": "Usage suggestion",
+      "libraryItemRated": "Rated",
+      "libraryItemUnrated": "Rating cleared"
     },
     "groups": {
       "account": "Account",
@@ -373,7 +375,8 @@
       "trash": "Trash",
       "playback": "Playback",
       "subscription": "Subscriptions",
-      "system": "System"
+      "system": "System",
+      "ratings": "Ratings"
     },
     "errors": {
       "requestFailed": "Request failed: {reason}",
