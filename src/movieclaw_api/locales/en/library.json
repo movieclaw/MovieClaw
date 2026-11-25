@@ -201,7 +201,8 @@
     "language": "Language",
     "quality": "Quality",
     "dynamicRange": "Dynamic range",
-    "stock": "Inventory"
+    "stock": "Inventory",
+    "myRating": "My rating"
   },
   "facets": {
     "earlier": "Earlier",
@@ -211,7 +212,8 @@
     "favorite": "My favorites",
     "missing": "Files missing",
     "unscraped": "No metadata",
-    "unfinished": "Unfinished"
+    "unfinished": "Unfinished",
+    "rated": "Rated"
   },
   "gallery": {
     "poster": "Poster",

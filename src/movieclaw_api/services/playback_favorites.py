@@ -41,6 +41,7 @@ FavoriteSort = Literal[
     "added_at",
     "release_date",
     "rating",
+    "my_rating",
     "runtime",
     "size",
     "last_played",

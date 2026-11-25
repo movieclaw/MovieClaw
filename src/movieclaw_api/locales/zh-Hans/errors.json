@@ -122,7 +122,8 @@
     "remoteSeekStart": "远程 seek 启动失败：{reason}",
     "remoteBackendMissing": "远程会话缺少执行后端（决策层未给出）",
     "ratingInvalid": "评分须为 0–10 的整数（0 表示清除，1–10 对应半星到 5 星）",
-    "ratingItemOnly": "当前仅支持对整部电影或整部剧评分，暂不支持季或单集"
+    "ratingItemOnly": "当前仅支持对整部电影或整部剧评分，暂不支持季或单集",
+    "ratingFilterInvalid": "评分筛选条件须为 1–10 的整数（1 对应半星，10 对应 5 星）"
   },
   "subscription": {
     "episodeMissing": "没有找到该单集",
