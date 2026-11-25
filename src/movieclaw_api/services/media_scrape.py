@@ -2049,6 +2049,10 @@ async def download_item_assets(
         ]
         tally.planned += sum(1 for path in planned_paths if path)
         tally.changed()
+        # 先把连接还回池子再去排图床闸、下图（#1327）：读事务会一直借着连接，
+        # 连续认领时排队的每个后台补齐各压一条，池子被占满、全站写接口超时。
+        # expire_on_commit=False，已读出的对象照常可用，改动留到末尾 commit 落库
+        await session.commit()
 
         async with _asset_semaphore:
             if only in (None, "poster"):
@@ -2219,6 +2223,8 @@ async def _grab_missing_stills(
             .order_by(LibraryFile.file_path)
         )
     ).all()
+    # 抓帧要解码视频（网络挂载上一集可达数秒），同样先还连接再抓（#1327）
+    await session.commit()
     # 每集取路径最靠前的在位文件（多版本同集时与分集区/镜像取同一个）
     file_by_unit: dict[tuple[int, int], tuple[LibraryFile, Library]] = {}
     for file, library in rows:
