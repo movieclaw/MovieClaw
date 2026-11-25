@@ -52,8 +52,9 @@ DEFAULT_PREFS = {
     "nav": {"order": [], "hidden": None},
     # 空清单 = 媒体库首页用出厂布局
     "home": {"rows": []},
-    # 海报角标默认全关：升级前库存墙的海报上只有收藏的心，老用户的墙面不能变
+    # 海报角标：仅我的评分默认开启（未评分条目无视觉变化），其余默认关闭
     "poster_badges": {
+        "my_rating": True,
         "rating": False,
         "year": False,
         "resolution": False,
@@ -290,6 +291,8 @@ def test_home_rows_persist_with_optional_fields_left_null(client: TestClient) ->
         {"id": "lib:1", "library_id": 1},  # 默认库行不能带来源
         {"id": "up-next", "sort": "rating"},  # 接下来继续没有排序
         {"id": "favorites", "sort": "random"},  # 收藏行不支持随机
+        {"id": "rated", "sort": "rating"},  # 我的高分作品行只认 my_rating / rated_at
+        {"id": "rated", "library_id": 1},  # 内置行不能带来源
         {"id": "lib:1", "sort": "size"},  # 首页行不开放体积档
         {"id": "row:x", "library_id": 1, "name": "x" * 41},  # 名字过长
         {"id": "kind:photo"},  # 照片库不做类型行
@@ -350,6 +353,21 @@ def test_language_persists_and_old_clients_do_not_reset_it(client: TestClient) -
     invalid = client.put("/api/v1/ui/preferences", json={"language": "ja"})
     assert invalid.status_code == 422
     assert client.get("/api/v1/ui/preferences").json()["data"]["language"] == "auto"
+
+
+def test_home_rated_row_persists(client: TestClient) -> None:
+    """「我的高分作品」内置行支持隐藏、排序预设（my_rating / rated_at）与顺序持久化。"""
+    rows = [
+        {"id": "rated", "sort": "rated_at", "order": "asc", "hidden": True},
+        {"id": "up-next"},
+    ]
+    resp = client.put("/api/v1/ui/preferences", json={"home": {"rows": rows}})
+    assert resp.status_code == 200
+    saved = client.get("/api/v1/ui/preferences").json()["data"]["home"]["rows"]
+    assert saved[0]["id"] == "rated"
+    assert saved[0]["sort"] == "rated_at"
+    assert saved[0]["order"] == "asc"
+    assert saved[0]["hidden"] is True
 
 
 def test_poster_badges_persist(client: TestClient) -> None:
