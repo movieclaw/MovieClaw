@@ -375,6 +375,31 @@ async def set_favorite(
     return row
 
 
+async def set_rating(
+    session: AsyncSession, unit: Unit, *, member_id: int, rating: int | None
+) -> tuple[PlaybackState, int | None]:
+    """设置 / 清除个人评分（1–10 整数；``None`` 表示清除）。
+
+    返回 ``(状态行, 变更前的评分)`` 供事件载荷填充 ``previous_rating``。
+    只在设置/改分时刷新 ``rated_at``（幂等重复写同一分数不改写时间），清除时置 ``None``；
+    不触碰播放进度、已看状态或收藏。
+    """
+    if rating is not None and (isinstance(rating, bool) or not 1 <= rating <= 10):
+        raise ValueError("user_rating must be an integer between 1 and 10, or None")
+    row = await _get_or_create(session, unit, member_id=member_id)
+    previous = row.user_rating
+    now = utcnow()
+    if rating is None:
+        row.user_rating = None
+        row.rated_at = None
+    else:
+        if row.user_rating != rating or row.rated_at is None:
+            row.rated_at = now
+        row.user_rating = rating
+    row.updated_at = now
+    return row, previous
+
+
 def track_report_changes(
     row: PlaybackState, *, audio_track: str | None = None, subtitle_track: str | None = None
 ) -> bool:
