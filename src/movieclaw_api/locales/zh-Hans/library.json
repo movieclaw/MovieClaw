@@ -201,7 +201,8 @@
     "language": "语言",
     "quality": "画质",
     "dynamicRange": "动态范围",
-    "stock": "库存"
+    "stock": "库存",
+    "myRating": "我的评分"
   },
   "facets": {
     "earlier": "更早",
@@ -211,7 +212,8 @@
     "favorite": "我收藏的",
     "missing": "文件失联",
     "unscraped": "没刮到档案",
-    "unfinished": "未看完"
+    "unfinished": "未看完",
+    "rated": "已评分"
   },
   "gallery": {
     "poster": "海报",

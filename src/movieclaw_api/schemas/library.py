@@ -977,6 +977,13 @@ class LibraryItemView(BaseModel):
             "或不认人的调用为 null"
         ),
     )
+    user_rating: int | None = Field(
+        default=None,
+        description=(
+            "当前观看者的个人评分（1–10 整数，1=半星，10=5 星）；"
+            "未评分、没请求 badges=my_rating 或不认人的调用为 null"
+        ),
+    )
 
     @field_serializer("added_at")
     def _serialize_utc(self, value: datetime | None) -> str | None:
