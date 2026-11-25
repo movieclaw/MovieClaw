@@ -148,6 +148,53 @@ def test_paging_member_isolation_and_import_idempotency(client):
     assert c.post(BASE + "/import", json={"member_id": 2, "records": [item]}).status_code == 403
 
 
+def test_pending_import_cannot_follow_a_reused_member_id(client):
+    c, _app, ids = client
+    member_url = "/api/v1/members/2"
+    old_member = c.get(member_url).json()["data"]
+    assert old_member["id"] == 2
+
+    async def replace_member():
+        async with get_database().session() as session:
+            member = await session.get(Member, 2)
+            assert member is not None
+            created_at = member.created_at
+            await session.delete(member)
+            await session.flush()
+            replacement = Member(
+                username="replacement",
+                password_hash="unused",
+                created_at=created_at + timedelta(seconds=1),
+            )
+            session.add(replacement)
+            await session.flush()
+            assert replacement.id == 2
+            await session.commit()
+
+    c.portal.call(replace_member)
+    payload = {
+        "member_id": 2,
+        "expected_member_created_at": old_member["created_at"],
+        "records": [record(ids[0])],
+    }
+    reply = c.post(BASE + "/import", json=payload)
+    assert reply.status_code == 200, reply.text
+    assert reply.json()["data"]["outcomes"][0]["status"] == "conflict"
+    assert c.portal.call(facts) == ([], [], [])
+    reply = c.post(
+        BASE + "/import",
+        json={**payload, "expected_member_created_at": "0001-01-01T00:00:00+01:00"},
+    )
+    assert reply.status_code == 200, reply.text
+    assert reply.json()["data"]["outcomes"][0]["status"] == "conflict"
+    assert c.portal.call(facts) == ([], [], [])
+    new_member = c.get(member_url).json()["data"]
+    payload["expected_member_created_at"] = new_member["created_at"]
+    reply = c.post(BASE + "/import", json=payload)
+    assert reply.status_code == 200, reply.text
+    assert reply.json()["data"]["outcomes"][0]["status"] == "applied"
+
+
 def test_catalog_narrows_to_one_title_for_compare_and_set(client):
     """对方报来一条进度时，插件只要这部作品的状态与版本，不用翻整个目录。"""
     c, _app, _ids = client

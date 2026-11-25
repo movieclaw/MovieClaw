@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import Literal
 
-from pydantic import ConfigDict, Field, field_validator, model_validator
+from pydantic import AwareDatetime, ConfigDict, Field, field_validator, model_validator
 
 from movieclaw_api.i18n import t
 from movieclaw_api.schemas.base import BaseModel
@@ -93,6 +93,10 @@ class SyncRecordIn(BaseModel):
 class SyncImportIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
     member_id: int = Field(default=0, ge=0)
+    expected_member_created_at: AwareDatetime | None = Field(
+        default=None,
+        description="绑定时的 members.show created_at；身份变化时整批返回 conflict",
+    )
     records: list[SyncRecordIn] = Field(min_length=1, max_length=100)
 
 
