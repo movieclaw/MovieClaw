@@ -23,6 +23,7 @@ export type WallSortPref =
   | "added_at"
   | "release_date"
   | "rating"
+  | "my_rating"
   | "runtime"
   | "size"
   | "last_played"
@@ -38,6 +39,7 @@ export const PREF_TO_SORT: Record<
   added_at: "added_at",
   release_date: "release_date",
   rating: "rating",
+  my_rating: "my_rating",
   runtime: "runtime",
   size: "size",
   last_played: "last_played",
@@ -56,6 +58,7 @@ export function sortPrefLabels(locale?: AppLocale): Record<
     added_at: t("library.sort.recentAdded"),
     release_date: t("library.sort.releaseDate"),
     rating: t("library.sort.rating"),
+    my_rating: t("library.sort.myRating"),
     runtime: t("library.sort.runtime"),
     size: t("library.sort.size"),
     last_played: t("library.sort.lastPlayed"),
@@ -83,6 +86,7 @@ export function sortDirections(locale?: AppLocale): Record<
     release_date: { naturalAsc: false, asc: t("library.rows.oldToNew"), desc: t("library.rows.newToOld") },
     probing: { naturalAsc: true, asc: "A→Z", desc: "Z→A" },
     rating: { naturalAsc: false, asc: t("library.rows.lowToHigh"), desc: t("library.rows.highToLow") },
+    my_rating: { naturalAsc: false, asc: t("library.rows.lowToHigh"), desc: t("library.rows.highToLow") },
     runtime: { naturalAsc: true, asc: t("library.sort.shortToLong"), desc: t("library.sort.longToShort") },
     size: { naturalAsc: false, asc: t("library.sort.smallToLarge"), desc: t("library.sort.largeToSmall") },
     last_played: { naturalAsc: false, asc: t("library.rows.farToNear"), desc: t("library.rows.nearToFar") },
@@ -105,6 +109,7 @@ const WALL_SORT_PREFS: readonly WallSortPref[] = [
   "added_at",
   "release_date",
   "rating",
+  "my_rating",
   "runtime",
   "size",
   "last_played",
