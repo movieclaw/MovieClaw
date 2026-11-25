@@ -77,6 +77,7 @@ from movieclaw_api.schemas.playback import (
     PlaybackStateView,
     PlaybackStatsView,
     PlaybackWatchStatsView,
+    RatedItemsView,
     TrickplayView,
     UpNextView,
 )
@@ -173,6 +174,11 @@ from movieclaw_api.services.playback_favorites import (
     FavoriteSort,
     favorite_gallery,
     favorite_items,
+)
+from movieclaw_api.services.playback_rated import (
+    DEFAULT_MIN_RATING,
+    RatedSort,
+    rated_items,
 )
 from movieclaw_api.services.playback_stats import playback_history, playback_stats
 from movieclaw_api.services.playback_up_next import up_next_items
@@ -480,8 +486,14 @@ async def list_up_next(
 _FAVORITE_SORT_DESC = (
     # i18n-ignore: OpenAPI description or startup log line
     "排序：favorited_at=最近收藏在前（默认）/ title=按标题 / added_at=最近入账 / "
-    "release_date=按上映时间 / rating=按评分 / runtime=按片长 / size=按体积 / "
-    "last_played=最近观看——与单库海报墙同一套档位"
+    "release_date=按上映时间 / rating=按评分 / my_rating=按我的评分 / runtime=按片长 / "
+    "size=按体积 / last_played=最近观看——与单库海报墙同一套档位"
+)
+_RATED_SORT_DESC = (
+    # i18n-ignore: OpenAPI description or startup log line
+    "排序：my_rating=我的评分倒序、同分按最近评分倒序（默认）/ rated_at=最近评分在前 / "
+    "title=按标题 / added_at=最近入账 / release_date=按上映时间 / rating=按 TMDB 评分 / "
+    "runtime=按片长 / size=按体积 / last_played=最近观看"
 )
 # i18n-ignore: OpenAPI description or startup log line
 _ORDER_DESC = "方向：asc / desc；不给 = 该档的自然方向（收藏时间新→旧、标题 A→Z…）"
@@ -556,6 +568,45 @@ async def list_favorites_gallery(
             order=order,
         )
     )
+
+
+@router.get(
+    "/rated",
+    response_model=ApiResponse[RatedItemsView],
+    summary="我的高分作品",
+    operation_id="playback.rated",
+    openapi_extra={"x-cli-hidden": True},
+)
+async def list_rated(
+    limit: Annotated[int, Query(ge=1, le=200)] = 20,
+    offset: Annotated[int, Query(ge=0, description="跳过的作品数（滚动加载分页用）")] = 0,
+    min_rating: Annotated[
+        int, Query(description="最低个人评分门槛（1–10 整数，默认 8 即 4 星及以上）")
+    ] = DEFAULT_MIN_RATING,
+    sort: Annotated[RatedSort, Query(description=_RATED_SORT_DESC)] = "my_rating",
+    order: Annotated[Literal["asc", "desc"] | None, Query(description=_ORDER_DESC)] = None,
+    principal: Principal = Depends(require_login),
+    session: AsyncSession = Depends(get_session),
+    badges: Annotated[frozenset[str], Depends(wall_badges)] = frozenset(),
+) -> ApiResponse[RatedItemsView]:
+    """列出当前账号在可见媒体库中打过分且达到 ``min_rating`` 门槛的作品（默认 4 星及以上，
+    即 ``min_rating=8``），默认按我的评分倒序、同分按最近评分时间倒序。"""
+    if isinstance(min_rating, bool) or not 1 <= min_rating <= 10:
+        raise BadRequestException(message_key="errors.playback.ratingFilterInvalid")
+    visible_ids = await visible_library_ids(session, principal)
+    member_id = principal.member_id if principal.member_id is not None else 0
+    items, total = await rated_items(
+        session,
+        member_id=member_id,
+        visible_library_ids=visible_ids,
+        min_rating=min_rating,
+        limit=limit,
+        offset=offset,
+        sort=sort,
+        order=order,
+        badges=badges,
+    )
+    return ok(RatedItemsView(items=items, total=total))
 
 
 @router.get(

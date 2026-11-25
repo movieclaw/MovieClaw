@@ -92,6 +92,21 @@ class FavoritesView(BaseModel):
     total: int
 
 
+class RatedItemView(LibraryItemView):
+    """首页「我的高分作品」的一格：单库海报墙的条目视图 + 落点库与评分时间。"""
+
+    library_id: int = Field(description="卡片的详情落点库（同一作品跨库时取首页顺序第一个可见库）")
+    rated_at: datetime | None = Field(default=None, description="最近一次评分的服务器时间")
+
+
+class RatedItemsView(BaseModel):
+    """「我的高分作品」分区的数据载荷。``total`` 是满足评分门槛的作品总数，
+    ``items`` 受 limit 截断。"""
+
+    items: list[RatedItemView]
+    total: int
+
+
 # ---------------------------------------------------------------------------
 # 活动页「观看」视角（管理员运维视角，docs/design/activity.md）
 # ---------------------------------------------------------------------------
