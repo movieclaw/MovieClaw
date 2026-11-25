@@ -183,6 +183,7 @@ def test_web_favorite_visible_in_jellyfin_and_back(client, tmp_path):
         "played": False,
         "is_favorite": False,
         "unplayed_count": None,
+        "user_rating": None,
     }
     assert set_marks(client, media_item_id=ids["movie"], favorite=True)["is_favorite"] is True
     assert client.get(f"/Items/{movie_guid}", params=auth).json()["UserData"]["IsFavorite"] is True
@@ -233,6 +234,7 @@ def test_series_played_cascades_like_jellyfin(client, tmp_path):
         "played": True,
         "is_favorite": False,
         "unplayed_count": 0,
+        "user_rating": None,
     }
     state = rows(client, ids["show"])
     assert all(state[(0, 1, e)].played for e in (1, 2, 3))
@@ -245,11 +247,17 @@ def test_series_played_cascades_like_jellyfin(client, tmp_path):
     single = set_marks(
         client, media_item_id=ids["show"], season_number=1, episode_number=2, played=False
     )
-    assert single == {"played": False, "is_favorite": False, "unplayed_count": None}
+    assert single == {
+        "played": False,
+        "is_favorite": False,
+        "unplayed_count": None,
+        "user_rating": None,
+    }
     assert get_marks(client, media_item_id=ids["show"]) == {
         "played": False,
         "is_favorite": False,
         "unplayed_count": 1,
+        "user_rating": None,
     }
     assert get_marks(client, media_item_id=ids["show"], season_number=1)["unplayed_count"] == 1
 
