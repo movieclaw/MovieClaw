@@ -64,6 +64,8 @@ class MarkState:
     is_favorite: bool
     #: 文件夹（整剧/整季）尚未看完的单元数；单集与电影为 None
     unplayed_count: int | None = None
+    #: 当前成员对该目标的个人评分（1–10 整数，1=半星，10=5 星）；未评分为 None
+    user_rating: int | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -136,18 +138,28 @@ async def favorite_unit(session: AsyncSession, target: MarkTarget) -> Unit:
 
 
 async def get_state(session: AsyncSession, target: MarkTarget, *, member_id: int) -> MarkState:
-    """目标的已看 / 收藏状态。文件夹的「已看」= 全部单元都已看（无单元视为
+    """目标的已看 / 收藏 / 个人评分状态。文件夹的「已看」= 全部单元都已看（无单元视为
     已看，对齐 Jellyfin 的 Folder 语义），并附未看单元数。"""
     units = await resolve_played_units(session, target)
     fav_unit = await favorite_unit(session, target)
     states = await playback_state.get_states(session, [target.media_item_id], member_id=member_id)
-    is_favorite = bool((st := states.get(fav_unit)) and st.is_favorite)
+    fav_state = states.get(fav_unit)
+    is_favorite = bool(fav_state and fav_state.is_favorite)
+    user_rating = fav_state.user_rating if fav_state is not None else None
     # 收藏落点不是哨兵 ⇔ 目标是叶子（单集 / 电影）：已看直接读该单元
     if fav_unit[1] >= 0 and fav_unit[2] >= 0:
-        st = states.get(fav_unit)
-        return MarkState(played=bool(st and st.played), is_favorite=is_favorite)
+        return MarkState(
+            played=bool(fav_state and fav_state.played),
+            is_favorite=is_favorite,
+            user_rating=user_rating,
+        )
     unplayed = sum(1 for u in units if not ((st := states.get(u)) and st.played))
-    return MarkState(played=unplayed == 0, is_favorite=is_favorite, unplayed_count=unplayed)
+    return MarkState(
+        played=unplayed == 0,
+        is_favorite=is_favorite,
+        unplayed_count=unplayed,
+        user_rating=user_rating,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -199,5 +211,28 @@ async def set_favorite(
     await playback_state.set_favorite(session, unit, member_id=member_id, favorite=favorite)
     await playback_events.publish_favorite(
         session, unit, favorite=favorite, member_id=member_id, client=client
+    )
+    await session.commit()
+
+
+async def set_rating(
+    session: AsyncSession,
+    target: MarkTarget,
+    *,
+    member_id: int,
+    client: ClientInfo,
+    rating: int | None,
+) -> None:
+    """设置 / 清除个人评分（1–10 整数；``None`` 清除）；随提交发
+    ``library.item.rated`` / ``library.item.unrated``。"""
+    unit = await favorite_unit(session, target)
+    _, previous = await playback_state.set_rating(session, unit, member_id=member_id, rating=rating)
+    await playback_events.publish_rating(
+        session,
+        unit,
+        rating=rating,
+        previous_rating=previous,
+        member_id=member_id,
+        client=client,
     )
     await session.commit()

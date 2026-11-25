@@ -1326,6 +1326,10 @@ class LibraryItemDetailView(BaseModel):
         default=None,
         description="剧集播出状态（同海报墙）：airing=在播 / ended=完结；电影或状态未知为 null",
     )
+    user_rating: int | None = Field(
+        default=None,
+        description="当前成员的个人评分（1–10 整数，1=半星，10=5 星）；未评分为 null",
+    )
 
 
 class ItemCollectionRef(BaseModel):

@@ -882,7 +882,7 @@
   "errors.playback.isoUnreadable": "服务端读不了这个光盘镜像（ISO）的盘内结构，无法换封装或转码",
   "errors.playback.itemMissing": "媒体条目不存在（可能已被删除）",
   "errors.playback.lowDisk": "磁盘剩余空间不足（{free} GB），已拒绝新的转码会话。转码缓存与数据库同在 data 目录，写满会导致整个应用不可用。请清理磁盘后重试。",
-  "errors.playback.markRequired": "played 与 favorite 至少要给一个",
+  "errors.playback.markRequired": "played、favorite 与 rating 至少要给一个",
   "errors.playback.noMarkableEpisodes": "没有找到可标记的季或集",
   "errors.playback.noPlayableFile": "没有找到可播放的文件",
   "errors.playback.notDiscDirectory": "不是原盘目录（蓝光 BDMV / DVD VIDEO_TS），没有可直推的目录清单",
