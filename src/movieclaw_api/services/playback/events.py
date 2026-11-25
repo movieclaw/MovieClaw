@@ -20,13 +20,16 @@ from movieclaw_playback.events import ClientInfo
 from movieclaw_playback.state import Unit
 from movieclaw_sdk.events import (
     LIBRARY_ITEM_FAVORITED,
+    LIBRARY_ITEM_RATED,
     LIBRARY_ITEM_UNFAVORITED,
+    LIBRARY_ITEM_UNRATED,
     LIBRARY_ITEM_VIEWED,
     PLAYBACK_MARKED_PLAYED,
     PLAYBACK_MARKED_UNPLAYED,
     ClientRef,
     EventType,
     ItemFavorite,
+    ItemRating,
     ItemViewed,
     PlaybackCompleted,
     PlaybackMarked,
@@ -121,6 +124,18 @@ async def publish_marked(
     )
 
 
+def _unit_level(unit: Unit, kind: str) -> tuple[str, int | None, int | None]:
+    """把内部哨兵单元翻译成事件载荷里的层级与季/集号，不向外部泄露 ``-1``。"""
+    _, season, episode = unit
+    if (season, episode) == (-1, -1):
+        return "series", None, None
+    if episode == -1:
+        return "season", season, None
+    if kind == "movie":
+        return "movie", None, None
+    return "episode", season, episode
+
+
 async def publish_favorite(
     session: AsyncSession,
     unit: Unit,
@@ -136,15 +151,7 @@ async def publish_favorite(
         media = event_refs.media_ref(item)
         if media is None:
             return None
-        _, season, episode = unit
-        if (season, episode) == (-1, -1):
-            level, season_out, episode_out = "series", None, None
-        elif episode == -1:
-            level, season_out, episode_out = "season", season, None
-        elif media.kind == "movie":
-            level, season_out, episode_out = "movie", None, None
-        else:
-            level, season_out, episode_out = "episode", season, episode
+        level, season_out, episode_out = _unit_level(unit, media.kind)
         return ItemFavorite(
             member_id=member_id,
             media=media,
@@ -156,6 +163,39 @@ async def publish_favorite(
 
     await events.publish(
         session, LIBRARY_ITEM_FAVORITED if favorite else LIBRARY_ITEM_UNFAVORITED, build
+    )
+
+
+async def publish_rating(
+    session: AsyncSession,
+    unit: Unit,
+    *,
+    rating: int | None,
+    previous_rating: int | None,
+    member_id: int,
+    client: ClientInfo | None,
+) -> None:
+    """个人评分 / 清除评分；落点单元复用收藏哨兵约定。"""
+
+    async def build() -> ItemRating | None:
+        item = await session.get(MediaItem, unit[0])
+        media = event_refs.media_ref(item)
+        if media is None:
+            return None
+        level, season_out, episode_out = _unit_level(unit, media.kind)
+        return ItemRating(
+            member_id=member_id,
+            media=media,
+            level=level,
+            rating=rating,
+            previous_rating=previous_rating,
+            season=season_out,
+            episode=episode_out,
+            client=client_ref(client),
+        )
+
+    await events.publish(
+        session, LIBRARY_ITEM_RATED if rating is not None else LIBRARY_ITEM_UNRATED, build
     )
 
 

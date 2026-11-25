@@ -19,6 +19,8 @@ JELLYFIN_TYPES: dict[str, str] = {
     "playback.marked_unplayed": "UserDataSaved",
     "library.item.favorited": "UserDataSaved",
     "library.item.unfavorited": "UserDataSaved",
+    "library.item.rated": "UserDataSaved",
+    "library.item.unrated": "UserDataSaved",
 }
 
 
@@ -88,6 +90,14 @@ _BUILTIN_TEXT = {
     "library.item.unfavorited": (
         "settings.webhook.events.libraryItemUnfavorited",
         "settings.webhook.groups.favorites",
+    ),
+    "library.item.rated": (
+        "settings.webhook.events.libraryItemRated",
+        "settings.webhook.groups.ratings",
+    ),
+    "library.item.unrated": (
+        "settings.webhook.events.libraryItemUnrated",
+        "settings.webhook.groups.ratings",
     ),
     "library.item.viewed": (
         "settings.webhook.events.libraryItemViewed",

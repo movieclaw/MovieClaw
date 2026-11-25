@@ -18,6 +18,23 @@ class ItemFavorite(Frozen):
     client: ClientRef | None = None
 
 
+class ItemRating(Frozen):
+    """个人评分 / 清除评分（整部、一季或一集）。"""
+
+    member_id: int
+    media: MediaRef
+    level: str
+    """评分的层级：``movie`` / ``series`` / ``season`` / ``episode``。"""
+    rating: int | None = None
+    """新评分（1–10 整数，1=半星，10=5 星）；清除评分时为 ``None``。"""
+    previous_rating: int | None = None
+    """变更前的评分（1–10 整数）；此前未评分时为 ``None``。"""
+    season: int | None = None
+    """``season`` / ``episode`` 层级时有值。"""
+    episode: int | None = None
+    client: ClientRef | None = None
+
+
 class ItemViewed(Frozen):
     """有人打开了条目详情（网页详情页、播放器取条目）。"""
 
@@ -172,6 +189,20 @@ LIBRARY_ITEM_FAVORITED = define(
 )
 LIBRARY_ITEM_UNFAVORITED = define(
     "library.item.unfavorited", ItemFavorite, title="取消收藏", group="收藏", sensitive=True
+)
+LIBRARY_ITEM_RATED = define(
+    "library.item.rated",
+    ItemRating,
+    title="评分",
+    group="评分",
+    sensitive=True,
+)
+LIBRARY_ITEM_UNRATED = define(
+    "library.item.unrated",
+    ItemRating,
+    title="清除评分",
+    group="评分",
+    sensitive=True,
 )
 LIBRARY_ITEM_VIEWED = define(
     "library.item.viewed",

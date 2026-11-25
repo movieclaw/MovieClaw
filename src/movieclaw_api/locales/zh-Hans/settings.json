@@ -362,7 +362,9 @@
       "systemAlertRaised": "出现需要处理的问题",
       "systemAlertResolved": "问题已消退",
       "systemUpdateAvailable": "有新版本",
-      "systemTipSuggested": "使用建议"
+      "systemTipSuggested": "使用建议",
+      "libraryItemRated": "评分",
+      "libraryItemUnrated": "清除评分"
     },
     "groups": {
       "account": "账号",
@@ -373,7 +375,8 @@
       "trash": "回收站",
       "playback": "播放",
       "subscription": "订阅",
-      "system": "系统"
+      "system": "系统",
+      "ratings": "评分"
     },
     "errors": {
       "requestFailed": "请求失败：{reason}",
