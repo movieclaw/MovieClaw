@@ -3119,6 +3119,7 @@ def _marks_view(state: playback_marks.MarkState) -> PlaybackMarksView:
         played=state.played,
         is_favorite=state.is_favorite,
         unplayed_count=state.unplayed_count,
+        user_rating=state.user_rating,
     )
 
 
@@ -3177,8 +3178,13 @@ async def set_playback_marks(
     """与 Jellyfin 的 UserPlayedItems / UserFavoriteItems 走同一个服务：落
     ``playback_state``、发 webhook。整剧 / 整季的「已看」级联到全部集，收藏
     落在整剧 / 整季自己的哨兵单元上——在 Infuse 里看到的与这里点的完全一致。"""
-    if payload.played is None and payload.favorite is None:
+    if payload.played is None and payload.favorite is None and payload.rating is None:
         raise BadRequestException(message_key="errors.playback.markRequired")
+    if payload.rating is not None:
+        if isinstance(payload.rating, bool) or not 0 <= payload.rating <= 10:
+            raise BadRequestException(message_key="errors.playback.ratingInvalid")
+        if payload.season_number is not None or payload.episode_number is not None:
+            raise BadRequestException(message_key="errors.playback.ratingItemOnly")
     target = await _mark_target(
         session, principal, payload.media_item_id, payload.season_number, payload.episode_number
     )
@@ -3200,6 +3206,14 @@ async def set_playback_marks(
     if payload.favorite is not None:
         await playback_marks.set_favorite(
             session, target, member_id=member_id, client=client, favorite=payload.favorite
+        )
+    if payload.rating is not None:
+        await playback_marks.set_rating(
+            session,
+            target,
+            member_id=member_id,
+            client=client,
+            rating=None if payload.rating == 0 else payload.rating,
         )
     return ok(_marks_view(await playback_marks.get_state(session, target, member_id=member_id)))
 

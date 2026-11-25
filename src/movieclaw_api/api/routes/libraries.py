@@ -3259,6 +3259,10 @@ async def get_library_item(
     # 文件区标「默认」的是这个成员起播时真会放的那条（本集记着的 > 沿用上一集 > 默认轨策略），
     # 不再是片源的默认旗标：观看状态一次查询取完整个条目，其余是内存计算
     watch_states = await playback_state.get_states(session, [media_item_id], member_id=member_id)
+    from movieclaw_api.services.playback.marks import item_favorite_unit
+
+    rating_state = watch_states.get(item_favorite_unit(item.id, item.kind))
+    user_rating = rating_state.user_rating if rating_state is not None else None
     unit_files: dict[tuple[int, int, int], LibraryFile] = {}
     for row in in_place_rows:
         unit_files.setdefault((media_item_id, row.season_number, row.episode_number), row)
@@ -3323,6 +3327,7 @@ async def get_library_item(
                 ItemCollectionRef(id=row.id or 0, name=row.name) for row in in_collections
             ],
             air_status=derive_air_status(item.status) if item.kind == "tv" else None,
+            user_rating=user_rating,
         )
     )
 

@@ -91,7 +91,7 @@
     "subtitleUrlExpired": "The subtitle URL is invalid or has expired",
     "subtitleUnsupported": "This subtitle track does not exist or cannot be rendered in the browser yet",
     "seasonRequired": "Provide a season number with the episode number",
-    "markRequired": "Provide at least one of played or favorite",
+    "markRequired": "Provide at least one of played, favorite or rating",
     "itemMissing": "This media item does not exist; it may have been deleted",
     "fontUrlExpired": "The font URL is invalid or has expired",
     "fontMissing": "This font does not exist",
@@ -120,7 +120,9 @@
     "processStart": "The transcoding process failed to start: {reason}",
     "remoteSeekUnavailable": "Remote seeking is unavailable: {reason}",
     "remoteSeekStart": "Could not start remote seeking: {reason}",
-    "remoteBackendMissing": "The remote session has no execution backend (the playback decision did not provide one)"
+    "remoteBackendMissing": "The remote session has no execution backend (the playback decision did not provide one)",
+    "ratingInvalid": "Rating must be an integer from 0 to 10 (0 to clear, 1 to 10 for half to 5 stars)",
+    "ratingItemOnly": "Ratings are currently supported for movies and whole series only, not seasons or episodes"
   },
   "subscription": {
     "episodeMissing": "This episode was not found",

@@ -937,7 +937,9 @@ class PlaybackMarksRequest(BaseModel):
     目标的表达与 Jellyfin 的 Series / Season / Episode 三级一一对应：不带季集
     = 整个条目（电影，或整剧级联到全部集）；只带季 = 整季；季集都带 = 单集。
     电影也可以像播放接口那样带哨兵 ``(0, 0)``，落到同一个单元。
-    ``played`` 与 ``favorite`` 至少给一个，没给的那个保持原值。
+    ``played``、``favorite`` 与 ``rating`` 至少给一个，没给的保持原值。
+    ``rating`` 取值 0–10（0 = 清除，1–10 对应半星到 5 星）；第一期仅支持电影与整剧，
+    带季/集参数时返回 400。
     """
 
     media_item_id: int
@@ -945,18 +947,22 @@ class PlaybackMarksRequest(BaseModel):
     episode_number: int | None = Field(default=None, ge=0)
     played: bool | None = None
     favorite: bool | None = None
+    #: 个人评分（0–10 整数）：不传=不改，0=清除，1–10=设置（1=半星，10=5 星）
+    rating: int | None = None
     #: 浏览器的稳定标识（同进度上报），webhook 事件的 client 字段据此归因
     device_id: str | None = Field(default=None, max_length=128)
 
 
 class PlaybackMarksView(BaseModel):
-    """目标在当前成员名下的已看 / 收藏状态。读接口与写接口同一形状，
+    """目标在当前成员名下的已看 / 收藏 / 个人评分状态。读接口与写接口同一形状，
     写完直接拿它刷新按钮，不必再查一次。"""
 
     played: bool
     is_favorite: bool
     #: 整剧 / 整季尚未看完的集数；电影与单集为 null
     unplayed_count: int | None = None
+    #: 当前成员的个人评分（1–10 整数，1=半星，10=5 星）；未评分为 null
+    user_rating: int | None = None
 
 
 # ---------------------------------------------------------------------------
