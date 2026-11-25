@@ -617,6 +617,7 @@ class LibraryFacetsView(BaseModel):
     )
     # —— 以下只在 tier=all 时返回（「更多筛选」面板打开才要）——
     ratings: list[FacetValueView] = Field(default_factory=list, description="评分档（找片）")
+    my_ratings: list[FacetValueView] = Field(default_factory=list, description="我的评分档（找片）")
     runtimes: list[FacetValueView] = Field(default_factory=list, description="片长档（找片）")
     languages: list[FacetValueView] = Field(default_factory=list, description="原始语言（找片）")
     resolutions: list[FacetValueView] = Field(default_factory=list, description="分辨率（查库）")

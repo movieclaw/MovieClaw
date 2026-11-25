@@ -937,6 +937,7 @@ def _watch_labels() -> list[tuple[WatchFilter, str]]:
         ("watching", t("library.facets.watching")),
         ("played", t("library.facets.played")),
         ("favorite", t("library.facets.favorite")),
+        ("rated", t("library.facets.rated")),
     ]
 
 
@@ -1083,6 +1084,21 @@ async def _second_tier_facets(
         [(str(v), f"≥ {v:g}", LibraryFilter(rating_gte=v)) for v in (9, 8, 7)],
         content_limit,
     )
+    my_ratings = await _bucket_facet(
+        session,
+        library_id,
+        filters,
+        member_id,
+        "my_rating_gte",
+        [
+            ("10", "5★", LibraryFilter(my_rating_gte=10)),
+            ("9", "≥ 4.5★", LibraryFilter(my_rating_gte=9)),
+            ("8", "≥ 4★", LibraryFilter(my_rating_gte=8)),
+            ("6", "≥ 3★", LibraryFilter(my_rating_gte=6)),
+            ("4", "≥ 2★", LibraryFilter(my_rating_gte=4)),
+        ],
+        content_limit,
+    )
     runtimes = await _bucket_facet(
         session,
         library_id,
@@ -1152,6 +1168,7 @@ async def _second_tier_facets(
     ).all()
     return {
         "ratings": ratings,
+        "my_ratings": my_ratings,
         "runtimes": runtimes,
         "hdr": hdr,
         "stock": stock,
@@ -1391,8 +1408,11 @@ async def build_library_relax(
             return t("library.facets.earlier") if value == "earlier" else value
         if dim == "watch":
             return watch_labels.get(value, value)  # type: ignore[arg-type]
-        if dim in ("rating_gte", "my_rating_gte"):
+        if dim == "rating_gte":
             return f"≥ {float(value):g}"
+        if dim == "my_rating_gte":
+            n = int(value)
+            return "5★" if n >= 10 else f"≥ {n / 2:g}★"
         if dim == "hdr":
             return "HDR" if value == "True" else "SDR"
         return _relax_value_labels().get(value, value)
