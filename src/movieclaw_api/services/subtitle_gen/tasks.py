@@ -1170,7 +1170,7 @@ async def _prepare_generation(
         retranscribe=retranscribe,
     )
     if pv.chosen is None:
-        if source_candidate_key and pv.pgs_conversion is None:
+        if convert_pgs and source_candidate_key and pv.pgs_conversion is None:
             raise BadRequestException(message_key="errors.subtitles.pgsChanged")
         language_ready = bool(
             pv.pgs_conversion

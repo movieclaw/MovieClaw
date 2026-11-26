@@ -1921,6 +1921,72 @@ async def test_preview_explains_why_the_reference_could_not_be_read(
     assert "重启 MovieClaw" in pv.blocker.message
 
 
+async def test_prepare_generation_surfaces_unusable_text_instead_of_pgs_changed(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """#1329：指定不可用文本轨发起生成应返回真实完整度原因，不能误报 PGS 轨道已变化。"""
+    from movieclaw_api.services import media_extract
+
+    video = tmp_path / "Show.S06E01.mkv"
+    video.write_bytes(b"fake")
+    row = LibraryFile(
+        id=77,
+        library_id=1,
+        media_item_id=1,
+        file_path=str(video),
+        duration_seconds=3600,
+        subtitle_streams=[
+            {"codec": "subrip", "language": "eng"},
+            {"codec": "subrip", "language": "eng"},
+        ],
+        audio_streams=[{"codec": "eac3", "language": "eng", "channels": 2}],
+        external_subtitles=[],
+        source="scanned",
+    )
+    cache = tmp_path / "cache"
+    monkeypatch.setattr(media_extract, "cache_dir", lambda: cache)
+    placeholder = "1\n00:00:07,793 --> 00:00:08,126\n\u200b\n"
+    for idx in (0, 1):
+        spec = media_extract._extraction_spec(row, idx)
+        assert spec is not None
+        spec.out_path.parent.mkdir(parents=True, exist_ok=True)
+        spec.out_path.write_text(placeholder, encoding="utf-8")
+
+    async def fake_load_row(_session, _file_id):  # noqa: ANN001
+        return row
+
+    async def fake_context(_session, _row):  # noqa: ANN001
+        return CTX, "eng"
+
+    monkeypatch.setattr(tasks, "_load_row", fake_load_row)
+    monkeypatch.setattr(tasks, "_film_context", fake_context)
+
+    for key, label in (("embedded:0", "内封轨 0"), ("embedded:1", "内封轨 1")):
+        with pytest.raises(BadRequestException) as captured:
+            await tasks._prepare_generation(
+                None,  # type: ignore[arg-type]
+                77,
+                "chs",
+                secondary_language="eng",
+                source_candidate_key=key,
+            )
+        assert captured.value.message_key == "library.subtitlePreflight.incompleteCandidate"
+        assert label in captured.value.message
+        assert "对白仅 1 条" in captured.value.message
+
+    # 显式确认 PGS 转换但该轨已不再是 PGS 时，仍应返回 pgsChanged。
+    with pytest.raises(BadRequestException) as pgs_changed:
+        await tasks._prepare_generation(
+            None,  # type: ignore[arg-type]
+            77,
+            "chs",
+            secondary_language="eng",
+            source_candidate_key="embedded:0",
+            convert_pgs=True,
+        )
+    assert pgs_changed.value.message_key == "errors.subtitles.pgsChanged"
+
+
 async def test_reading_phase_reports_queue_and_position(monkeypatch) -> None:
     """读取几分钟的大文件，任务要说清楚在排队还是读到了哪，而不是一直转圈。"""
     from movieclaw_api.services import media_extract
