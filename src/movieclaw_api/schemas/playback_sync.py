@@ -13,10 +13,12 @@ from movieclaw_db.models.base import utcnow
 
 
 class SyncFavorite(BaseModel):
-    """整剧 / 整季收藏所在的哨兵状态行；updated_at 供写回时做 compare-and-set。"""
+    """整剧 / 整季收藏与评分所在的哨兵状态行；updated_at 供写回时做 compare-and-set。"""
 
     is_favorite: bool
     updated_at: datetime
+    user_rating: int | None = None
+    rated_at: datetime | None = None
 
 
 class SyncSeasonFavorite(SyncFavorite):
@@ -51,6 +53,8 @@ class SyncUnit(BaseModel):
     played: bool
     position_ms: int
     is_favorite: bool
+    user_rating: int | None = None
+    rated_at: datetime | None = None
     updated_at: datetime | None
     last_played_at: datetime | None
     # 这一行是否已从「接下来继续」隐藏（作品任一行带着即整部隐藏）；写回用 dismiss_continue。
@@ -110,9 +114,9 @@ class SyncImportResult(BaseModel):
 
 
 class SyncChangeIn(BaseModel):
-    """一个单元的状态写回；played / position_ms / is_favorite / dismiss_continue 省略即不改。
+    """一个单元的状态写回；省略的字段均保持不变。
 
-    单集 / 电影可写全部字段；剧集省略集号（整季）或季集都省略（整剧）时只能写收藏。
+    单集 / 电影可写全部字段；剧集省略集号（整季）或季集都省略（整剧）时只能写收藏或评分。
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -127,9 +131,18 @@ class SyncChangeIn(BaseModel):
     played: bool | None = None
     position_ms: int | None = Field(default=None, ge=0)
     is_favorite: bool | None = None
+    # 个人评分：省略 / null = 不改，0 = 清除，1–10 = 设置（1=半星，10=5 星）。
+    user_rating: int | None = Field(default=None, ge=0, le=10)
     # 从「接下来继续」隐藏 / 取消隐藏这一单元；不改已看、播放次数与最近播放时间。
     dismiss_continue: bool | None = None
     last_played_at: datetime | None = None
+
+    @field_validator("user_rating", mode="before")
+    @classmethod
+    def reject_bool_rating(cls, value):
+        if isinstance(value, bool):
+            raise ValueError(t("errors.playback.ratingInvalid"))
+        return value
 
     @field_validator("expected_updated_at", "last_played_at")
     @classmethod
@@ -142,6 +155,7 @@ class SyncChangeIn(BaseModel):
             self.played is None
             and self.position_ms is None
             and self.is_favorite is None
+            and self.user_rating is None
             and self.dismiss_continue is None
         ):
             raise ValueError(t("errors.playbackSync.nothingToWrite"))
