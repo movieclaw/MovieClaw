@@ -184,22 +184,22 @@ export const SUP_RETRY_MS = 3000;
 /**
  * 取 PGS 轨的 .sup 字节，等到拿到或确定拿不到为止；中止只能靠 `signal`。
  *
- * 服务端首次要通读整个容器（原盘是分钟级），这个请求可能挂很久。Safari 约 60 秒就放弃等待，
- * 外层反代也常常几十秒就掐断（504），这些都只是这一个请求没等到：服务端还在读（等待者走了
- * 也留一段宽限，见 media_extract），再发一次接着等就行。4xx（轨不存在、服务端判定抽不出来）
- * 才是真的拿不到。
+ * 冷抽取用短轮询（202），服务端在轮询间隔内保留同一趟读取。旧服务端会忽略 poll，
+ * Safari 或反代仍可能断开，重试时继续等。4xx 表示轨不存在或服务端已判定抽取失败。
  */
 export async function fetchSupBytes(
   url: string,
   signal: AbortSignal,
   retryMs: number = SUP_RETRY_MS,
 ): Promise<ArrayBuffer> {
+  const pollUrl = `${url}${url.includes("?") ? "&" : "?"}poll=true`;
   for (;;) {
+    signal.throwIfAborted();
     let status = 0;
     try {
-      const response = await fetch(url, { signal });
+      const response = await fetch(pollUrl, { signal });
       status = response.status;
-      if (response.ok) return await response.arrayBuffer();
+      if (response.ok && status !== 202 && status !== 204) return await response.arrayBuffer();
     } catch (error) {
       if (signal.aborted) throw error;
     }
