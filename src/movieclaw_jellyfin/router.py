@@ -121,6 +121,7 @@ _KNOWN_QUERY_KEYS = [
     "imageIndex",
     "datePlayed",
     "positionTicks",
+    "likes",
     "userId",
     "format",
     # DisplayPreferences 的客户端标识参数（issue #124）

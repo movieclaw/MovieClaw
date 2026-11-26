@@ -38,6 +38,7 @@ from movieclaw_jellyfin.catalog import (
 )
 from movieclaw_jellyfin.errors import bad_request_text, not_found
 from movieclaw_jellyfin.ids import EntityKind, EntityRef, decode_guid
+from movieclaw_jellyfin.routes.library import ViewerScope, viewer_scope
 from movieclaw_jellyfin.security import RequestIdentity, require_device
 from movieclaw_jellyfin.transcode import take_play_session
 from movieclaw_playback import state as playback_state
@@ -569,3 +570,88 @@ async def unmark_favorite(
         client=_client_info(identity),
     )
     return await _user_data_response(ref, item_id, member_id=identity.device.member_id)
+
+
+def _parse_likes_rating(raw: str | None) -> int | None:
+    """解析 Jellyfin `POST /UserItems/{id}/Rating?likes=...` 的布尔参数。
+
+    Jellyfin 语义：``likes=true`` → 10（5 星），``likes=false`` → 1（半星），
+    省略 ``likes`` → ``None``（清除评分）；非法字符串抛 400。
+    """
+    if raw is None:
+        return None
+    normalized = raw.strip().lower()
+    if normalized == "true":
+        return 10
+    if normalized == "false":
+        return 1
+    raise bad_request_text()
+
+
+async def _set_rating(
+    ref: EntityRef,
+    *,
+    scope: ViewerScope,
+    rating: int | None,
+    client: ClientInfo,
+) -> None:
+    """个人评分：校验观看者可见范围后交由标记服务落库并触发 ``library.item.(un)rated`` 事件。"""
+    async with get_database().session() as session:
+        bundles = await load_bundles(
+            session,
+            [ref.entity_id],
+            member_id=scope.member_id,
+            visible_library_ids=scope.visible,
+            content_limit=scope.content_limit,
+        )
+        if ref.entity_id not in bundles:
+            raise not_found()
+        await playback_marks.set_rating(
+            session,
+            _mark_target(ref),
+            member_id=scope.member_id,
+            client=client,
+            rating=rating,
+        )
+
+
+@router.post("/UserItems/{item_id}/Rating")
+@router.post("/Users/{user_id}/Items/{item_id}/Rating")
+async def update_user_item_rating(
+    request: Request,
+    item_id: str,
+    user_id: str | None = None,
+    identity: RequestIdentity = Depends(require_device),
+    scope: ViewerScope = Depends(viewer_scope),
+) -> JSONResponse:
+    ref = _decode_item_ref(item_id)
+    if ref is None:
+        raise not_found()
+    rating = _parse_likes_rating(request.query_params.get("likes"))
+    await _set_rating(
+        ref,
+        scope=scope,
+        rating=rating,
+        client=_client_info(identity),
+    )
+    return await _user_data_response(ref, item_id, member_id=scope.member_id)
+
+
+@router.delete("/UserItems/{item_id}/Rating")
+@router.delete("/Users/{user_id}/Items/{item_id}/Rating")
+async def delete_user_item_rating(
+    item_id: str,
+    user_id: str | None = None,
+    identity: RequestIdentity = Depends(require_device),
+    scope: ViewerScope = Depends(viewer_scope),
+) -> JSONResponse:
+    ref = _decode_item_ref(item_id)
+    if ref is None:
+        raise not_found()
+    await _set_rating(
+        ref,
+        scope=scope,
+        rating=None,
+        client=_client_info(identity),
+    )
+    return await _user_data_response(ref, item_id, member_id=scope.member_id)
