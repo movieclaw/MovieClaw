@@ -1108,3 +1108,146 @@ def test_stale_local_preview_rejected_after_id_reuse(client):
     )
     assert put_state(c, 2, [good])[0]["status"] == "applied"
     assert unit_of_kinds(c, 2, old_id)["played"] is True
+
+
+def test_sync_catalog_and_state_user_rating_round_trip(client, monkeypatch):
+    """PR 4：catalog 导出评分；state 写回设置/修改/清除/幂等/成员隔离；旧包不改评分。"""
+    c, _, ids = client
+    from movieclaw_api import events
+
+    published = []
+
+    async def spy(*args, **kwargs):
+        published.append(args)
+
+    monkeypatch.setattr(events, "publish", spy)
+    item = ids[0]
+
+    # 初始未评分：catalog 导出 user_rating=None, rated_at=None
+    u0 = unit_of(c, 2, item)
+    assert u0["user_rating"] is None and u0["rated_at"] is None
+
+    # 1. 设置评分 8（4★）：落库 + rated_at 有值 + 不碰播放进度 + 不发事件
+    r1 = put_state(c, 2, [change(item, user_rating=8)])[0]
+    assert r1["status"] == "applied"
+    v1 = r1["state_version"]
+    u1 = unit_of(c, 2, item)
+    assert u1["user_rating"] == 8 and u1["rated_at"] is not None
+    assert (u1["played"], u1["position_ms"]) == (False, 0)
+    rated_at_1 = u1["rated_at"]
+
+    # 2. 相同分值：unchanged，不推进 updated_at
+    assert put_state(c, 2, [change(item, v1, user_rating=8)])[0] == {
+        "status": "unchanged",
+        "state_version": v1,
+    }
+
+    # 3. 改分 9（4.5★）：applied 且更新 rated_at
+    r2 = put_state(c, 2, [change(item, v1, user_rating=9)])[0]
+    assert r2["status"] == "applied"
+    v2 = r2["state_version"]
+    u2 = unit_of(c, 2, item)
+    assert u2["user_rating"] == 9 and u2["rated_at"] is not None
+    assert u2["rated_at"] >= rated_at_1
+    rated_at_2 = u2["rated_at"]
+
+    # 4. 旧格式同步包（完全不带 user_rating 字段）：只改收藏与已看，绝不把缺省当 0 清除评分
+    legacy_payload = {
+        "media_item_id": item,
+        "kind": "movie",
+        "tmdb_id": 100,
+        "expected_updated_at": v2,
+        "played": True,
+        "is_favorite": True,
+    }
+    r3 = put_state(c, 2, [legacy_payload])[0]
+    assert r3["status"] == "applied"
+    v3 = r3["state_version"]
+    u3 = unit_of(c, 2, item)
+    assert u3["played"] is True and u3["is_favorite"] is True
+    assert u3["user_rating"] == 9 and u3["rated_at"] == rated_at_2
+
+    # 5. 成员隔离：成员 1 看不到成员 2 的评分，且各自写入互不影响
+    assert unit_of(c, 1, item)["user_rating"] is None
+    assert put_state(c, 1, [change(item, user_rating=4)])[0]["status"] == "applied"
+    assert unit_of(c, 1, item)["user_rating"] == 4
+    assert unit_of(c, 2, item)["user_rating"] == 9
+
+    # 6. 传 0 显式清除评分：user_rating=None, rated_at=None；再传 0 为 unchanged
+    r4 = put_state(c, 2, [change(item, v3, user_rating=0)])[0]
+    assert r4["status"] == "applied"
+    v4 = r4["state_version"]
+    u4 = unit_of(c, 2, item)
+    assert u4["user_rating"] is None and u4["rated_at"] is None
+    assert put_state(c, 2, [change(item, v4, user_rating=0)])[0] == {
+        "status": "unchanged",
+        "state_version": v4,
+    }
+    assert published == []
+
+
+def test_sync_series_rating_sentinel_round_trip(client):
+    """整剧评分落 (-1,-1) 哨兵行：通过 media.favorite 导出并通过 state 写回，与 marks 读同一份。"""
+    c, _, _ = client
+
+    async def seed_tv():
+        from movieclaw_db.models import Library
+
+        async with get_database().session() as s:
+            lib = (await s.execute(select(Library))).scalars().first()
+            show = MediaItem(
+                kind="tv", title="Rated Show", original_title="Rated Show", tmdb_id=201
+            )
+            s.add(show)
+            await s.flush()
+            s.add(
+                LibraryFile(
+                    library_id=lib.id,
+                    media_item_id=show.id,
+                    season_number=1,
+                    episode_number=1,
+                    file_path="/fixture/rated-s01e01.mkv",
+                    size_bytes=1,
+                    source=FileSource.SCANNED,
+                    state=FileState.IN_PLACE,
+                )
+            )
+            await s.commit()
+            return show.id
+
+    show = c.portal.call(seed_tv)
+    tv = {"kind": "tv", "tmdb_id": 201}
+    assert unit_of(c, 2, show, 1, 1)["media"]["favorite"] is None
+
+    r1 = put_state(c, 2, [change(show, user_rating=10, **tv)])[0]
+    assert r1["status"] == "applied"
+    fav = unit_of(c, 2, show, 1, 1)["media"]["favorite"]
+    assert fav["user_rating"] == 10 and fav["rated_at"] is not None
+    assert unit_of(c, 2, show, 1, 1)["user_rating"] is None  # 整剧评分不污染单集行
+
+    from movieclaw_api.services.playback import marks
+
+    async def read_marks():
+        async with get_database().session() as s:
+            return (await marks.get_state(s, marks.MarkTarget(show), member_id=2)).user_rating
+
+    assert c.portal.call(read_marks) == 10
+
+    # 用哨兵行版本清除
+    r2 = put_state(c, 2, [change(show, fav["updated_at"], user_rating=0, **tv)])[0]
+    assert r2["status"] == "applied"
+    fav2 = unit_of(c, 2, show, 1, 1)["media"]["favorite"]
+    assert fav2["user_rating"] is None and fav2["rated_at"] is None
+
+
+@pytest.mark.parametrize("bad_rating", [-1, 11, 99, True, False, "high", 7.5])
+def test_sync_state_rejects_invalid_user_rating(client, bad_rating):
+    """越界、布尔、浮点、字符串评分一律 422 拒绝且不落库。"""
+    c, _, ids = client
+    resp = c.post(
+        BASE + "/state",
+        json={"member_id": 2, "changes": [change(ids[0], user_rating=bad_rating)]},
+    )
+    assert resp.status_code == 422
+    states, _, _ = c.portal.call(facts)
+    assert states == []

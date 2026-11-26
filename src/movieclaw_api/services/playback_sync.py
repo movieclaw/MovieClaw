@@ -257,7 +257,10 @@ async def catalog(
                     imdb_id=m.imdb_id,
                     identity=m.external_id,
                     favorite=SyncFavorite(
-                        is_favorite=series.is_favorite, updated_at=series.updated_at
+                        is_favorite=series.is_favorite,
+                        updated_at=series.updated_at,
+                        user_rating=series.user_rating,
+                        rated_at=series.rated_at,
                     )
                     if series
                     else None,
@@ -266,6 +269,8 @@ async def catalog(
                             season=r.season_number,
                             is_favorite=r.is_favorite,
                             updated_at=r.updated_at,
+                            user_rating=r.user_rating,
+                            rated_at=r.rated_at,
                         )
                         for r in folders.get(m.id, [])
                         if r.season_number >= 0
@@ -276,6 +281,8 @@ async def catalog(
                 played=bool(state and state.played),
                 position_ms=state.position_ms if state else 0,
                 is_favorite=bool(state and state.is_favorite),
+                user_rating=state.user_rating if state else None,
+                rated_at=state.rated_at if state else None,
                 updated_at=state.updated_at if state else None,
                 last_played_at=state.last_played_at if state else None,
                 continue_dismissed=bool(state and state.continue_dismissed),
@@ -506,6 +513,7 @@ async def apply_state(
             "play_count": state.play_count if state else 0,
             "last_played_at": state.last_played_at if state else None,
             "is_favorite": state.is_favorite if state else False,
+            "user_rating": state.user_rating if state else None,
             "continue_dismissed": state.continue_dismissed if state else False,
         }
         new = dict(old)
@@ -521,6 +529,8 @@ async def apply_state(
             new["last_played_at"] = max(when, new["last_played_at"] or when)
         if change.is_favorite is not None:
             new["is_favorite"] = change.is_favorite
+        if change.user_rating is not None:
+            new["user_rating"] = None if change.user_rating == 0 else change.user_rating
         # 只翻这一列：不当已看、不动 play_count / last_played_at（锚点与排序照旧），
         # 首页按作品判定隐藏（playback_up_next）。
         if change.dismiss_continue is not None:
@@ -543,6 +553,8 @@ async def apply_state(
         values = {**new, "updated_at": stamp}
         if new["is_favorite"] and not old["is_favorite"]:
             values["favorited_at"] = stamp
+        if new["user_rating"] != old["user_rating"]:
+            values["rated_at"] = stamp if new["user_rating"] is not None else None
         if new["continue_dismissed"] != old["continue_dismissed"]:
             values["continue_dismissed_at"] = stamp if new["continue_dismissed"] else None
         # 这次写回本身是不是一条播放事实（发生时间）：给了 last_played_at 就按它；
