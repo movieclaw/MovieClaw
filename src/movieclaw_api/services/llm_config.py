@@ -739,7 +739,7 @@ class LlmConfigService:
         provider_type: str,
         base_url: str | None,
         api_key: str | None,
-        default_model: str | None = None,
+        default_model: str | None | EllipsisType = ...,
         extra_models: list[ModelInfo] | None = None,
         user_agent: str | None = None,
         api_protocol: str | None | EllipsisType = ...,
@@ -750,8 +750,9 @@ class LlmConfigService:
         ``api_key`` 为 None 时沿用原 Key；但类型或端点变了必须重填——
         否则只改个端点就能把已存的 Key 发到任意地址。
 
-        ``api_protocol`` 为 ``...`` 表示请求没带这个字段（不认识它的老客户端），
-        沿用原值；换了供应商类型时原值未必还合法，回到跟随预设默认。
+        ``default_model`` / ``api_protocol`` / ``catalog_id`` 为 ``...`` 表示请求没带
+        该字段（不认识或未编辑该字段的客户端），在供应商类型不变且原值仍有效时沿用原值；
+        显式传 None 才回退默认。
         """
         row = await self.get(provider_id)
         self._assert_not_verifying(row)
@@ -769,16 +770,44 @@ class LlmConfigService:
         if catalog_id is ...:
             catalog_id = row.catalog_id if provider_type == row.provider_type else None
         extras = extra_models or []
-        test_model = await self._validate(
-            name=name,
-            provider_type=provider_type,
-            base_url=base_url,
-            default_model=default_model,
-            extra_models=extras,
-            api_protocol=api_protocol,
-            catalog_id=catalog_id,
-            exclude_id=provider_id,
-        )
+        preserved_default = False
+        if default_model is ...:
+            removed_from_extras = any(
+                m.get("id") == row.default_model for m in (row.extra_models or [])
+            ) and not any(m.id == row.default_model for m in extras)
+            if provider_type != row.provider_type or removed_from_extras:
+                default_model = None
+            else:
+                default_model = row.default_model
+                preserved_default = True
+        try:
+            test_model = await self._validate(
+                name=name,
+                provider_type=provider_type,
+                base_url=base_url,
+                default_model=default_model,
+                extra_models=extras,
+                api_protocol=api_protocol,
+                catalog_id=catalog_id,
+                exclude_id=provider_id,
+            )
+        except BadRequestException as exc:
+            if not preserved_default or exc.message_key not in {
+                "errors.llm.modelNotInCatalog",
+                "errors.llm.modelParametersRequired",
+                "errors.llm.modelResponsesRequired",
+            }:
+                raise
+            test_model = await self._validate(
+                name=name,
+                provider_type=provider_type,
+                base_url=base_url,
+                default_model=None,
+                extra_models=extras,
+                api_protocol=api_protocol,
+                catalog_id=catalog_id,
+                exclude_id=provider_id,
+            )
         before = build_model_options(await self._repo.list_all())
         updated = await self._repo.update(
             provider_id,

@@ -439,6 +439,8 @@ final class SettingsRedesignUITests: XCTestCase {
         key.typeText("fixture-key-not-real")
         tap(app.buttons["llm-form-save"])
         try wait { writes.contains { $0["path"] as? String == "/llm/providers/901" } }
+        let llmWrite = try XCTUnwrap(writes.last { $0["path"] as? String == "/llm/providers/901" })
+        XCTAssertEqual((llmWrite["body"] as? [String: Any])?["default_model"] as? String, "review-alpha")
         XCTAssertTrue(app.buttons["llm-provider-actions"].waitForExistence(timeout: 10))
         launch("/settings/mcp?endpoint=review&tab=settings")
         let name = app.textFields["mcp-form-name"]

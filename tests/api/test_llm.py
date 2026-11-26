@@ -1132,3 +1132,120 @@ def test_provider_vision_and_tool_history_through_real_sdk(
     if provider in {"deepseek", "kimi"}:
         assistant = next(m for m in upstream[-1][1]["messages"] if m["role"] == "assistant")
         assert assistant["reasoning_content"] == "已检查用户提供的海报"
+
+
+def test_update_without_default_model_preserves_configured_test_model(
+    client, model_gateway, monkeypatch
+) -> None:
+    """issue #1338：编辑无关字段时省略 default_model 沿用原测试模型；显式 null 才回退目录第一个。"""
+    from movieclaw_llm.protocols.openai_responses import OpenAIResponsesProtocol
+
+    c, _ = client
+    base_url, requests = model_gateway
+    monkeypatch.setitem(PROTOCOLS, "openai_responses", OpenAIResponsesProtocol)
+    extra_models = [
+        {"id": "gpt-6.1-sol", "context_window": 1_050_000, "max_output_tokens": 128_000},
+        {"id": "gpt-6-luna", "context_window": 1_050_000, "max_output_tokens": 128_000},
+    ]
+    created = c.post(
+        "/api/v1/llm/providers",
+        json={
+            "name": "合成中转",
+            "provider_type": "openai_compat",
+            "base_url": base_url,
+            "api_key": "sk-synthetic-1338",
+            "api_protocol": "openai_responses",
+            "default_model": "gpt-6-luna",
+            "extra_models": extra_models,
+        },
+    )
+    assert created.status_code == 200, created.text
+    provider_id = created.json()["data"]["id"]
+    assert _first(c)["default_model"] == "gpt-6-luna"
+    requests.clear()
+
+    # 省略 default_model（如旧版 iOS 客户端或只改名称的调用方）→ 沿用 gpt-6-luna
+    updated = c.put(
+        f"/api/v1/llm/providers/{provider_id}",
+        json={
+            "name": "合成中转-改名",
+            "provider_type": "openai_compat",
+            "base_url": base_url,
+            "api_protocol": "openai_responses",
+            "extra_models": extra_models,
+        },
+    )
+    assert updated.status_code == 200, updated.text
+    assert _first(c)["default_model"] == "gpt-6-luna"
+    assert _first(c)["status"] == "active"
+    tested = [r[1]["model"] for r in requests if r[0].endswith("/responses")]
+    assert tested == ["gpt-6-luna"]
+
+    # 显式传 null → 仍按原契约回退目录第一个
+    reset = c.put(
+        f"/api/v1/llm/providers/{provider_id}",
+        json={
+            "name": "合成中转-重置",
+            "provider_type": "openai_compat",
+            "base_url": base_url,
+            "api_protocol": "openai_responses",
+            "default_model": None,
+            "extra_models": extra_models,
+        },
+    )
+    assert reset.status_code == 200, reset.text
+    assert _first(c)["default_model"] == "gpt-6.1-sol"
+
+
+def test_update_without_default_model_falls_back_when_stored_model_becomes_invalid(client) -> None:
+    """省略 default_model 时，若原测试模型被移出自定义目录或与新协议不兼容，回退到首个兼容模型。"""
+    c, _ = client
+    compat = c.post(
+        "/api/v1/llm/providers",
+        json={
+            **_COMPAT_PAYLOAD,
+            "default_model": "my-second-model",
+            "extra_models": [
+                {"id": "my-first-model", "context_window": 131072, "max_output_tokens": 8192},
+                {"id": "my-second-model", "context_window": 131072, "max_output_tokens": 8192},
+            ],
+        },
+    )
+    assert compat.status_code == 200, compat.text
+    compat_id = compat.json()["data"]["id"]
+    assert _first(c)["default_model"] == "my-second-model"
+
+    # 从自定义目录移除原测试模型且未传 default_model → 回退 my-first-model，不报 400
+    r = c.put(
+        f"/api/v1/llm/providers/{compat_id}",
+        json={
+            "name": _COMPAT_PAYLOAD["name"],
+            "provider_type": "openai_compat",
+            "base_url": _COMPAT_PAYLOAD["base_url"],
+            "extra_models": [
+                {"id": "my-first-model", "context_window": 131072, "max_output_tokens": 8192},
+            ],
+        },
+    )
+    assert r.status_code == 200, r.text
+    assert _first(c)["default_model"] == "my-first-model"
+
+    # 切协议到 openai_chat 时，原测试模型 gpt-6.1-sol 仅支持 Responses → 回退首个兼容模型 gpt-6-sol
+    openai_row = c.post(
+        "/api/v1/llm/providers",
+        json={**_OPENAI_PAYLOAD, "default_model": "gpt-6.1-sol"},
+    )
+    assert openai_row.status_code == 200, openai_row.text
+    openai_id = openai_row.json()["data"]["id"]
+    r = c.put(
+        f"/api/v1/llm/providers/{openai_id}",
+        json={
+            "name": _OPENAI_PAYLOAD["name"],
+            "provider_type": "openai",
+            "api_protocol": "openai_chat",
+        },
+    )
+    assert r.status_code == 200, r.text
+    updated = c.get(f"/api/v1/llm/providers/{openai_id}").json()["data"]
+    assert updated["default_model"] == "gpt-6-sol"
+
