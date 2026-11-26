@@ -263,7 +263,10 @@ async def update_llm_provider(
         provider_type=payload.provider_type,
         base_url=payload.base_url,
         api_key=payload.api_key,
-        default_model=payload.default_model,
+        # 请求没带该字段（老客户端或只改无关字段）时沿用原值；显式传 null 才回退目录第一个
+        default_model=(
+            payload.default_model if "default_model" in payload.model_fields_set else ...
+        ),
         extra_models=payload.extra_models,
         user_agent=payload.user_agent,
         # 请求没带该字段（老客户端）时沿用原值，不能当成「清空」

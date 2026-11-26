@@ -484,14 +484,59 @@ struct SettingsBLLMProviderForm: View {
         return candidate
     }
 
-    private func submit() async {
-        guard submitHint == nil else { return }
-        busy = true
-        error = nil
-        defer { busy = false }
+    /// 编辑实例时保留已配置的连接测试模型：
+    /// - 新增或切换了供应商类型：返回 nil，由服务端取目录第一个；
+    /// - 用户把原测试模型从自定义目录移除了：返回 nil，避免提交已删模型触发 400；
+    /// - 用户切到 Chat Completions 且原测试模型要求 Responses API：返回 nil，回退首个兼容模型；
+    /// - 编辑其余无关字段（名称、Key、UA、端点、增删其它自定义模型）：原样回传已配置的测试模型。
+    static func preservedDefaultModel(
+        provider: API.LlmProviderView?,
+        providerType: String,
+        preset: API.LlmPresetView?,
+        apiProtocol: String,
+        extras: [API.ModelInfo]
+    ) -> String? {
+        guard let provider, providerType == provider.providerType else { return nil }
+        let current = provider.defaultModel.trimmingCharacters(in: .whitespaces)
+        guard !current.isEmpty else { return nil }
+        let removedFromExtras = provider.extraModels.contains { $0.id == current }
+            && !extras.contains { $0.id == current }
+        if removedFromExtras { return nil }
+        let canChooseProtocol = (preset?.selectableProtocols ?? []).count > 1
+        let effectiveProtocol = (canChooseProtocol && !apiProtocol.isEmpty)
+            ? apiProtocol
+            : (preset?.protocol ?? provider.apiProtocol)
+        if effectiveProtocol == "openai_chat" {
+            let knownModels = (preset?.models ?? []) + extras
+            if knownModels.first(where: { $0.id == current })?.requiresResponsesForTools == true {
+                return nil
+            }
+        }
+        return current
+    }
+
+    static func makePayload(
+        provider: API.LlmProviderView?,
+        name: String,
+        fallbackName: String,
+        providerType: String,
+        preset: API.LlmPresetView?,
+        baseUrl: String,
+        userAgent: String,
+        apiProtocol: String,
+        apiKey: String,
+        extraModels: [API.ModelInfo]
+    ) -> API.LlmProviderPayload {
         let trimmedName = name.trimmingCharacters(in: .whitespaces)
-        let payload = API.LlmProviderPayload(
-            name: trimmedName.isEmpty ? fallbackName() : trimmedName,
+        let trimmedBaseUrl = baseUrl.trimmingCharacters(in: .whitespaces)
+        let trimmedUA = userAgent.trimmingCharacters(in: .whitespaces)
+        let trimmedKey = apiKey.trimmingCharacters(in: .whitespaces)
+        let isCustomEndpoint = (preset?.models ?? []).isEmpty
+        let extras = isCustomEndpoint ? extraModels : []
+        let canCustomizeEndpoint = preset?.baseUrl == nil
+        let canChooseProtocol = (preset?.selectableProtocols ?? []).count > 1
+        return API.LlmProviderPayload(
+            name: trimmedName.isEmpty ? fallbackName : trimmedName,
             providerType: providerType,
             baseUrl: trimmedBaseUrl.isEmpty ? nil : trimmedBaseUrl,
             // 端点固定的官方渠道不开放 UA 配置，一律回传 null
@@ -499,10 +544,35 @@ struct SettingsBLLMProviderForm: View {
             // 没选过就不编码：新增跟随预设默认，编辑沿用原值
             apiProtocol: canChooseProtocol && !apiProtocol.isEmpty ? apiProtocol : nil,
             // 留空不编码：编辑时沿用原 Key
-            apiKey: apiKey.trimmingCharacters(in: .whitespaces).isEmpty ? nil : apiKey.trimmingCharacters(in: .whitespaces),
-            // 连接测试模型由服务端取目录第一个；官方渠道不回传自定义目录
-            defaultModel: nil,
+            apiKey: trimmedKey.isEmpty ? nil : trimmedKey,
+            // 编辑同一供应商类型时沿用已配置的测试模型；新增、换类型、删掉该模型或切到不兼容协议时由服务端取目录第一个
+            defaultModel: preservedDefaultModel(
+                provider: provider,
+                providerType: providerType,
+                preset: preset,
+                apiProtocol: apiProtocol,
+                extras: extras
+            ),
             extraModels: extras.map(\.settingsBLLMInput)
+        )
+    }
+
+    private func submit() async {
+        guard submitHint == nil else { return }
+        busy = true
+        error = nil
+        defer { busy = false }
+        let payload = Self.makePayload(
+            provider: provider,
+            name: name,
+            fallbackName: fallbackName(),
+            providerType: providerType,
+            preset: preset,
+            baseUrl: baseUrl,
+            userAgent: userAgent,
+            apiProtocol: apiProtocol,
+            apiKey: apiKey,
+            extraModels: extraModels
         )
         do {
             if let provider {
