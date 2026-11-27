@@ -44,10 +44,14 @@ struct TrackSubtitleGenButton: View {
         }
     }
 
-    /// 入口：运行中 / 未完成时总是显示状态按钮；空闲时受 LLM 能力门禁约束
+    private var generated: Bool {
+        file.subtitleStreams.contains { $0.external && TrackGenText.isAiSubtitle($0.fileName) }
+    }
+
+    /// 入口：运行中 / 展示未完成态时总是显示状态按钮；空闲时受 LLM 能力门禁约束
     @ViewBuilder
     private var entry: some View {
-        if model.running || model.hasTerminalIssue {
+        if model.running || model.showsTerminalIssue(generated: generated) {
             badgeButton
         } else {
             switch model.llm {
@@ -78,11 +82,11 @@ struct TrackSubtitleGenButton: View {
 
     /// 与语言芯片同一副骨架，只靠描边把「可点的动作」与「只读的标签」区分开
     private var badgeButton: some View {
-        let generated = file.subtitleStreams.contains { $0.external && TrackGenText.isAiSubtitle($0.fileName) }
+        let generated = self.generated
         let style = model.badgeStyle(generated: generated)
         let text = model.badgeLabel(generated: generated)
         return Button {
-            model.openAction(api: api, fileId: file.id)
+            model.openAction(api: api, fileId: file.id, generated: generated)
         } label: {
             HStack(spacing: 6) {
                 if model.running {
@@ -106,6 +110,55 @@ struct TrackSubtitleGenButton: View {
         .disabled(model.previewing)
         .opacity(model.previewing ? 0.5 : 1)
         .accessibilityLabel(model.running ? "\(text)，\(model.job?.progress.message.nonEmpty ?? String(localized: .librarySubtitleGenerationRunning))" : text)
+    }
+}
+
+// MARK: - 选任务与入口判定（纯函数，供单测与视图共用，同 Web `job-attention.ts`）
+
+enum TrackSubtitleGenLogic {
+    enum OpenMode: Equatable {
+        case preview, status
+    }
+
+    static let runningStatuses: Set<String> = ["queued", "running", "retry_wait", "cancelling", "waiting"]
+    static let terminalIssueStatuses: Set<String> = ["blocked", "failed", "cancelled"]
+
+    static func isRunning(_ job: API.JobView?) -> Bool {
+        job.map { runningStatuses.contains($0.status) } ?? false
+    }
+
+    static func hasTerminalIssue(_ job: API.JobView?) -> Bool {
+        guard let job, job.dismissedAt == nil else { return false }
+        return terminalIssueStatuses.contains(job.status)
+    }
+
+    static func showsTerminalIssue(_ job: API.JobView?, generated: Bool) -> Bool {
+        hasTerminalIssue(job) && !generated && job?.status != "succeeded"
+    }
+
+    static func openMode(job: API.JobView?, generated: Bool) -> OpenMode {
+        if isRunning(job) || showsTerminalIssue(job, generated: generated) {
+            return .status
+        }
+        return .preview
+    }
+
+    /// 选出这个文件当前的字幕生成任务：跳过已忽略失败，活跃运行态优先，同档按 created_at 倒序
+    /// （与服务端 `/jobs` 排序一致，防止历史库中因忽略改过 updated_at 的旧失败反超新任务，见 #1337）。
+    static func latestJob(in items: [API.JobView]) -> API.JobView? {
+        items
+            .filter { $0.dismissedAt == nil }
+            .max { lhs, rhs in
+                let lhsActive = runningStatuses.contains(lhs.status)
+                let rhsActive = runningStatuses.contains(rhs.status)
+                if lhsActive != rhsActive { return !lhsActive && rhsActive }
+                let lhsCreated = Formatters.date(lhs.createdAt) ?? .distantPast
+                let rhsCreated = Formatters.date(rhs.createdAt) ?? .distantPast
+                if lhsCreated != rhsCreated { return lhsCreated < rhsCreated }
+                let lhsUpdated = Formatters.date(lhs.updatedAt) ?? .distantPast
+                let rhsUpdated = Formatters.date(rhs.updatedAt) ?? .distantPast
+                return lhsUpdated < rhsUpdated
+            }
     }
 }
 
@@ -156,12 +209,15 @@ private final class TrackGenModel {
     @ObservationIgnored private var refreshSeq = 0
     @ObservationIgnored private var refreshScheduled = false
 
-    static let runningStatuses: Set<String> = ["queued", "running", "retry_wait", "cancelling", "waiting"]
+    static let runningStatuses = TrackSubtitleGenLogic.runningStatuses
 
-    var running: Bool { job.map { Self.runningStatuses.contains($0.status) } ?? false }
-    var hasTerminalIssue: Bool { ["blocked", "failed", "cancelled"].contains(job?.status ?? "") }
+    var running: Bool { TrackSubtitleGenLogic.isRunning(job) }
     var jobSucceeded: Bool { job?.status == "succeeded" }
     var progress: TrackGenProgress? { job.map(TrackGenProgress.init) }
+
+    func showsTerminalIssue(generated: Bool) -> Bool {
+        TrackSubtitleGenLogic.showsTerminalIssue(job, generated: generated)
+    }
 
     // MARK: 徽章
 
@@ -170,8 +226,7 @@ private final class TrackGenModel {
         if running {
             return BadgeStyle(foreground: Theme.info, background: Theme.info.opacity(0.12), border: Theme.info.opacity(0.3))
         }
-        if generated || jobSucceeded { return Self.idleStyle }
-        if hasTerminalIssue {
+        if showsTerminalIssue(generated: generated) {
             let red = Color(red: 1, green: 0.62, blue: 0.62)
             return BadgeStyle(foreground: Color(red: 1, green: 0.71, blue: 0.71), background: red.opacity(0.07), border: red.opacity(0.25))
         }
@@ -189,9 +244,7 @@ private final class TrackGenModel {
             text = String(localized: .mediaSubtitlesCheckingBadge)
         } else if running {
             text = TrackGenText.runningBadgeText(progress)
-        } else if generated || jobSucceeded {
-            // 生成成功过的文件即便带着历史失败记录，也不该再顶着红色的未完成态
-        } else if hasTerminalIssue {
+        } else if showsTerminalIssue(generated: generated) {
             text = String(localized: .mediaSubtitlesUnfinishedBadge)
         }
         return running ? "\(activeOutputLabel) · \(text)" : text
@@ -209,8 +262,8 @@ private final class TrackGenModel {
 
     // MARK: 打开
 
-    func openAction(api: APIClient, fileId: Int) {
-        if running || hasTerminalIssue {
+    func openAction(api: APIClient, fileId: Int, generated: Bool) {
+        if TrackSubtitleGenLogic.openMode(job: job, generated: generated) == .status {
             mode = .status
             return
         }
@@ -405,7 +458,7 @@ private final class TrackGenModel {
         job = next
     }
 
-    /// 查这个文件最近的一条字幕生成任务（取 updated_at 最新，同 Web latestFor）
+    /// 查这个文件最近的一条未忽略字幕生成任务（同 Web latestFor）
     func refreshJob(api: APIClient, fileId: Int) async {
         refreshSeq += 1
         let seq = refreshSeq
@@ -414,10 +467,7 @@ private final class TrackGenModel {
                 jobType: "subtitle.generate", resourceType: "library_file", resourceId: String(fileId), limit: 5
             )
             guard seq == refreshSeq else { return }
-            let latest = list.items.max { lhs, rhs in
-                (Formatters.date(lhs.updatedAt) ?? .distantPast) < (Formatters.date(rhs.updatedAt) ?? .distantPast)
-            }
-            apply(latest)
+            apply(TrackSubtitleGenLogic.latestJob(in: list.items))
         } catch {
             // 瞬时断线保留最近快照；SSE 重连或下一轮轮询会自动校准
         }

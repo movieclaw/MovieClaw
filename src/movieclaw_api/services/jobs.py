@@ -570,18 +570,26 @@ async def _record_transition(
     job: Job,
     event_type: str,
     payload: dict[str, Any],
+    *,
+    touch_updated_at: bool = True,
 ) -> None:
     # 取消请求、执行进度和心跳可能来自不同 session。revision 必须由数据库原子
     # 自增，不能依赖各 session 里可能过期的 ORM 值，否则会撞唯一事件序号。
-    now = utcnow()
+    # 忽略/撤销忽略只改用户处置元数据（dismissed_at），不改执行时间线，
+    # 不得推进 updated_at（否则旧失败会反超其后成功的任务，见 #1337）。
+    values: dict[str, Any] = {"revision": Job.revision + 1}
+    refresh_attrs = ["revision"]
+    if touch_updated_at:
+        values["updated_at"] = utcnow()
+        refresh_attrs.append("updated_at")
     await session.flush()
     await session.execute(
         update(Job)
         .where(Job.id == job.id)
-        .values(revision=Job.revision + 1, updated_at=now)
+        .values(**values)
         .execution_options(synchronize_session=False)
     )
-    await session.refresh(job, attribute_names=["revision", "updated_at"])
+    await session.refresh(job, attribute_names=refresh_attrs)
     session.add(
         JobEvent(job_id=job.id, revision=job.revision, event_type=event_type, payload=payload)
     )
@@ -684,7 +692,13 @@ async def dismiss_job(
     job.dismissed_at = now
     job.dismissed_by = dismissed_by
     job.retention_until = now + timedelta(days=90)
-    await _record_transition(session, job, "dismissed", {"dismissed_by": dismissed_by})
+    await _record_transition(
+        session,
+        job,
+        "dismissed",
+        {"dismissed_by": dismissed_by},
+        touch_updated_at=False,
+    )
     await session.commit()
     await notify_job_change()
     return job, True
@@ -700,7 +714,13 @@ async def undismiss_job(session: AsyncSession, job_id: str) -> tuple[Job | None,
     job.dismissed_at = None
     job.dismissed_by = None
     job.retention_until = None
-    await _record_transition(session, job, "undismissed", {})
+    await _record_transition(
+        session,
+        job,
+        "undismissed",
+        {},
+        touch_updated_at=False,
+    )
     await session.commit()
     await notify_job_change()
     return job, True
@@ -732,7 +752,13 @@ async def dismiss_failed_jobs(
         job.dismissed_at = now
         job.dismissed_by = dismissed_by
         job.retention_until = now + timedelta(days=90)
-        await _record_transition(session, job, "dismissed", {"dismissed_by": dismissed_by})
+        await _record_transition(
+            session,
+            job,
+            "dismissed",
+            {"dismissed_by": dismissed_by},
+            touch_updated_at=False,
+        )
     await session.commit()
     await notify_job_change()
     return rows

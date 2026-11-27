@@ -42,6 +42,89 @@ export function jobIsHistorical(job: Pick<JobView, "status" | "dismissed_at">): 
   return HISTORY_JOB_STATUSES.has(job.status) || (job.status === "failed" && isDismissed(job));
 }
 
+/** 详情入口视为终态异常的状态集合（忽略后不再视为未完成问题）。 */
+export const TERMINAL_ISSUE_JOB_STATUSES = new Set<JobStatus>([
+  "blocked",
+  "failed",
+  "cancelled",
+]);
+
+function parseTimestamp(value: string | null | undefined): number {
+  if (!value) return Number.NEGATIVE_INFINITY;
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed) ? parsed : Number.NEGATIVE_INFINITY;
+}
+
+/**
+ * 选出某个资源当前的最新任务（用于详情页状态与按钮联动，见 #1337）。
+ *
+ * 跳过用户已忽略的失败任务，活跃运行态优先，同档按 `created_at` 倒序
+ * （与服务端 `GET /jobs` 一致，避免历史库中因忽略刷新过 `updated_at` 的旧失败反超新任务）。
+ */
+export function selectLatestResourceJob<
+  T extends Pick<
+    JobView,
+    "job_type" | "status" | "dismissed_at" | "created_at" | "updated_at" | "resources"
+  >,
+>(
+  jobs: readonly T[],
+  resourceType: string,
+  resourceId: string | number,
+  jobType?: string,
+): T | null {
+  const targetId = String(resourceId);
+  let best: T | null = null;
+  let bestActive = false;
+  let bestCreated = Number.NEGATIVE_INFINITY;
+  let bestUpdated = Number.NEGATIVE_INFINITY;
+  for (const job of jobs) {
+    if (isDismissed(job)) continue;
+    if (jobType && job.job_type !== jobType) continue;
+    if (
+      !job.resources.some(
+        (resource) =>
+          resource.resource_type === resourceType && resource.resource_id === targetId,
+      )
+    ) {
+      continue;
+    }
+    const active = ACTIVE_FEED_JOB_STATUSES.has(job.status);
+    const created = parseTimestamp(job.created_at);
+    const updated = parseTimestamp(job.updated_at);
+    if (
+      best === null ||
+      (active && !bestActive) ||
+      (active === bestActive &&
+        (created > bestCreated || (created === bestCreated && updated > bestUpdated)))
+    ) {
+      best = job;
+      bestActive = active;
+      bestCreated = created;
+      bestUpdated = updated;
+    }
+  }
+  return best;
+}
+
+/** 详情页字幕生成按钮是否应显示「AI 未完成」红态：已忽略或已有成品时不再报未完成。 */
+export function subtitleGenShowsTerminalIssue(
+  job: Pick<JobView, "status" | "dismissed_at"> | null | undefined,
+  generated: boolean,
+): boolean {
+  if (!job || generated || job.status === "succeeded" || isDismissed(job)) return false;
+  return TERMINAL_ISSUE_JOB_STATUSES.has(job.status);
+}
+
+/** 点击详情页字幕生成按钮后的落点：运行中或需展示未完成态进状态弹窗，否则进预检。 */
+export function subtitleGenOpenMode(
+  job: Pick<JobView, "status" | "dismissed_at"> | null | undefined,
+  generated: boolean,
+): "status" | "preview" {
+  if (job && ACTIVE_FEED_JOB_STATUSES.has(job.status)) return "status";
+  if (subtitleGenShowsTerminalIssue(job, generated)) return "status";
+  return "preview";
+}
+
 /**
  * 用户此刻能不能取消这条 Job。
  *

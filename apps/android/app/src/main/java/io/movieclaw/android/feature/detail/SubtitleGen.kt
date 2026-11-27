@@ -49,6 +49,10 @@ import io.movieclaw.android.core.model.SubtitleGenCandidateView
 import io.movieclaw.android.core.model.SubtitleGenPreviewView
 import io.movieclaw.android.feature.activity.LlmGate
 import io.movieclaw.android.core.designsystem.formSheetScroll
+import java.time.Instant
+import java.time.LocalDateTime
+import java.time.OffsetDateTime
+import java.time.ZoneOffset
 
 /** AI 字幕的警告黄（iOS `Theme.warning` 同色系） */
 private val Warning = Color(0xFFF5C451)
@@ -75,10 +79,9 @@ internal fun SubtitleGenEntry(
     onClick: () -> Unit,
 ) {
     val running = job?.status in RUNNING_STATUSES
-    val terminalIssue = job?.status in TERMINAL_ISSUE_STATUSES
-    val succeeded = job?.status == "succeeded"
+    val showTerminalIssue = subtitleJobShowsTerminalIssue(job, generated)
 
-    if (!running && !terminalIssue && gate == LlmGate.MISSING) {
+    if (!running && !showTerminalIssue && gate == LlmGate.MISSING) {
         // 未接 AI：整句是按钮，点了去「模型接入」
         Row(
             Modifier
@@ -94,7 +97,7 @@ internal fun SubtitleGenEntry(
         }
         return
     }
-    if (!running && !terminalIssue && gate == LlmGate.CHECKING) {
+    if (!running && !showTerminalIssue && gate == LlmGate.CHECKING) {
         // 检查中不闪出触发按钮（同 iOS：零尺寸占位）
         Box(Modifier.size(0.dp))
         return
@@ -103,18 +106,17 @@ internal fun SubtitleGenEntry(
     val badge = when {
         previewing -> "正在检查"
         running -> runningText(job!!, targetLanguage, secondaryLanguage)
-        generated || succeeded -> "AI 生成字幕"
-        terminalIssue -> "AI 未完成"
+        showTerminalIssue -> "AI 未完成"
         else -> "AI 生成字幕"
     }
     val tint = when {
         running -> InfoBlue
-        terminalIssue -> DangerRed
+        showTerminalIssue -> DangerRed
         else -> Color.White.copy(alpha = 0.75f)
     }
     val edge = when {
         running -> InfoBlue.copy(alpha = 0.3f)
-        terminalIssue -> DangerRed.copy(alpha = 0.3f)
+        showTerminalIssue -> DangerRed.copy(alpha = 0.3f)
         else -> Color.White.copy(alpha = 0.16f)
     }
     Row(
@@ -140,7 +142,42 @@ internal fun SubtitleGenEntry(
 internal val SUBTITLE_RUNNING_STATUSES = setOf("queued", "running", "retry_wait", "cancelling", "waiting")
 internal val SUBTITLE_ISSUE_STATUSES = setOf("blocked", "failed", "cancelled")
 private val RUNNING_STATUSES = SUBTITLE_RUNNING_STATUSES
-private val TERMINAL_ISSUE_STATUSES = SUBTITLE_ISSUE_STATUSES
+
+private fun parseJobInstant(value: String?): Instant {
+    if (value.isNullOrBlank()) return Instant.MIN
+    return runCatching { OffsetDateTime.parse(value).toInstant() }
+        .recoverCatching { Instant.parse(value) }
+        .recoverCatching { LocalDateTime.parse(value).toInstant(ZoneOffset.UTC) }
+        .getOrDefault(Instant.MIN)
+}
+
+/** 选出这个文件当前的字幕生成任务：跳过已忽略失败，活跃运行态优先，同档按 created_at 倒序（见 #1337） */
+internal fun selectLatestSubtitleJob(items: List<JobView>): JobView? =
+    items
+        .filter { it.dismissedAt.isNullOrBlank() }
+        .maxWithOrNull(
+            compareBy<JobView>(
+                { it.status in SUBTITLE_RUNNING_STATUSES },
+                { parseJobInstant(it.createdAt) },
+                { parseJobInstant(it.updatedAt) },
+            ),
+        )
+
+internal fun subtitleJobShowsTerminalIssue(job: JobView?, generated: Boolean): Boolean =
+    job != null &&
+        !generated &&
+        job.status != "succeeded" &&
+        job.dismissedAt.isNullOrBlank() &&
+        job.status in SUBTITLE_ISSUE_STATUSES
+
+internal fun subtitleGenOpenMode(job: JobView?, generated: Boolean): SubtitleGenMode =
+    if ((job != null && job.status in SUBTITLE_RUNNING_STATUSES) ||
+        subtitleJobShowsTerminalIssue(job, generated)
+    ) {
+        SubtitleGenMode.STATUS
+    } else {
+        SubtitleGenMode.PREVIEW
+    }
 
 /** 运行中徽章：`{输出} · {阶段文案}`（阶段文案逐字照 iOS `runningBadgeText`） */
 private fun runningText(job: JobView, target: String, secondary: String?): String {
@@ -716,7 +753,7 @@ private fun PickerRow(label: String, value: String, enabled: Boolean, onClick: (
  * （Hero 拿不到 VM，与文件里其它回调同一个路子）。fileId 由界面按当前文件传入。
  */
 internal data class SubtitleGenActions(
-    val onEntryClick: (Long) -> Unit,
+    val onEntryClick: (Long, Boolean) -> Unit,
     val onTrack: (Long?) -> Unit,
     val onDismiss: () -> Unit,
     val onTargetLanguage: (Long, String) -> Unit,

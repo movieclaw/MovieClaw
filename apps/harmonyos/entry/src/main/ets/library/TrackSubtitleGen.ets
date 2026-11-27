@@ -48,6 +48,48 @@ import { SpatialMaterial } from '../common/SpatialMaterial';
 /** 任务还在跑的状态集合（web RUNNING_JOB_STATUSES；blocked/failed/cancelled 是终态问题，succeeded 是成功） */
 const GEN_RUNNING_STATUSES: string[] = ['queued', 'running', 'retry_wait', 'cancelling', 'waiting'];
 
+function isDismissedJob(job: JobView): boolean {
+  return (job.dismissed_at ?? '') !== '';
+}
+
+/** 选出这个文件当前的字幕生成任务：跳过已忽略失败，活跃运行态优先，同档按 created_at 倒序（见 #1337） */
+export function selectLatestSubtitleJob(items: JobView[]): JobView | null {
+  let best: JobView | null = null;
+  let bestActive: boolean = false;
+  let bestCreated: number = Number.NEGATIVE_INFINITY;
+  let bestUpdated: number = Number.NEGATIVE_INFINITY;
+  for (const item of items) {
+    if (isDismissedJob(item)) {
+      continue;
+    }
+    const active: boolean = GEN_RUNNING_STATUSES.indexOf(item.status) >= 0;
+    const created: number = Formatters.date(item.created_at) ?? Number.NEGATIVE_INFINITY;
+    const updated: number = Formatters.date(item.updated_at) ?? Number.NEGATIVE_INFINITY;
+    if (best === null || (active && !bestActive) || (active === bestActive
+      && (created > bestCreated || (created === bestCreated && updated > bestUpdated)))) {
+      best = item;
+      bestActive = active;
+      bestCreated = created;
+      bestUpdated = updated;
+    }
+  }
+  return best;
+}
+
+export function subtitleJobShowsTerminalIssue(job: JobView | null, generated: boolean): boolean {
+  if (job === null || generated || job.status === 'succeeded' || isDismissedJob(job)) {
+    return false;
+  }
+  return job.status === 'blocked' || job.status === 'failed' || job.status === 'cancelled';
+}
+
+export function subtitleGenShouldOpenStatus(job: JobView | null, generated: boolean): boolean {
+  if (job !== null && GEN_RUNNING_STATUSES.indexOf(job.status) >= 0) {
+    return true;
+  }
+  return subtitleJobShowsTerminalIssue(job, generated);
+}
+
 /** 生成入口支持的目标语言 token（web OUTPUT_LANGUAGES，顺序一致） */
 const GEN_LANGUAGES: string[] = ['chs', 'cht', 'eng', 'jpn', 'kor', 'fre', 'ger', 'spa', 'ita', 'por', 'rus', 'tha'];
 
@@ -504,7 +546,7 @@ export struct TrackSubtitleGenButton {
     }, 120);
   }
 
-  /** 拉这个文件的最新字幕生成任务（取 updated_at 最新的一条） */
+  /** 拉这个文件的最新未忽略字幕生成任务（同 Web latestFor） */
   private refreshJob(): void {
     const api: MovieClawApi | null = this.api();
     if (api === null || this.fileId < 0) {
@@ -512,30 +554,19 @@ export struct TrackSubtitleGenButton {
     }
     api.jobsList(undefined, 'subtitle.generate', 'library_file', `${this.fileId}`, undefined, 5)
       .then((view: JobListView): void => {
-        let latest: JobView | null = null;
-        let latestMs: number = -1;
-        for (const item of view.items) {
-          const updatedMs: number | null = Formatters.date(item.updated_at);
-          if (updatedMs !== null && updatedMs > latestMs) {
-            latestMs = updatedMs;
-            latest = item;
-          }
-        }
-        if (latest !== null) {
-          this.applyJob(latest);
-        }
+        this.applyJob(selectLatestSubtitleJob(view.items));
       })
       .catch((): void => {
         // 列表拉取失败不打扰界面：SSE 事件与 15 秒轮询都会再试
       });
   }
 
-  private applyJob(job: JobView): void {
+  private applyJob(job: JobView | null): void {
     const previous: JobView | null = this.job;
     const wasRunning: boolean = previous !== null && GEN_RUNNING_STATUSES.indexOf(previous.status) >= 0;
     this.job = job;
     // 只在亲眼看到同一任务从活跃态变为成功时回调刷新；初次读到历史成功任务不触发多余请求
-    if (wasRunning && previous !== null && job.id === previous.id && job.status === 'succeeded') {
+    if (job !== null && wasRunning && previous !== null && job.id === previous.id && job.status === 'succeeded') {
       this.onChanged();
     }
   }
@@ -566,9 +597,8 @@ export struct TrackSubtitleGenButton {
     return this.job !== null && this.job.status === 'succeeded';
   }
 
-  private hasTerminalIssue(): boolean {
-    return this.job !== null && (this.job.status === 'blocked' || this.job.status === 'failed'
-      || this.job.status === 'cancelled');
+  private showsTerminalIssue(): boolean {
+    return subtitleJobShowsTerminalIssue(this.job, this.hasGenerated());
   }
 
   /** 已经生成过 AI 字幕（外挂里有 AI 命名段）：徽章不再顶着未完成红态 */
@@ -786,12 +816,12 @@ export struct TrackSubtitleGenButton {
 
   // MARK: 动作
 
-  /** 徽章点击：有任务看状态，没任务进确认弹层 */
+  /** 徽章点击：运行中或展示未完成态进状态弹层，其余进确认弹层 */
   private openAction(): void {
     if (this.previewing) {
       return;
     }
-    if (this.isJobRunning() || this.hasTerminalIssue()) {
+    if (subtitleGenShouldOpenStatus(this.job, this.hasGenerated())) {
       this.mode = 'status';
       this.showSheet = true;
       return;
@@ -961,7 +991,7 @@ export struct TrackSubtitleGenButton {
     if (this.isJobRunning()) {
       return `${this.activeOutputLabel()} · ${genRunningBadgeText(this.activeProgress())}`;
     }
-    if (this.hasTerminalIssue() && !this.hasGenerated() && !this.jobSucceeded()) {
+    if (this.showsTerminalIssue()) {
       return 'AI 未完成';
     }
     return 'AI 生成字幕';
@@ -971,7 +1001,7 @@ export struct TrackSubtitleGenButton {
     if (this.isJobRunning()) {
       return Theme.info;
     }
-    if (this.hasTerminalIssue() && !this.hasGenerated() && !this.jobSucceeded()) {
+    if (this.showsTerminalIssue()) {
       return '#ffb4b4';
     }
     return 'rgba(255,255,255,0.75)';
@@ -981,7 +1011,7 @@ export struct TrackSubtitleGenButton {
     if (this.isJobRunning()) {
       return 'rgba(127,176,255,0.12)';
     }
-    if (this.hasTerminalIssue() && !this.hasGenerated() && !this.jobSucceeded()) {
+    if (this.showsTerminalIssue()) {
       return 'rgba(255,159,159,0.07)';
     }
     return 'transparent';
@@ -991,7 +1021,7 @@ export struct TrackSubtitleGenButton {
     if (this.isJobRunning()) {
       return 'rgba(127,176,255,0.3)';
     }
-    if (this.hasTerminalIssue() && !this.hasGenerated() && !this.jobSucceeded()) {
+    if (this.showsTerminalIssue()) {
       return 'rgba(255,159,159,0.25)';
     }
     return 'rgba(255,255,255,0.16)';

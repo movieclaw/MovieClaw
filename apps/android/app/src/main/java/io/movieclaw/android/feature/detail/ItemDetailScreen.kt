@@ -299,10 +299,10 @@ class ItemDetailViewModel @Inject constructor(
         }
     }
 
-    /** 点入口：运行中 / 有终态问题 → 状态弹层；未接 AI → 由界面跳「模型接入」；否则开预检 */
-    fun openSubtitleGen(fileId: Long, onNeedLlmSettings: () -> Unit) {
+    /** 点入口：运行中 / 展示未完成态 → 状态弹层；未接 AI → 由界面跳「模型接入」；否则开预检 */
+    fun openSubtitleGen(fileId: Long, generated: Boolean, onNeedLlmSettings: () -> Unit) {
         val job = _subtitleGen.value.job
-        if (job != null && (job.status in SUBTITLE_RUNNING_STATUSES || job.status in SUBTITLE_ISSUE_STATUSES)) {
+        if (subtitleGenOpenMode(job, generated) == SubtitleGenMode.STATUS) {
             _subtitleGen.update { it.copy(mode = SubtitleGenMode.STATUS) }
             return
         }
@@ -480,20 +480,23 @@ class ItemDetailViewModel @Inject constructor(
 
     private suspend fun refreshSubtitleJob(fileId: Long) {
         val origin = origin ?: return
-        val job = runCatching {
+        val items = runCatching {
             apiFactory.forOrigin(origin).jobs(
                 jobType = "subtitle.generate",
                 resourceType = "library_file",
                 resourceId = fileId,
                 limit = 5,
-            ).dataOrThrow().items.maxByOrNull { it.updatedAt.orEmpty() }
-        }.getOrNull() ?: return
+            ).dataOrThrow().items
+        }.getOrElse { return }
+        val job = selectLatestSubtitleJob(items)
         val wasActive = sawActiveJob
-        if (job.status in SUBTITLE_RUNNING_STATUSES) sawActiveJob = true
+        if (job != null && job.status in SUBTITLE_RUNNING_STATUSES) sawActiveJob = true
         _subtitleGen.update { it.copy(job = job) }
-        if (wasActive && job.status == "succeeded") {
+        if (wasActive && job?.status == "succeeded") {
             sawActiveJob = false
             onSubtitleChanged?.invoke()
+        } else if (job == null) {
+            sawActiveJob = false
         }
     }
 
@@ -1418,7 +1421,7 @@ fun ItemDetailScreen(
                 subtitleGen = subtitleGen,
                 isAdmin = permissions.isAdmin,
                 subtitleGenActions = SubtitleGenActions(
-                    onEntryClick = { id -> vm.openSubtitleGen(id, onNeedLlmSettings = onOpenLlmSettings) },
+                    onEntryClick = { id, generated -> vm.openSubtitleGen(id, generated, onNeedLlmSettings = onOpenLlmSettings) },
                     onTrack = { id -> vm.checkLlmGate(); vm.trackSubtitleJob(id) },
                     onDismiss = { vm.closeSubtitleGen() },
                     onTargetLanguage = { id, token -> vm.setTargetLanguage(id, token) },
@@ -1961,15 +1964,16 @@ private fun Hero(
         // iOS 把它放在 `wideExtras`（大图下方的轨道区），所以跟着音轨/字幕一起走。
         // 三态：未接 AI = 「接入… 去接入」引导；运行中 / 有终态问题 = 状态徽章；空闲 = 「AI 生成字幕」。
         if (isAdmin && file != null && !file.missing) {
+            val generated = file.subtitleStreams.any { it.external && SubtitleGenText.isAiSubtitle(it.fileName.orEmpty()) }
             Spacer(Modifier.height(12.dp))
             SubtitleGenEntry(
-                generated = file.subtitleStreams.any { it.external && SubtitleGenText.isAiSubtitle(it.fileName.orEmpty()) },
+                generated = generated,
                 gate = subtitleGen.gate,
                 job = subtitleGen.job,
                 previewing = subtitleGen.previewing,
                 targetLanguage = subtitleGen.targetLanguage,
                 secondaryLanguage = subtitleGen.secondaryLanguage.takeIf { subtitleGen.bilingual },
-                onClick = { subtitleGenActions.onEntryClick(file.id) },
+                onClick = { subtitleGenActions.onEntryClick(file.id, generated) },
             )
         }
     }

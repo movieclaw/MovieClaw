@@ -12,6 +12,7 @@ import {
 } from "react";
 
 import { ACTIVE_JOB_STATUSES, listJobs, type JobView } from "@/lib/api/jobs";
+import { selectLatestResourceJob } from "@/lib/job-attention";
 import { resolveRequestUrl } from "@/lib/http";
 import { useSession } from "@/lib/session";
 
@@ -124,15 +125,7 @@ export function JobsProvider({ children }: { children: React.ReactNode }) {
   );
   const latestFor = useCallback(
     (resourceType: string, resourceId: string | number, jobType?: string) =>
-      jobs.find(
-        (job) =>
-          (!jobType || job.job_type === jobType) &&
-          job.resources.some(
-            (resource) =>
-              resource.resource_type === resourceType &&
-              resource.resource_id === String(resourceId),
-          ),
-      ) ?? null,
+      selectLatestResourceJob(jobs, resourceType, resourceId, jobType),
     [jobs],
   );
   const value = useMemo(
