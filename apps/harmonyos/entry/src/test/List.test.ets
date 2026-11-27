@@ -10,6 +10,7 @@ import homeRowsTest from './HomeRows.test';
 import staleLoadGuardTest from './StaleLoadGuard.test';
 import pgsPrepareGuardTest from './PgsPrepareGuard.test';
 import playbackTrackSelectionTest from './PlaybackTrackSelection.test';
+import imageLruPolicyTest from './ImageLruPolicy.test';
 
 export default function testsuite() {
   playerInteractionTest();
@@ -24,4 +25,5 @@ export default function testsuite() {
   staleLoadGuardTest();
   pgsPrepareGuardTest();
   playbackTrackSelectionTest();
+  imageLruPolicyTest();
 }
