@@ -1,6 +1,7 @@
 import { http } from '@kit.NetworkKit';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import { BusinessError, deviceInfo } from '@kit.BasicServicesKit';
+import { ImageLruPolicy } from '../common/ImageLruPolicy';
 
 /**
  * MovieClaw 业务接口统一错误（对应 iOS 端 Core/Networking/APIClient.swift 的 APIError）。
@@ -157,6 +158,21 @@ export interface ApiMessageResult<T> {
 }
 
 /**
+ * ETag 协商缓存条目：200 响应的原始 JSON 文本 + 服务端 ETag。
+ * 下次同键 GET 带 `If-None-Match`；服务端 304 时直接复用这份文本——
+ * 内容没变（ETag 相同才 304），**不存在陈旧风险**，省的是带宽与重复 JSON 生成。
+ */
+class EtagEntry {
+  readonly etag: string;
+  readonly body: string;
+
+  constructor(etag: string, body: string) {
+    this.etag = etag;
+    this.body = body;
+  }
+}
+
+/**
  * MovieClaw 业务接口客户端（对应 iOS 端 APIClient）。
  *
  * 认证用设备令牌（docs/design/login-devices.md）：`POST /auth/device/login` 换一枚长期
@@ -179,6 +195,17 @@ export class ApiClient {
 
   /** 分享访客 cookie 罐（见 StoredCookie 说明） */
   private static cookies: StoredCookie[] = [];
+
+  /**
+   * ETag 协商缓存（GET 响应文本，按 `token|path` 隔离账号）。
+   * 预算 4MB 文本；条目只在 304 时被复用，200 时整体换新。
+   */
+  private static readonly ETAG_BUDGET_CHARS: number = 4 * 1024 * 1024;
+  private static readonly etagEntries: Map<string, EtagEntry> = new Map<string, EtagEntry>();
+  private static readonly etagPolicy: ImageLruPolicy = new ImageLruPolicy();
+
+  /** 在途 GET 共享：同键并发请求只发一次网络，跟随者各自解析（同文本不同对象，互不串改）。 */
+  private readonly inflightGets: Map<string, Promise<string>> = new Map<string, Promise<string>>();
 
   /**
    * RequestMethod 枚举未收录 PATCH（底层 curl 支持；字符串枚举按值比较，
@@ -281,9 +308,9 @@ export class ApiClient {
     return this.token;
   }
 
-  /** 拆信封的 GET */
+  /** 拆信封的 GET（在途合并 + ETag 协商缓存，见 sharedGetText / fetchText）。 */
   get<T>(path: string): Promise<T> {
-    return this.send<T>(http.RequestMethod.GET, path, null);
+    return this.parseEnvelopeText<T>(this.sharedGetText(path));
   }
 
   post<T>(path: string, bodyText: string | null): Promise<T> {
@@ -304,7 +331,7 @@ export class ApiClient {
 
   /** 不关心 data 的接口（对应 iOS 端 `let _: API.JSONValue? = try await send(...)`） */
   getVoid(path: string): Promise<void> {
-    return this.sendVoid(http.RequestMethod.GET, path, null);
+    return this.parseEnvelopeText<null>(this.sharedGetText(path)).then((): void => {});
   }
 
   postVoid(path: string, bodyText?: string | null): Promise<void> {
@@ -324,6 +351,7 @@ export class ApiClient {
    * 返回的 (result, message) 元组）：清空观看记录这类接口的成功反馈文案在信封 message 里。
    */
   async delWithMessage<T>(path: string, bodyText: string | null): Promise<ApiMessageResult<T>> {
+    ApiClient.invalidateEtags();
     const envelope: ApiEnvelope<T> | null =
       await this.perform<ApiEnvelope<T>>(http.RequestMethod.DELETE, path, bodyText, false, undefined);
     if (envelope === null) {
@@ -344,17 +372,87 @@ export class ApiClient {
     return this.perform<T>(http.RequestMethod.GET, path, null, false, timeoutMs);
   }
 
-  /** 统一入口：发请求 → 非 2xx 抛业务错误 → 2xx 拆信封取 data（对应 iOS 端 send）。 */
+  /** 统一入口（写请求）：先让协商缓存整仓失效，再发请求 → 非 2xx 抛业务错误 → 2xx 拆信封取 data。 */
   private async send<T>(method: http.RequestMethod, path: string, bodyText: string | null): Promise<T> {
+    ApiClient.invalidateEtags();
     return this.perform<T>(method, path, bodyText, true, undefined);
   }
 
   private async sendVoid(method: http.RequestMethod, path: string, bodyText: string | null): Promise<void> {
+    ApiClient.invalidateEtags();
     await this.perform<null>(method, path, bodyText, true, undefined);
   }
 
+  /** 发请求 → 拿原始 JSON 文本（304 复用协商缓存；非 2xx 抛业务错误）。解析在 perform / parseEnvelopeText。 */
   private async perform<T>(method: http.RequestMethod, path: string, bodyText: string | null,
     unwrapEnvelope: boolean, timeoutMs?: number): Promise<T> {
+    const text: string = await this.fetchText(method, path, bodyText, timeoutMs);
+    if (text.length === 0) {
+      return null as T;
+    }
+    if (!unwrapEnvelope) {
+      try {
+        return JSON.parse(text) as T;
+      } catch (error) {
+        throw ApiError.decoding('响应不是有效的 JSON');
+      }
+    }
+    let envelope: ApiEnvelope<T>;
+    try {
+      envelope = JSON.parse(text) as ApiEnvelope<T>;
+    } catch (error) {
+      throw ApiError.decoding('响应不是有效的 JSON');
+    }
+    return envelope.data;
+  }
+
+  /**
+   * 在途 GET 合并：同键（令牌+路径）并发请求只发一次网络。
+   * 跟随者拿到同一份原始文本**各自解析**——对象图不共享，调用方改自己的副本互不影响。
+   * 请求结束（无论成败）即清槽，之后的同路径请求是新鲜请求。
+   */
+  private sharedGetText(path: string): Promise<string> {
+    const key: string = this.getCacheKey(path);
+    const existing: Promise<string> | undefined = this.inflightGets.get(key);
+    if (existing !== undefined) {
+      return existing;
+    }
+    const text: Promise<string> = this.fetchText(http.RequestMethod.GET, path, null, undefined);
+    this.inflightGets.set(key, text);
+    text.then((): void => {
+      this.inflightGets.delete(key);
+    }, (): void => {
+      this.inflightGets.delete(key);
+    });
+    return text;
+  }
+
+  /** 共享文本 → 拆信封（与 perform 的信封分支同一套语义）。 */
+  private async parseEnvelopeText<T>(textPromise: Promise<string>): Promise<T> {
+    const text: string = await textPromise;
+    if (text.length === 0) {
+      return null as T;
+    }
+    let envelope: ApiEnvelope<T>;
+    try {
+      envelope = JSON.parse(text) as ApiEnvelope<T>;
+    } catch (error) {
+      throw ApiError.decoding('响应不是有效的 JSON');
+    }
+    return envelope.data;
+  }
+
+  /** 协商缓存 / 在途合并共用的键：账号（令牌）+ 路径。未登录（令牌空）也照常工作。 */
+  private getCacheKey(path: string): string {
+    return `${this.token ?? ''}|${path}`;
+  }
+
+  /**
+   * 取响应文本：构建请求头（鉴权/路由/cookie/If-None-Match）→ 发送 → 304 复用协商缓存
+   * → 非 2xx 抛业务错误 → 2xx（GET 且带 ETag）落协商缓存 → 返回原始 JSON 文本。
+   */
+  private async fetchText(method: http.RequestMethod, path: string, bodyText: string | null,
+    timeoutMs?: number): Promise<string> {
     const fullUrl = `${this.origin}/api/v1${path}`;
     const httpRequest = http.createHttp();
     try {
@@ -376,6 +474,13 @@ export class ApiClient {
       if (cookie.length > 0) {
         header['Cookie'] = cookie;
       }
+      // ETag 协商：GET 有缓存条目就带上 If-None-Match；服务端内容未变会回 304
+      const isGet: boolean = method === http.RequestMethod.GET;
+      const cacheKey: string = this.getCacheKey(path);
+      const etagHit: EtagEntry | undefined = isGet ? ApiClient.etagEntries.get(cacheKey) : undefined;
+      if (etagHit !== undefined) {
+        header['If-None-Match'] = etagHit.etag;
+      }
       const options: http.HttpRequestOptions = {
         method: method,
         header: header,
@@ -389,6 +494,11 @@ export class ApiClient {
       const resp = await httpRequest.request(fullUrl, options);
       const text = resp.result as string;
       ApiClient.captureCookies(this.origin, resp.header);
+
+      // 304 Not Modified：内容已与服务端当面确认未变，直接复用缓存文本
+      if (resp.responseCode === 304 && etagHit !== undefined) {
+        return etagHit.body;
+      }
 
       // 非 2xx：解析错误体，透出后端的可读中文
       if (resp.responseCode < 200 || resp.responseCode >= 300) {
@@ -427,24 +537,14 @@ export class ApiClient {
         throw ApiError.http(resp.responseCode, message, code);
       }
 
-      // 2xx：拆信封或直接返回对象
-      if (text.length === 0) {
-        return null as T;
-      }
-      if (!unwrapEnvelope) {
-        try {
-          return JSON.parse(text) as T;
-        } catch (error) {
-          throw ApiError.decoding('响应不是有效的 JSON');
+      // 2xx + GET + ETag：按账号+路径落协商缓存（下次同请求可 304）
+      if (isGet) {
+        const etag: string = ApiClient.readEtagHeader(resp.header);
+        if (etag.length > 0) {
+          ApiClient.storeEtag(cacheKey, etag, text);
         }
       }
-      let envelope: ApiEnvelope<T>;
-      try {
-        envelope = JSON.parse(text) as ApiEnvelope<T>;
-      } catch (error) {
-        throw ApiError.decoding('响应不是有效的 JSON');
-      }
-      return envelope.data;
+      return text;
     } catch (error) {
       if (error instanceof ApiError) {
         throw error;
@@ -453,6 +553,34 @@ export class ApiClient {
     } finally {
       httpRequest.destroy();
     }
+  }
+
+  /** 写请求（POST/PUT/DELETE/PATCH）让协商缓存整仓失效：确定性不命中，留着只是白占内存。 */
+  private static invalidateEtags(): void {
+    ApiClient.etagEntries.clear();
+    ApiClient.etagPolicy.clearAll();
+  }
+
+  private static storeEtag(key: string, etag: string, body: string): void {
+    ApiClient.etagEntries.set(key, new EtagEntry(etag, body));
+    ApiClient.etagPolicy.insert(key, body.length);
+    const evicted: string[] = ApiClient.etagPolicy.evictOverBudget(ApiClient.ETAG_BUDGET_CHARS);
+    for (const evictedKey of evicted) {
+      ApiClient.etagEntries.delete(evictedKey);
+    }
+  }
+
+  /** 响应头里的 ETag（大小写两种键都认；没有返回空串）。 */
+  private static readEtagHeader(header: Object): string {
+    const record: Record<string, Object> = header as Record<string, Object>;
+    let raw: Object | undefined = record['etag'];
+    if (raw === undefined || raw === null) {
+      raw = record['ETag'];
+    }
+    if (raw === undefined || raw === null) {
+      return '';
+    }
+    return `${raw}`.trim();
   }
 
   /**
