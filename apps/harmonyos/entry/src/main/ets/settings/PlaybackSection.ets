@@ -8,6 +8,7 @@ import { PlaybackPolicyPayload, PlaybackPolicyView, ReelClipProgressView, ReelCl
 import { Formatters } from '../common/Formatters';
 import { AppFooter } from '../common/AppFooter';
 import { PlayerPrefs } from '../player/PlayerPrefs';
+import { AppLanguage } from '../common/AppLanguage';
 
 /** `PlaybackPolicyPayload` 全可选，用类绕开 `arkts-no-untyped-obj-literals` */
 class PolicyBody implements PlaybackPolicyPayload {
@@ -80,6 +81,11 @@ export struct PlaybackSection {
     PlayerPrefs.writeEngine(name);
   }
 
+  /** 取词便捷入口（@ComponentV2 build 里读 AppLanguage 的 @Trace，切语言当场重建） */
+  private t(key: string): string {
+    return AppLanguage.shared().t(key);
+  }
+
   private toast(message: string): void {
     this.getUIContext().getPromptAction().showToast({ message: message });
   }
@@ -101,10 +107,11 @@ export struct PlaybackSection {
 
   private messageOf(error: Object): string {
     if (error instanceof ApiError) {
-      return error.message.length > 0 ? error.message : `请求失败（${error.status}）`;
+      return error.message.length > 0 ? error.message
+        : this.t('playback.error_request').replace('{0}', String(error.status));
     }
     const text: string = `${error}`;
-    return text.length > 0 ? text : '操作失败';
+    return text.length > 0 ? text : this.t('playback.error_generic');
   }
 
   /** 改即存：乐观更新本地视图，失败回滚并给出提示（同 iOS） */
@@ -186,16 +193,17 @@ export struct PlaybackSection {
   /** 关「片段预切」前查到的已切片段；非空时弹「要不要一并删除」（同 iOS clipsToDrop） */
   private confirmDropClips(stats: ReelClipStatsView): void {
     this.getUIContext().showAlertDialog({
-      title: '关闭片段预切？',
-      message: '关闭后预告和刷片改回直接播放原片，后台不再切新的片段。保留的片段在重新打开后可直接使用。',
+      title: this.t('playback.clips_confirm_title'),
+      message: this.t('playback.clips_confirm_message'),
       primaryButton: {
-        value: '关闭，保留片段',
+        value: this.t('playback.clips_keep'),
         action: (): void => {
           this.saveClips(false, false);
         }
       },
       secondaryButton: {
-        value: `关闭并删除 ${stats.count} 个片段（${Formatters.bytes(stats.bytes)}）`,
+        value: this.t('playback.clips_delete').replace('{0}', String(stats.count))
+          .replace('{1}', Formatters.bytes(stats.bytes)),
         fontColor: Theme.danger,
         action: (): void => {
           this.saveClips(false, true);
@@ -251,23 +259,22 @@ export struct PlaybackSection {
   /** 片段预切的说明：关着讲开启的好处，开着写进度（文案同 iOS clipsFooter / Web） */
   private clipsFooter(view: PlaybackPolicyView): string {
     if (view.reel_clips_enabled !== true) {
-      return '后台把每部影片的精彩片段提前转成 1080p 小文件。开启后，电视首页和详情页的大图预告起播快、不卡顿，'
-        + '刷片更流畅，外网刷片也不用实时转码。首次开启要在后台处理一段时间（有人观看时自动暂停），每部约占 20 MB。';
+      return this.t('playback.clips_footer_off');
     }
     const progress: ReelClipProgressView | null = view.reel_clips_progress ?? null;
     if (progress === null) {
-      return '正在准备……';
+      return this.t('playback.clips_preparing');
     }
     if (progress.state === 'done') {
       const skipped: number = progress.total - progress.ready;
       return skipped > 0
-        ? `已切好 ${progress.ready} 部，其余 ${skipped} 部无法预切（网盘文件或片子太短）；新入库的会自动补切`
-        : `已切好全部 ${progress.ready} 部；新入库的会自动补切`;
+        ? this.t('playback.clips_done_skipped').replace('{0}', String(progress.ready)).replace('{1}', String(skipped))
+        : this.t('playback.clips_done_all').replace('{0}', String(progress.ready));
     }
     if (progress.state === 'paused') {
-      return `已切好 ${progress.ready} / ${progress.total} 部，有人在观看，暂停中`;
+      return this.t('playback.clips_paused').replace('{0}', String(progress.ready)).replace('{1}', String(progress.total));
     }
-    return `已切好 ${progress.ready} / ${progress.total} 部，正在后台处理；没切好的预告先显示剧照`;
+    return this.t('playback.clips_running').replace('{0}', String(progress.ready)).replace('{1}', String(progress.total));
   }
 
   build() {
@@ -275,16 +282,16 @@ export struct PlaybackSection {
       if (this.loading) {
         Column({ space: 10 }) {
           LoadingProgress().width(24).height(24).color(Theme.textMuted)
-          Text('正在加载播放设置…').fontSize(13).fontColor(Theme.textFaint)
+          Text(this.t('playback.loading')).fontSize(13).fontColor(Theme.textFaint)
         }
         .width('100%')
         .layoutWeight(1)
         .justifyContent(FlexAlign.Center)
       } else if (this.policy === null) {
         Column({ space: 10 }) {
-          Text('播放设置加载失败').fontSize(15).fontColor(Theme.text)
+          Text(this.t('playback.load_failed')).fontSize(15).fontColor(Theme.text)
           Text(this.errorMessage).fontSize(13).fontColor(Theme.textMuted)
-          Text('重试').fontSize(14).fontColor(Theme.accentStrong).onClick(() => {
+          Text(this.t('playback.retry')).fontSize(14).fontColor(Theme.accentStrong).onClick(() => {
             this.load();
           })
         }
@@ -307,7 +314,7 @@ export struct PlaybackSection {
             this.HardwareCard(this.policy as PlaybackPolicyView)
             this.EngineCard()
             this.TogglesCard(this.policy as PlaybackPolicyView)
-            Text('开关都是改一下就保存，没有「保存」按钮。')
+            Text(this.t('playback.footer'))
               .fontSize(11)
               .fontColor(Theme.textFaint)
               .width('100%')
@@ -331,8 +338,8 @@ export struct PlaybackSection {
     Column({ space: 0 }) {
       Row({ space: 12 }) {
         Column({ space: 2 }) {
-          Text('自动（推荐）').fontSize(15).fontColor(Theme.text)
-          Text('AVPlayer 优先，无法解码时使用 MPV').fontSize(12).fontColor(Theme.textFaint)
+          Text(this.t('playback.engine_auto')).fontSize(15).fontColor(Theme.text)
+          Text(this.t('playback.engine_auto_hint')).fontSize(12).fontColor(Theme.textFaint)
         }.alignItems(HorizontalAlign.Start).layoutWeight(1)
         if (this.engine === 'auto') {
           SymbolGlyph($r('sys.symbol.checkmark')).fontSize(16).fontColor([Theme.accent])
@@ -346,7 +353,7 @@ export struct PlaybackSection {
             .fontSize(15)
             .fontWeight(FontWeight.Medium)
             .fontColor(Theme.text)
-          Text('仅 MPV（手动选择）')
+          Text(this.t('playback.engine_mpv_hint'))
             .fontSize(12)
             .fontColor(Theme.textFaint)
         }
@@ -370,7 +377,7 @@ export struct PlaybackSection {
             .fontSize(15)
             .fontWeight(FontWeight.Medium)
             .fontColor(Theme.text)
-          Text('仅 AVPlayer（手动选择）')
+          Text(this.t('playback.engine_avplayer_hint'))
             .fontSize(12)
             .fontColor(Theme.textFaint)
         }
@@ -403,7 +410,7 @@ export struct PlaybackSection {
           .width(8)
           .height(8)
           .fill(view.hardware_available ? Theme.ok : Theme.warn)
-        Text(view.hardware_available ? '有硬件加速可用' : '没有硬件加速')
+        Text(view.hardware_available ? this.t('playback.hw_ok') : this.t('playback.hw_none'))
           .fontSize(16)
           .fontWeight(FontWeight.Medium)
           .fontColor(Theme.text)
@@ -424,8 +431,8 @@ export struct PlaybackSection {
         .width('100%')
       }
       Text(view.hardware_available
-        ? '转码会优先用显卡，CPU 占用低得多。'
-        : '这台机器没探测到能用的显卡编码器，转码只能靠 CPU（很吃性能）。')
+        ? this.t('playback.hw_ok_detail')
+        : this.t('playback.hw_none_detail'))
         .fontSize(12)
         .fontColor(Theme.textFaint)
         .width('100%')
@@ -442,28 +449,28 @@ export struct PlaybackSection {
   TogglesCard(view: PlaybackPolicyView) {
     Column({ space: 0 }) {
       SettingsSwitchRow({
-        title: '进度条预览', hint: '拖动时显示缩略图预览；要预先生成，占磁盘', value: view.trickplay_enabled,
+        title: this.t('playback.trickplay'), hint: this.t('playback.trickplay_hint'), value: view.trickplay_enabled,
         onToggle: (on: boolean): void => {
           this.setPolicy('trickplay', on);
         }
       })
       Divider().color(Theme.line).margin({ left: 16, right: 16 })
       SettingsSwitchRow({
-        title: '转码缓存', hint: '把转好的片段存下来，回看同一段不用重转；占磁盘', value: view.transcode_cache_enabled,
+        title: this.t('playback.cache'), hint: this.t('playback.cache_hint'), value: view.transcode_cache_enabled,
         onToggle: (on: boolean): void => {
           this.setPolicy('cache', on);
         }
       })
       Divider().color(Theme.line).margin({ left: 16, right: 16 })
       SettingsSwitchRow({
-        title: '片段预切', hint: this.clipsFooter(view), value: view.reel_clips_enabled ?? false,
+        title: this.t('playback.clips'), hint: this.clipsFooter(view), value: view.reel_clips_enabled ?? false,
         onToggle: (on: boolean): void => {
           this.onClipsToggle(on);
         }
       })
       Divider().color(Theme.line).margin({ left: 16, right: 16 })
       SettingsSwitchRow({
-        title: '允许软件转码', hint: '没有硬件加速时用 CPU 兜底转码；很吃 CPU，机器弱就别开', value: view.software_transcode_enabled,
+        title: this.t('playback.software'), hint: this.t('playback.software_hint'), value: view.software_transcode_enabled,
         onToggle: (on: boolean): void => {
           this.setPolicy('software', on);
         }

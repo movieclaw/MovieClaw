@@ -11,6 +11,7 @@ import { SavedServers } from '../common/SavedServers';
 import { AppIconStore } from '../common/AppIcon';
 import { ServerRoutes } from '../common/ServerRoutes';
 import { TabBarStyle } from '../common/TabBarStyle';
+import { AppLanguage } from '../common/AppLanguage';
 import { WindowInsets } from '../common/WindowInsets';
 import { FoldState } from '../common/FoldState';
 import { ShareRouter, slugFromWantUri } from '../common/ShareLinks';
@@ -64,6 +65,8 @@ export default class EntryAbility extends UIAbility {
     ServerRoutes.init(this.context);
     // 底部页签栏样式：悬浮胶囊 / 经典贴底栏（设置里切换，同 movieclaw_ui 偏好文件）
     TabBarStyle.init(this.context);
+    // 应用内语言（zh-Hans / zh-Hant / en；同 movieclaw_ui 偏好文件，首帧前异步读）
+    AppLanguage.init(this.context);
     // 折叠态（Pura X 阔折叠等）：记初值 + 挂监听；外屏方屏的方向处理靠它（见 common/FoldState）
     FoldState.shared().init();
     // 第一次发给 AI 前的同意记录（同 movieclaw_ui 偏好文件）

@@ -26,8 +26,15 @@ struct Index {
    * `phase` 已经是 `ready` 了，界面还停在启动转圈上。
    */
   @Local private model: AppModel = AppModel.shared;
+  /** 启动页最短停留：快照秒进时也展示满这一段，避免品牌页一闪而过 */
+  @Local private splashHold: boolean = true;
+  /** 品牌标淡入：onAppear 首帧后从 0 → 1 */
+  @Local private splashOpacity: number = 0;
 
   aboutToAppear(): void {
+    setTimeout((): void => {
+      this.splashHold = false;
+    }, 700);
     // 冷启动：读回本机的服务器与账号快照，再决定落到哪个 phase
     this.model.restore().catch((error: Error): void => {
       hilog.error(0x0000, 'Boot', 'restore 抛异常: %{public}s', `${error}`);
@@ -38,23 +45,35 @@ struct Index {
 
   build() {
     Stack() {
-      if (this.model.phase === AppPhase.launching) {
-        // 静态字标，刻意不放 LoadingProgress（无限转圈）：上架自检的「启动加载完成快」用
-        // 光流法看截图，画面在动＝「占位符还没加载完」。冷启动这一屏通常几百毫秒就切走，
-        // 放静态字标既不误导检测，也不让用户盯空屏。
-        Row({ space: 1 }) {
-          Text('Movie')
-            .fontFamily('serif')
-            .fontSize(34)
-            .fontWeight(FontWeight.Lighter)
-            .fontColor(Theme.textMuted)
-          Text('Claw')
-            .fontFamily('serif')
-            .fontSize(34)
-            .fontWeight(FontWeight.Lighter)
-            .fontStyle(FontStyle.Italic)
-            .fontColor(Theme.textMuted)
+      if (this.model.phase === AppPhase.launching || this.splashHold) {
+        // 品牌启动页：渐变爪标 + 字标。刻意不放 LoadingProgress（无限转圈）：上架自检的
+        // 「启动加载完成快」用光流法看截图，画面在动＝「占位符还没加载完」。
+        // splashHold 保证最短停留 700ms——restore 秒进时不会一闪而过；restore 慢时它也不添延迟。
+        Column({ space: 18 }) {
+          Image($r('app.media.brand_mark'))
+            .width(88)
+            .height(88)
+          Row({ space: 1 }) {
+            Text('Movie')
+              .fontFamily('serif')
+              .fontSize(34)
+              .fontWeight(FontWeight.Lighter)
+              .fontColor(Theme.textMuted)
+            Text('Claw')
+              .fontFamily('serif')
+              .fontSize(34)
+              .fontWeight(FontWeight.Lighter)
+              .fontStyle(FontStyle.Italic)
+              .fontColor(Theme.textMuted)
+          }
         }
+        .opacity(this.splashOpacity)
+        .onAppear((): void => {
+          this.getUIContext().animateTo({ duration: 450, curve: Curve.EaseOut }, (): void => {
+            this.splashOpacity = 1;
+          });
+        })
+        .transition(TransitionEffect.OPACITY.animation({ duration: 200 }))
       } else if (this.model.phase === AppPhase.unreachable) {
         this.UnreachableCard()
       } else if (this.model.phase === AppPhase.chooseAccount) {

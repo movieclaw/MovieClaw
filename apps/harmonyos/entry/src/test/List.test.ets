@@ -10,6 +10,9 @@ import homeRowsTest from './HomeRows.test';
 import staleLoadGuardTest from './StaleLoadGuard.test';
 import pgsPrepareGuardTest from './PgsPrepareGuard.test';
 import playbackTrackSelectionTest from './PlaybackTrackSelection.test';
+import appLanguageTest from './AppLanguage.test';
+import chaptersTest from './Chapters.test';
+import playerDiagnosticsTest from './PlayerDiagnostics.test';
 import harmonyUpgradesTest from './HarmonyUpgrades.test';
 
 export default function testsuite() {
@@ -25,5 +28,8 @@ export default function testsuite() {
   staleLoadGuardTest();
   pgsPrepareGuardTest();
   playbackTrackSelectionTest();
+  appLanguageTest();
+  chaptersTest();
+  playerDiagnosticsTest();
   harmonyUpgradesTest();
 }

@@ -1,6 +1,11 @@
 {
   "routerMap": [
     {
+      "name": "languageSettings",
+      "pageSourceFile": "src/main/ets/settings/LanguageSettingsPage.ets",
+      "buildFunction": "LanguageSettingsBuilder"
+    },
+    {
       "name": "libraryDetail",
       "pageSourceFile": "src/main/ets/library/LibraryDetailPage.ets",
       "buildFunction": "LibraryDetailBuilder"
