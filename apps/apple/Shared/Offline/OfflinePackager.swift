@@ -1,4 +1,5 @@
 #if os(iOS)
+import CryptoKit
 import Foundation
 
 /// 打包一个单元视频之外的东西（docs/design/offline-download.md §5.4「准备中」）：
@@ -124,6 +125,10 @@ struct OfflinePackager {
 
     /// 清单里的地址是 `/api/v1/...` 的绝对路径（字幕、字体带了签名 token）
     private func fetch(_ path: String, timeout: TimeInterval) async throws -> Data {
+        try await Self.fetch(path, api: api, timeout: timeout)
+    }
+
+    nonisolated static func fetch(_ path: String, api: APIClient, timeout: TimeInterval) async throws -> Data {
         guard let url = api.server.resolve(path) else {
             throw APIError.decoding(String(localized: .offlineErrorInvalidPath(path)))
         }
@@ -149,10 +154,303 @@ struct OfflinePackager {
         }
     }
 
-    static func safeName(_ raw: String) -> String {
+    nonisolated static func safeName(_ raw: String) -> String {
         let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "._-"))
         let cleaned = String(raw.unicodeScalars.map { allowed.contains($0) ? Character($0) : "_" })
         return cleaned.isEmpty ? "file" : String(cleaned.prefix(80))
+    }
+
+    // MARK: 在线补齐字幕
+
+    private static let syncTimeout: TimeInterval = 30
+
+    /// 已完成本机副本的在线字幕补齐（#1336）：
+    /// 只补齐服务端外挂文字字幕（含缺失的 ASS 字体），不碰视频文件、不重抽内封轨、不改既有默认选轨。
+    /// 先把全部待下字幕与字体拉进内存，任一步失败直接抛出，盘上原有 `subs/` 与 `playback.json` 保持不动；
+    /// 全部拉完后再在 `OfflineDisk.queue` 上核对单元状态并原子落盘，最后清理不再引用的旧外挂字幕文件。
+    @discardableResult
+    nonisolated static func syncSubtitles(
+        ownerKey: String,
+        unit: OfflineUnit,
+        manifest: API.OfflineManifestView,
+        api: APIClient
+    ) async throws -> Bool {
+        try await syncSubtitles(
+            ownerKey: ownerKey,
+            unit: unit,
+            manifestFileId: manifest.fileId,
+            manifestSubtitles: manifest.subtitles,
+            fontsUrl: manifest.fontsUrl
+        ) { path, timeout in
+            try await Self.fetch(path, api: api, timeout: timeout)
+        }
+    }
+
+    @discardableResult
+    nonisolated static func syncSubtitles(
+        ownerKey: String,
+        unit: OfflineUnit,
+        manifestFileId: Int,
+        manifestSubtitles: [API.OfflineSubtitleView],
+        fontsUrl: String?,
+        fetch: @Sendable (String, TimeInterval) async throws -> Data
+    ) async throws -> Bool {
+        guard unit.playable, manifestFileId == unit.fileId else { return false }
+        let unitDir = OfflineDisk.unitDir(ownerKey, unit.mediaItemId, unit.fileId)
+        let unitFile = OfflineDisk.unitFile(ownerKey, unit.mediaItemId, unit.fileId)
+        let playbackFile = OfflineDisk.playbackFile(ownerKey, unit.mediaItemId, unit.fileId)
+        let subsDir = unitDir.appending(path: "subs", directoryHint: .isDirectory)
+        let fontsDir = unitDir.appending(path: "fonts", directoryHint: .isDirectory)
+
+        let state: (spec: OfflinePlaybackSpec, subFiles: Set<String>, fontFiles: Set<String>)? = try await OfflineDisk.perform {
+            guard let liveUnit = OfflineDisk.read(OfflineUnit.self, from: unitFile),
+                  liveUnit.playable, liveUnit.profile == unit.profile,
+                  let spec = OfflineDisk.read(OfflinePlaybackSpec.self, from: playbackFile) else { return nil }
+            let subFiles = Set(OfflineDisk.children(subsDir).map(\.lastPathComponent))
+            let fontFiles = Set(OfflineDisk.children(fontsDir).map(\.lastPathComponent))
+            return (spec, subFiles, fontFiles)
+        }
+        guard let state else { return false }
+
+        let plan = OfflineSubtitleSync.plan(
+            existing: state.spec.subtitles,
+            manifestSubtitles: manifestSubtitles,
+            existingSubFiles: state.subFiles
+        )
+        let hasASS = plan.subtitles.contains { $0.kind == "ass" }
+        let downloadingASS = plan.downloads.contains {
+            let lower = $0.fileName.lowercased()
+            return lower.hasSuffix(".ass") || lower.hasSuffix(".ssa")
+        }
+        let shouldCheckFonts = hasASS && fontsUrl != nil && (state.spec.fonts.isEmpty || downloadingASS)
+
+        guard !plan.downloads.isEmpty || plan.subtitles != state.spec.subtitles || !plan.obsoleteFiles.isEmpty || shouldCheckFonts else {
+            return false
+        }
+
+        // 先把所有新字幕与缺失字体完整拉进内存；任一步失败都不触碰磁盘
+        var fetchedSubs: [(fileName: String, data: Data)] = []
+        fetchedSubs.reserveCapacity(plan.downloads.count)
+        for download in plan.downloads {
+            let data = try await fetch(download.url, syncTimeout)
+            fetchedSubs.append((download.fileName, data))
+        }
+
+        var fetchedFonts: [(fileName: String, data: Data)] = []
+        var syncedFontNames: [String] = []
+        if shouldCheckFonts, let fontsUrl {
+            let listData = try await fetch(fontsUrl, syncTimeout)
+            let list = try APIClient.decoder.decode(APIEnvelope<API.PlaybackFontsView>.self, from: listData).data
+            for url in list.fonts {
+                let raw = URL(string: url)?.lastPathComponent.removingPercentEncoding ?? "font"
+                let name = Self.safeName(raw)
+                if !syncedFontNames.contains(name) { syncedFontNames.append(name) }
+                if !state.fontFiles.contains(name) {
+                    let data = try await fetch(url, syncTimeout)
+                    fetchedFonts.append((name, data))
+                }
+            }
+        }
+
+        let subsToWrite = fetchedSubs
+        let fontsToWrite = fetchedFonts
+        let addedFonts = syncedFontNames
+        let finalSubtitles = plan.subtitles
+        let obsoleteFiles = plan.obsoleteFiles
+
+        return try await OfflineDisk.perform {
+            guard let liveUnit = OfflineDisk.read(OfflineUnit.self, from: unitFile),
+                  liveUnit.playable, liveUnit.profile == unit.profile,
+                  var liveSpec = OfflineDisk.read(OfflinePlaybackSpec.self, from: playbackFile) else { return false }
+
+            var writtenNewFiles: [URL] = []
+            do {
+                if !subsToWrite.isEmpty {
+                    try FileManager.default.createDirectory(at: subsDir, withIntermediateDirectories: true)
+                    for item in subsToWrite {
+                        let target = subsDir.appending(path: item.fileName)
+                        let existed = FileManager.default.fileExists(atPath: target.path)
+                        try item.data.write(to: target, options: .atomic)
+                        if !existed { writtenNewFiles.append(target) }
+                    }
+                }
+                if !fontsToWrite.isEmpty {
+                    try FileManager.default.createDirectory(at: fontsDir, withIntermediateDirectories: true)
+                    for item in fontsToWrite {
+                        let target = fontsDir.appending(path: item.fileName)
+                        let existed = FileManager.default.fileExists(atPath: target.path)
+                        try item.data.write(to: target, options: .atomic)
+                        if !existed { writtenNewFiles.append(target) }
+                    }
+                }
+
+                liveSpec.subtitles = finalSubtitles
+                if !addedFonts.isEmpty {
+                    var merged = liveSpec.fonts
+                    for name in addedFonts where !merged.contains(name) { merged.append(name) }
+                    liveSpec.fonts = merged
+                }
+                try OfflineDisk.write(liveSpec, to: playbackFile)
+            } catch {
+                for url in writtenNewFiles { OfflineDisk.remove(url) }
+                throw error
+            }
+
+            let referenced = Set(liveSpec.subtitles.map(\.fileName))
+            for obsolete in obsoleteFiles where !referenced.contains(obsolete) {
+                OfflineDisk.remove(subsDir.appending(path: obsolete))
+            }
+            return true
+        }
+    }
+}
+
+/// 已下载本机副本的在线字幕补齐调度（按账号+文件去重，同一时刻只跑一次）。
+@MainActor
+final class OfflineSubtitleSync {
+    static let shared = OfflineSubtitleSync()
+
+    nonisolated struct Plan: Sendable, Equatable {
+        nonisolated struct Download: Sendable, Equatable {
+            var fileName: String
+            var url: String
+        }
+
+        var subtitles: [OfflinePlaybackSpec.Subtitle]
+        var downloads: [Download]
+        var obsoleteFiles: [String]
+    }
+
+    nonisolated static let supportedExternalFormats: Set<String> = ["srt", "subrip", "vtt", "webvtt", "ass", "ssa"]
+
+    private var inFlight: [String: Task<Void, Never>] = [:]
+
+    private init() {}
+
+    /// 详情页服务端文件里的外挂文字字幕 `sourceRef` 集合（跳过图形字幕 `.sup`/`.sub`/`.idx`）。
+    nonisolated static func externalSubtitleRefs(in file: API.LibraryFileView) -> Set<String> {
+        Set(file.subtitleStreams.compactMap { stream -> String? in
+            guard stream.external, let name = stream.fileName, !name.isEmpty else { return nil }
+            let ext = (stream.codec ?? (name as NSString).pathExtension).lowercased()
+            guard supportedExternalFormats.contains(ext) else { return nil }
+            return "external:\(name)"
+        })
+    }
+
+    /// 详情页在线刷新后快速判断是否需要补齐外挂字幕（内封轨不参与比较，无变化时不发额外请求）。
+    nonisolated static func needsSync(localSpec: OfflinePlaybackSpec?, serverFile: API.LibraryFileView) -> Bool {
+        guard let localSpec else { return false }
+        let localExternal = Set(localSpec.subtitles.map(\.sourceRef).filter { $0.hasPrefix("external:") })
+        return localExternal != externalSubtitleRefs(in: serverFile)
+    }
+
+    /// 新增外挂字幕的稳定落盘文件名：与初始打包的 `0-chi.srt` 不冲突，同一 `trackRef` 幂等。
+    nonisolated static func syncedSubtitleFileName(trackRef: String, language: String?, format: String) -> String {
+        let digest = SHA256.hash(data: Data(trackRef.utf8))
+        let hash = digest.prefix(4).map { String(format: "%02x", $0) }.joined()
+        let lang = OfflinePackager.safeName(language ?? "und")
+        let ext = OfflinePackager.safeName(format.lowercased())
+        return "sync-\(hash)-\(lang).\(ext)"
+    }
+
+    /// 计算在线补齐计划（纯逻辑）：
+    /// - 转码档原本存盘的内封轨（`sourceRef` 以 `embedded:` 开头）原样保留，不重抽、不删除；
+    /// - 已有外挂字幕保留原 `ref` / `fileName` / `isDefault`（若盘上文件缺失则重新拉回）；
+    /// - 新增外挂字幕一律 `isDefault = false`（不改变既有默认选轨）；
+    /// - 服务端已删的外挂字幕进入 `obsoleteFiles`，等新 `playback.json` 落盘后再清理。
+    nonisolated static func plan(
+        existing: [OfflinePlaybackSpec.Subtitle],
+        manifestSubtitles: [API.OfflineSubtitleView],
+        existingSubFiles: Set<String>
+    ) -> Plan {
+        let preservedEmbedded = existing.filter { $0.sourceRef.hasPrefix("embedded:") }
+        var existingExternalByRef: [String: OfflinePlaybackSpec.Subtitle] = [:]
+        for sub in existing where !sub.sourceRef.hasPrefix("embedded:") && existingExternalByRef[sub.sourceRef] == nil {
+            existingExternalByRef[sub.sourceRef] = sub
+        }
+
+        var seenRefs: Set<String> = []
+        var nextExternal: [OfflinePlaybackSpec.Subtitle] = []
+        var downloads: [Plan.Download] = []
+
+        for sub in manifestSubtitles where !sub.embedded {
+            guard seenRefs.insert(sub.trackRef).inserted else { continue }
+            let fmt = sub.format.lowercased()
+            let kind = (fmt == "ass" || fmt == "ssa") ? "ass" : "vtt"
+            if let prev = existingExternalByRef[sub.trackRef] {
+                nextExternal.append(.init(
+                    ref: prev.ref,
+                    fileName: prev.fileName,
+                    kind: kind,
+                    language: sub.language,
+                    title: sub.title,
+                    isDefault: prev.isDefault,
+                    isForced: sub.isForced,
+                    isAi: sub.isAi,
+                    sourceRef: sub.trackRef
+                ))
+                if !existingSubFiles.contains(prev.fileName) {
+                    downloads.append(.init(fileName: prev.fileName, url: sub.url))
+                }
+            } else {
+                let fileName = syncedSubtitleFileName(trackRef: sub.trackRef, language: sub.language, format: fmt)
+                nextExternal.append(.init(
+                    ref: "external:\(fileName)",
+                    fileName: fileName,
+                    kind: kind,
+                    language: sub.language,
+                    title: sub.title,
+                    isDefault: false,
+                    isForced: sub.isForced,
+                    isAi: sub.isAi,
+                    sourceRef: sub.trackRef
+                ))
+                downloads.append(.init(fileName: fileName, url: sub.url))
+            }
+        }
+
+        let finalSubtitles = preservedEmbedded + nextExternal
+        let referenced = Set(finalSubtitles.map(\.fileName))
+        var obsoleteSeen: Set<String> = []
+        let obsoleteFiles = existing.compactMap { sub -> String? in
+            guard !sub.sourceRef.hasPrefix("embedded:"), !referenced.contains(sub.fileName),
+                  obsoleteSeen.insert(sub.fileName).inserted else { return nil }
+            return sub.fileName
+        }
+        return Plan(subtitles: finalSubtitles, downloads: downloads, obsoleteFiles: obsoleteFiles)
+    }
+
+    /// 后台触发一次字幕补齐（同账号同文件已有任务在跑时直接复用，不重复请求）。
+    func sync(unit: OfflineUnit, ownerKey: String, api: APIClient) {
+        _ = startTask(unit: unit, ownerKey: ownerKey, api: api)
+    }
+
+    /// 触发字幕补齐并最多等待 `timeout` 秒；超时只结束等待、不取消后台同步，失败静默保留原字幕。
+    func syncWaiting(unit: OfflineUnit, ownerKey: String, api: APIClient, timeout: Double = 2) async {
+        guard let task = startTask(unit: unit, ownerKey: ownerKey, api: api) else { return }
+        await withTaskGroup(of: Void.self) { group in
+            group.addTask { _ = await task.value }
+            group.addTask { try? await Task.sleep(for: .seconds(timeout)) }
+            _ = await group.next()
+            group.cancelAll()
+        }
+    }
+
+    private func startTask(unit: OfflineUnit, ownerKey: String, api: APIClient) -> Task<Void, Never>? {
+        guard unit.playable else { return nil }
+        let key = "\(ownerKey)|\(unit.fileId)"
+        if let existing = inFlight[key] { return existing }
+        let task = Task<Void, Never> {
+            defer { self.inFlight.removeValue(forKey: key) }
+            do {
+                let manifest = try await api.offlineManifest(fileId: unit.fileId)
+                try await OfflinePackager.syncSubtitles(ownerKey: ownerKey, unit: unit, manifest: manifest, api: api)
+            } catch {
+                // 失败保留本机原有字幕与 playback.json，不阻断播放或浏览
+            }
+        }
+        inFlight[key] = task
+        return task
     }
 }
 #endif
