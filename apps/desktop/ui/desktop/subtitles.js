@@ -95,6 +95,7 @@ window.DesktopSubtitles = (() => {
         const response = unwrap(await this.api.subtitleJobs(this.file.id));
         if (!this.current(revision) || request !== this.jobRequest) return;
         const jobs = (response?.items || []).filter(job => job.job_type === 'subtitle.generate' &&
+          !job.dismissed_at &&
           (Number(job.input_data?.file_id) === Number(this.file.id) || job.resources?.some(resource => resource.resource_type === 'library_file' && String(resource.resource_id) === String(this.file.id))));
         this.setJob(jobs.find(job => active.has(job.status)) || jobs[0] || null);
       } catch(error) { if (this.current(revision) && request === this.jobRequest && error.name !== 'AbortError') { this.jobError = '暂时无法读取生成任务：' + error.message; this.render(); } }

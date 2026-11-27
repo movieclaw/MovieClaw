@@ -34,6 +34,7 @@ import {
   type SubtitleSourceCandidate,
 } from "@/lib/api/subtitle-gen";
 import { cancelJob, type JobStatus, type JobView } from "@/lib/api/jobs";
+import { subtitleGenOpenMode, subtitleGenShowsTerminalIssue } from "@/lib/job-attention";
 import { usePermissions } from "@/lib/permissions";
 import { useJobs } from "@/lib/jobs";
 
@@ -489,10 +490,10 @@ export function SubtitleGenPanel({
   const sharedJobStatus = sharedJob?.status;
   const progress = subtitleProgress(sharedJob);
   const running = sharedJobStatus ? RUNNING_JOB_STATUSES.has(sharedJobStatus) : false;
-  const hasTerminalIssue =
-    sharedJobStatus === "blocked" ||
-    sharedJobStatus === "failed" ||
-    sharedJobStatus === "cancelled";
+  const generated = file.subtitle_streams.some(
+    (subtitle) => subtitle.external && isAiSubtitle(subtitle.file_name),
+  );
+  const showsTerminalIssue = subtitleGenShowsTerminalIssue(sharedJob, generated);
   const previousJobRef = useRef({ id: sharedJobId, status: sharedJobStatus });
 
   // 只在当前页面亲眼看到同一任务从活跃态变为成功时刷新字幕台账；初次挂载
@@ -572,13 +573,13 @@ export function SubtitleGenPanel({
   useEffect(() => () => cancelPreview(), [cancelPreview]);
 
   const openAction = useCallback(() => {
-    if (running || hasTerminalIssue) {
+    if (subtitleGenOpenMode(sharedJob, generated) === "status") {
       setDialogMode("status");
       setDialogOpen(true);
       return;
     }
     void loadPreview(targetLanguage, bilingual ? secondaryLanguage : null);
-  }, [bilingual, hasTerminalIssue, loadPreview, running, secondaryLanguage, targetLanguage]);
+  }, [bilingual, generated, loadPreview, secondaryLanguage, sharedJob, targetLanguage]);
 
   const onStart = useCallback(async () => {
     setStarting(true);
@@ -714,9 +715,6 @@ export function SubtitleGenPanel({
     sharedJob?.error?.message ??
     (typeof sharedJob?.result?.message === "string" ? sharedJob.result.message : null) ??
     t("library.subtitleGeneration.ended");
-  const generated = file.subtitle_streams.some(
-    (subtitle) => subtitle.external && isAiSubtitle(subtitle.file_name),
-  );
   const chosen = preview?.candidates.find(
     (candidate) => candidateKey(candidate) === preview.chosen_key,
   );
@@ -746,10 +744,7 @@ export function SubtitleGenPanel({
   } else if (running) {
     badgeClass = AI_BADGE_RUNNING;
     badgeText = runningBadgeText(progress, locale);
-  } else if (generated || jobSucceeded) {
-    // 生成成功过的文件即便带着历史失败记录，也不该再顶着红色的未完成态
-    badgeClass = AI_BADGE_IDLE;
-  } else if (hasTerminalIssue) {
+  } else if (showsTerminalIssue) {
     badgeClass = AI_BADGE_FAILED;
     badgeText = t("media.subtitles.unfinishedBadge");
   }
@@ -782,7 +777,7 @@ export function SubtitleGenPanel({
       {/* 生成前直接进确认弹窗，不用 tooltip 重复解释；只有后台任务运行时，
           固定状态按钮才承载进度 tooltip。打开状态弹窗后立即卸掉 tooltip，
           避免浮层残留在 Modal 上方。 */}
-      {running || hasTerminalIssue ? (
+      {running || showsTerminalIssue ? (
         !dialogOpen ? (
           <Tooltip content={runningTooltip} maxWidth={460}>
             {actionButton}
