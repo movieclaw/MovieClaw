@@ -192,7 +192,6 @@ export struct TvReelsPage {
     this.paused = false;
     this.frameReady = false;
     this.clipProgress = 0;
-    player.videoScaleType = media.VideoScaleType.VIDEO_SCALE_TYPE_FIT;
 
     player.on('timeUpdate', (timeMs: number): void => {
       if (gen !== this.playGen) {
@@ -217,6 +216,10 @@ export struct TvReelsPage {
         player.surfaceId = this.surfaceId;
         player.prepare();
       } else if (state === 'prepared') {
+        try {
+          player.videoScaleType = media.VideoScaleType.VIDEO_SCALE_TYPE_FIT;
+        } catch (_err) {
+        }
         if (startMs > 0) {
           player.seek(startMs, media.SeekMode.SEEK_CLOSEST);
         }
@@ -275,10 +278,6 @@ export struct TvReelsPage {
     const p: media.AVPlayer | null = this.player;
     this.player = null;
     if (p !== null) {
-      try {
-        p.stop();
-      } catch (_err) {
-      }
       p.release().catch((): void => {
       });
     }

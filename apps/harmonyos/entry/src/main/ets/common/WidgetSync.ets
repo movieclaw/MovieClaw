@@ -128,11 +128,11 @@ export class WidgetSync {
       return;
     }
     try {
-      const store: preferences.Preferences = await preferences.getPreferences(context, WIDGET_STORE_NAME);
-      const ids: string[] = await this.readFormIds(store);
-      if (!ids.includes(formId)) {
-        ids.push(formId);
-        await store.put(KEY_FORM_IDS, JSON.stringify(ids));
+      const store: preferences.Preferences = await this.openFreshStore(context);
+      const dims: Record<string, number> = await this.readFormDimensions(store);
+      if (dims[formId] !== dimension) {
+        dims[formId] = dimension;
+        await store.put(KEY_FORM_IDS, JSON.stringify(dims));
         await store.flush();
       }
       const raw: string = await store.get(KEY_PAYLOAD, '') as string;
@@ -151,13 +151,15 @@ export class WidgetSync {
       return;
     }
     try {
-      const store: preferences.Preferences = await preferences.getPreferences(context, WIDGET_STORE_NAME);
+      const store: preferences.Preferences = await this.openFreshStore(context);
       const raw: string = await store.get(KEY_PAYLOAD, '') as string;
       if (raw.length > 0) {
         this.cached = JSON.parse(raw) as WidgetSnapshot;
       }
+      const dims: Record<string, number> = await this.readFormDimensions(store);
+      const dim: number = dims[formId] !== undefined && dims[formId] > 0 ? dims[formId] : 3;
       if (this.updater !== null) {
-        this.updater([formId], snapshotToFormPayload(this.cached, 3));
+        this.updater([formId], snapshotToFormPayload(this.cached, dim));
       }
     } catch (_err) {
     }
@@ -168,17 +170,32 @@ export class WidgetSync {
       return;
     }
     try {
-      const store: preferences.Preferences = await preferences.getPreferences(context, WIDGET_STORE_NAME);
-      const ids: string[] = (await this.readFormIds(store)).filter((id: string): boolean => id !== formId);
-      await store.put(KEY_FORM_IDS, JSON.stringify(ids));
+      const store: preferences.Preferences = await this.openFreshStore(context);
+      const dims: Record<string, number> = await this.readFormDimensions(store);
+      const next: Record<string, number> = {};
+      const keys: string[] = Object.keys(dims);
+      for (const id of keys) {
+        if (id !== formId) {
+          next[id] = dims[id];
+        }
+      }
+      await store.put(KEY_FORM_IDS, JSON.stringify(next));
       await store.flush();
     } catch (_err) {
     }
   }
 
+  private async openFreshStore(context: Context): Promise<preferences.Preferences> {
+    try {
+      await preferences.removePreferencesFromCache(context, WIDGET_STORE_NAME);
+    } catch (_err) {
+    }
+    return preferences.getPreferences(context, WIDGET_STORE_NAME);
+  }
+
   private async loadCached(context: Context): Promise<void> {
     try {
-      const store: preferences.Preferences = await preferences.getPreferences(context, WIDGET_STORE_NAME);
+      const store: preferences.Preferences = await this.openFreshStore(context);
       const raw: string = await store.get(KEY_PAYLOAD, '') as string;
       if (raw.length > 0) {
         this.cached = JSON.parse(raw) as WidgetSnapshot;
@@ -189,24 +206,46 @@ export class WidgetSync {
 
   private async persistAndPush(context: Context, snap: WidgetSnapshot): Promise<void> {
     try {
-      const store: preferences.Preferences = await preferences.getPreferences(context, WIDGET_STORE_NAME);
+      const store: preferences.Preferences = await this.openFreshStore(context);
       await store.put(KEY_PAYLOAD, JSON.stringify(snap));
       await store.flush();
-      const ids: string[] = await this.readFormIds(store);
+      const dims: Record<string, number> = await this.readFormDimensions(store);
+      const ids: string[] = Object.keys(dims);
       if (ids.length > 0 && this.updater !== null) {
-        this.updater(ids, snapshotToFormPayload(snap, 3));
+        for (const id of ids) {
+          const dim: number = dims[id] > 0 ? dims[id] : 3;
+          this.updater([id], snapshotToFormPayload(snap, dim));
+        }
       }
     } catch (_err) {
     }
   }
 
-  private async readFormIds(store: preferences.Preferences): Promise<string[]> {
-    const raw: string = await store.get(KEY_FORM_IDS, '[]') as string;
+  private async readFormDimensions(store: preferences.Preferences): Promise<Record<string, number>> {
+    const raw: string = await store.get(KEY_FORM_IDS, '{}') as string;
+    const out: Record<string, number> = {};
     try {
-      const parsed: string[] = JSON.parse(raw) as string[];
-      return Array.isArray(parsed) ? parsed : [];
+      const parsed: Object = JSON.parse(raw) as Object;
+      if (Array.isArray(parsed)) {
+        const legacy: string[] = parsed as string[];
+        for (const id of legacy) {
+          if (id.length > 0) {
+            out[id] = 3;
+          }
+        }
+        return out;
+      }
+      const record: Record<string, Object> = parsed as Record<string, Object>;
+      if (record !== null && record !== undefined) {
+        const keys: string[] = Object.keys(record);
+        for (const k of keys) {
+          const v: number = Number(record[k]);
+          out[k] = Number.isFinite(v) && v > 0 ? v : 3;
+        }
+      }
+      return out;
     } catch (_err) {
-      return [];
+      return out;
     }
   }
 }

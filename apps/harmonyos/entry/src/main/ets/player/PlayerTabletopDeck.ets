@@ -14,10 +14,11 @@ export struct PlayerTabletopDeck {
   @Require @Param host: PhonePlaybackHost;
   @Param topVp: number = 0;
   @Param heightVp: number = 320;
-  @Local private ambient: AmbientColorStore = AmbientColorStore.shared();
+  @Local private ambient: AmbientColorStore = AmbientColorStore.shared;
 
   private haloColor(): string {
-    return this.ambient.haloOf(this.host.posterUrl);
+    const rev: number = this.ambient.revision;
+    return rev >= 0 ? this.ambient.orFallback(this.host.posterUrl).halo(0.38) : 'rgba(38, 54, 86, 0.38)';
   }
 
   private cycleDisplayMode(): void {

@@ -66,7 +66,7 @@ export class HarmonyShareBridge {
         title: title,
         description: description
       });
-      const controller: systemShare.SharedController = new systemShare.SharedController(data);
+      const controller: systemShare.ShareController = new systemShare.ShareController(data);
       await controller.show(context, {
         selectionMode: systemShare.SelectionMode.SINGLE,
         previewMode: systemShare.SharePreviewMode.DETAIL

@@ -1,5 +1,21 @@
 const widgetStorage: LocalStorage = new LocalStorage();
 
+interface ContinueCardParams {
+  mcContinueKind: string;
+  mcLibraryId?: number;
+  mcMediaItemId?: number;
+  mcSeason?: number;
+  mcEpisode?: number;
+  mcPositionMs?: number;
+  mcTitle?: string;
+}
+
+interface CardRouterAction {
+  action: string;
+  abilityName: string;
+  params: ContinueCardParams;
+}
+
 /**
  * 鸿蒙桌面万能卡片 UI（2×2 紧凑态 + 2×4 宽幅影院态）：
  * 遵循鸿蒙 ArkTS 卡片规范（@Entry + @Component V1 + LocalStorageProp），
@@ -21,29 +37,33 @@ struct ContinueWatchingCard {
   @LocalStorageProp('positionMs') positionMs: number = 0;
 
   private launchContinue(): void {
-    postCardAction(this, {
+    const params: ContinueCardParams = {
+      mcContinueKind: this.hasItem && this.mediaItemId > 0 ? 'play' : 'continue_latest',
+      mcLibraryId: this.libraryId,
+      mcMediaItemId: this.mediaItemId,
+      mcSeason: this.season,
+      mcEpisode: this.episode,
+      mcPositionMs: this.positionMs,
+      mcTitle: this.title
+    };
+    const payload: CardRouterAction = {
       action: 'router',
       abilityName: 'EntryAbility',
-      params: {
-        mcContinueKind: this.hasItem && this.mediaItemId > 0 ? 'play' : 'continue_latest',
-        mcLibraryId: this.libraryId,
-        mcMediaItemId: this.mediaItemId,
-        mcSeason: this.season,
-        mcEpisode: this.episode,
-        mcPositionMs: this.positionMs,
-        mcTitle: this.title
-      }
-    });
+      params: params
+    };
+    postCardAction(this, payload);
   }
 
   private launchSearch(): void {
-    postCardAction(this, {
+    const params: ContinueCardParams = {
+      mcContinueKind: 'search'
+    };
+    const payload: CardRouterAction = {
       action: 'router',
       abilityName: 'EntryAbility',
-      params: {
-        mcContinueKind: 'search'
-      }
-    });
+      params: params
+    };
+    postCardAction(this, payload);
   }
 
   private clampedPct(): number {

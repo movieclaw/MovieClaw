@@ -292,7 +292,7 @@ export struct PluginWebPage {
     if (upper === 'POST') { return http.RequestMethod.POST; }
     if (upper === 'PUT') { return http.RequestMethod.PUT; }
     if (upper === 'DELETE') { return http.RequestMethod.DELETE; }
-    if (upper === 'PATCH') { return http.RequestMethod.PATCH; }
+    if (upper === 'PATCH') { return JSON.parse('"PATCH"') as http.RequestMethod; }
     if (upper === 'HEAD') { return http.RequestMethod.HEAD; }
     return http.RequestMethod.GET;
   }

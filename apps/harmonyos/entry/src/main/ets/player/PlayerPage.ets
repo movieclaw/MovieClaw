@@ -7,7 +7,7 @@ import { RemoteImage } from '../common/RemoteImage';
 
 import { FoldState } from '../common/FoldState';
 import { Haptics } from '../common/Haptics';
-import { HarmonyShareBridge } from '../common/HarmonyShareBridge';
+import { HarmonyShareBridge, KnockSharePayload } from '../common/HarmonyShareBridge';
 
 import { PlaybackSessionView, AudioTrackView, SubtitlePlanView, PlaybackSegmentView, PlaybackChapterMarkView, EpisodeView } from '../api/Models';
 
@@ -387,18 +387,24 @@ export struct PlayerPage {
     .onShown((): void => {
       this.host.detached = false;
       this.host.claimPlayback();
-      if (this.host.mediaItemId > 0 && this.host.shareSlug.length === 0) {
-        const deepUri: string = `movieclaw://play?mediaItemId=${this.host.mediaItemId}`
-          + `&season=${this.host.seasonNumber}&episode=${this.host.episodeNumber}&positionMs=${this.host.positionMs}`;
-        HarmonyShareBridge.shared().armKnockShare(
+      HarmonyShareBridge.armKnockShare((): KnockSharePayload | null => {
+        if (this.host.mediaItemId <= 0 || this.host.shareSlug.length > 0) {
+          return null;
+        }
+        const deepUri: string = `movieclaw://play/${this.host.mediaItemId}`
+          + `?file=${this.host.fileId}&season=${this.host.seasonNumber}&episode=${this.host.episodeNumber}`
+          + `&pos=${Math.max(0, Math.floor(this.host.positionMs))}`;
+        return new KnockSharePayload(
           this.host.title.length > 0 ? this.host.title : '正在观看影片',
-          this.host.episodeNumber > 0 ? `第 ${this.host.seasonNumber} 季 · 第 ${this.host.episodeNumber} 集 · 鸿蒙一碰接续播放` : '鸿蒙碰一碰跨端接续观影',
+          this.host.episodeNumber > 0
+            ? `第 ${this.host.seasonNumber} 季 · 第 ${this.host.episodeNumber} 集 · 鸿蒙一碰接续播放`
+            : '鸿蒙碰一碰跨端接续观影',
           deepUri
         );
-      }
+      });
     })
     .onWillDisappear((): void => {
-      HarmonyShareBridge.shared().disarmKnockShare();
+      HarmonyShareBridge.disarmKnockShare();
       // 退出前把片段进度写回（得赶在底下的刷片页重新显示之前）
       this.host.publishClipReturn();
     })

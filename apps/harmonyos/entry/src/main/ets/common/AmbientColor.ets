@@ -87,9 +87,9 @@ export class AmbientColorStore {
           return;
         }
         if (this.palettes.size >= AmbientColorStore.MAX_ENTRIES) {
-          const oldest: IteratorResult<string> = this.palettes.keys().next();
-          if (!oldest.done) {
-            this.palettes.delete(oldest.value);
+          for (const oldestKey of this.palettes.keys()) {
+            this.palettes.delete(oldestKey);
+            break;
           }
         }
         this.palettes.set(url, palette);
@@ -108,11 +108,16 @@ export class AmbientColorStore {
       if (width <= 0 || height <= 0) {
         return null;
       }
+      if (info.pixelFormat !== image.PixelMapFormat.RGBA_8888
+        && info.pixelFormat !== image.PixelMapFormat.BGRA_8888) {
+        return null;
+      }
       const byteLen: number = pixelMap.getPixelBytesNumber();
       if (byteLen <= 0 || byteLen > 64 * 1024 * 1024) {
         return null;
       }
-      const bytesPerPixel: number = Math.max(4, Math.floor(byteLen / (width * height)));
+      const bytesPerPixel: number = 4;
+      const rowStride: number = Math.max(width * bytesPerPixel, pixelMap.getBytesNumberPerRow());
       const buf: ArrayBuffer = new ArrayBuffer(byteLen);
       await pixelMap.readPixelsToBuffer(buf);
       const data: Uint8Array = new Uint8Array(buf);
@@ -138,7 +143,7 @@ export class AmbientColorStore {
       let edgeCount: number = 0;
 
       for (let y: number = 0; y < height; y += stepY) {
-        const rowOffset: number = y * width * bytesPerPixel;
+        const rowOffset: number = y * rowStride;
         for (let x: number = 0; x < width; x += stepX) {
           const idx: number = rowOffset + x * bytesPerPixel;
           if (idx + 3 >= data.length) {

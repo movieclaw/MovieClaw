@@ -165,12 +165,26 @@ export function encodeContinueParams(target: ContinuationTarget, out: Record<str
   out['ohos.extra.param.key.supportContinuePageStack'] = false;
 }
 
-/** 从分布式接续或卡片拉起的 parameters 里解码目标 */
+/** 从分布式接续或卡片拉起的 parameters 里解码目标（兼容 FormKit 序列化在 parameters['params'] 中的 JSON 串） */
 export function decodeContinueParams(params: Record<string, Object> | undefined): ContinuationTarget | null {
   if (params === undefined) {
     return null;
   }
-  const rawKind: Object | undefined = params['mcContinueKind'];
+  let source: Record<string, Object> = params;
+  if (source['mcContinueKind'] === undefined || source['mcContinueKind'] === null) {
+    const nested: Object | undefined = source['params'];
+    if (typeof nested === 'string' && nested.length > 0) {
+      try {
+        const parsed: Record<string, Object> = JSON.parse(nested) as Record<string, Object>;
+        if (parsed !== null && parsed !== undefined) {
+          source = parsed;
+        }
+      } catch (_err) {
+        return null;
+      }
+    }
+  }
+  const rawKind: Object | undefined = source['mcContinueKind'];
   if (rawKind === undefined || rawKind === null) {
     return null;
   }
@@ -178,16 +192,16 @@ export function decodeContinueParams(params: Record<string, Object> | undefined)
   if (kind.length === 0) {
     return null;
   }
-  const origin: string = params['mcOrigin'] !== undefined && params['mcOrigin'] !== null ? `${params['mcOrigin']}` : '';
-  const libraryId: number = intOrZero(params['mcLibraryId'] !== undefined ? `${params['mcLibraryId']}` : '');
-  const mediaItemId: number = intOrZero(params['mcMediaItemId'] !== undefined ? `${params['mcMediaItemId']}` : '');
-  const fileId: number = intOrZero(params['mcFileId'] !== undefined ? `${params['mcFileId']}` : '');
-  const season: number = intOrZero(params['mcSeason'] !== undefined ? `${params['mcSeason']}` : '');
-  const episode: number = intOrZero(params['mcEpisode'] !== undefined ? `${params['mcEpisode']}` : '');
-  const positionMs: number = intOrZero(params['mcPositionMs'] !== undefined ? `${params['mcPositionMs']}` : '');
-  const subId: number = intOrZero(params['mcSubscriptionId'] !== undefined ? `${params['mcSubscriptionId']}` : '');
-  const query: string = params['mcQuery'] !== undefined && params['mcQuery'] !== null ? `${params['mcQuery']}` : '';
-  const title: string = params['mcTitle'] !== undefined && params['mcTitle'] !== null ? `${params['mcTitle']}` : '';
+  const origin: string = source['mcOrigin'] !== undefined && source['mcOrigin'] !== null ? `${source['mcOrigin']}` : '';
+  const libraryId: number = intOrZero(source['mcLibraryId'] !== undefined ? `${source['mcLibraryId']}` : '');
+  const mediaItemId: number = intOrZero(source['mcMediaItemId'] !== undefined ? `${source['mcMediaItemId']}` : '');
+  const fileId: number = intOrZero(source['mcFileId'] !== undefined ? `${source['mcFileId']}` : '');
+  const season: number = intOrZero(source['mcSeason'] !== undefined ? `${source['mcSeason']}` : '');
+  const episode: number = intOrZero(source['mcEpisode'] !== undefined ? `${source['mcEpisode']}` : '');
+  const positionMs: number = intOrZero(source['mcPositionMs'] !== undefined ? `${source['mcPositionMs']}` : '');
+  const subId: number = intOrZero(source['mcSubscriptionId'] !== undefined ? `${source['mcSubscriptionId']}` : '');
+  const query: string = source['mcQuery'] !== undefined && source['mcQuery'] !== null ? `${source['mcQuery']}` : '';
+  const title: string = source['mcTitle'] !== undefined && source['mcTitle'] !== null ? `${source['mcTitle']}` : '';
   return new ContinuationTarget(kind, origin, libraryId, mediaItemId, fileId, season, episode,
     positionMs, subId, query, title);
 }

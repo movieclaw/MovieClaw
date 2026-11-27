@@ -2310,7 +2310,7 @@ export struct TvPlayerPage {
         ForEach(this.eng().chapters(), (ch: PlaybackChapterMarkView, idx: number) => {
           ListItem() {
             TvPanelOption({
-              label: ch.title.length > 0 ? ch.title : `章节 ${idx + 1}`,
+              label: Chapters.label(ch, `章节 ${idx + 1}`),
               detail: Formatters.clock(ch.start_ms / 1000),
               active: Chapters.activeIndex(this.eng().chapters(), this.eng().positionMs) === idx,
               onPick: (): void => {

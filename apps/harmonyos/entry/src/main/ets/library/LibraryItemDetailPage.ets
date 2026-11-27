@@ -2149,7 +2149,8 @@ export struct LibraryItemDetailPage {
       if (!this.localOnly) {
         StarRatingBar({
           rating: this.userRating,
-          onRate: (next: number): void => {
+          busy: this.marking,
+          onChange: (next: number): void => {
             this.setUserRating(next);
           }
         })
@@ -2301,10 +2302,12 @@ export struct LibraryItemDetailPage {
   }
 
   @Builder
-  ExternalPlayerSheetContent(detail: LibraryItemDetailView) {
+  ExternalPlayerSheetContent(_detail: LibraryItemDetailView) {
     ExternalPlayerSheet({
+      mediaItemId: this.mediaItemId,
+      seasonNumber: this.playUnitSeasonNumber(),
+      episodeNumber: this.playUnitEpisodeNumber(),
       fileId: this.resolvedSelectedFileId(),
-      title: detail.title,
       onClose: (): void => {
         this.showExternalPlayer = false;
       }

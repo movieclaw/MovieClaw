@@ -44,6 +44,9 @@ class PluginWebSchemeConfig implements webview.WebCustomScheme {
 }
 
 export default class EntryAbility extends UIAbility {
+  /** 主窗口内容是否已加载完成（供 XiaoyiIntentExecutor 判断热启动，避免覆盖现有页面栈） */
+  static contentLoaded: boolean = false;
+
   onCreate(want: Want, launchParam: AbilityConstant.LaunchParam): void {
     try {
       webview.WebviewController.customizeSchemes([new PluginWebSchemeConfig()]);
@@ -99,6 +102,9 @@ export default class EntryAbility extends UIAbility {
     this.captureShareLink(want);
     this.captureNotifyTap(want);
     ContinuationBridge.shared().captureFromWant(want);
+    if (launchParam.launchReason === AbilityConstant.LaunchReason.CONTINUATION) {
+      this.context.restoreWindowStage(new LocalStorage());
+    }
     PlaybackTestProbe.handle(want);
     hilog.info(DOMAIN, 'MovieClaw', '%{public}s', 'Ability onCreate');
   }
@@ -108,6 +114,9 @@ export default class EntryAbility extends UIAbility {
     this.captureShareLink(want);
     this.captureNotifyTap(want);
     ContinuationBridge.shared().captureFromWant(want);
+    if (launchParam.launchReason === AbilityConstant.LaunchReason.CONTINUATION) {
+      this.context.restoreWindowStage(new LocalStorage());
+    }
     PlaybackTestProbe.handle(want);
   }
 
@@ -172,7 +181,16 @@ export default class EntryAbility extends UIAbility {
   onWindowStageCreate(windowStage: window.WindowStage): void {
     // Main window is created, set main page for this ability
     hilog.info(DOMAIN, 'testTag', '%{public}s', 'Ability onWindowStageCreate');
+    this.loadMainStage(windowStage);
+  }
 
+  /** 分布式流转接收端回调：与 onWindowStageCreate 走同一套页面挂载与沉浸式初始化 */
+  onWindowStageRestore(windowStage: window.WindowStage): void {
+    hilog.info(DOMAIN, 'MovieClaw', '%{public}s', 'Ability onWindowStageRestore');
+    this.loadMainStage(windowStage);
+  }
+
+  private loadMainStage(windowStage: window.WindowStage): void {
     // 车机（car）走独立的 1260×600 vp 宽屏界面；手机/平板/PC 维持原入口。
     const isCar: boolean = deviceInfo.deviceType === 'car';
     // 智慧屏（TV）走独立的 Apple TV 风格界面；手机/平板/PC 维持原入口。
@@ -184,6 +202,7 @@ export default class EntryAbility extends UIAbility {
         hilog.error(DOMAIN, 'MovieClaw', 'Failed to load the content. Cause: %{public}s', JSON.stringify(err));
         return;
       }
+      EntryAbility.contentLoaded = true;
       hilog.info(DOMAIN, 'MovieClaw', '%{public}s', 'Succeeded in loading the content.');
       if (isCar || isTv) {
         // 车机 / TV 无状态栏/手势条避让问题，只统一窗口底色为深色
@@ -324,6 +343,7 @@ export default class EntryAbility extends UIAbility {
   }
 
   onWindowStageDestroy(): void {
+    EntryAbility.contentLoaded = false;
     // Main window is destroyed, release UI related resources
     hilog.info(DOMAIN, 'testTag', '%{public}s', 'Ability onWindowStageDestroy');
   }

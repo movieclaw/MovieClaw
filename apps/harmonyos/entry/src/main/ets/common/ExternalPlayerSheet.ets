@@ -79,8 +79,8 @@ export struct ExternalPlayerSheet {
       uri: view.stream_url,
       type: 'video/*',
       parameters: {
-        title: view.title,
-        position: view.start_ms
+        'title': view.title,
+        'position': view.start_ms
       }
     };
     ctx.startAbility(want).then((): void => {

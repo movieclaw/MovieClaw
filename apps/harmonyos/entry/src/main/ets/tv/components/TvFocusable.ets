@@ -127,7 +127,7 @@ export struct TvFocusable {
       if (this.focusScale <= 0 || this.boxW <= 24 || this.boxH <= 24) {
         return;
       }
-      if (event.action === MouseAction.Move || event.action === MouseAction.Hover) {
+      if (event.action === MouseAction.Move) {
         const nx: number = Math.max(-0.5, Math.min(0.5, event.x / this.boxW - 0.5));
         const ny: number = Math.max(-0.5, Math.min(0.5, event.y / this.boxH - 0.5));
         this.tiltX = -ny * 10;

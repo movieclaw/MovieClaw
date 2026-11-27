@@ -19,6 +19,34 @@ import { TvCarPlaybackSession } from '../main/ets/playback/TvCarPlaybackSession'
 import { MovieClawApi } from '../main/ets/api/Endpoints';
 import { PlaybackChapterMarkView, PlaybackProgressRequest, PlaybackSessionView, UpNextItemView } from '../main/ets/api/Models';
 
+class FakeProgressResult {
+  ended_by_admin: boolean = false;
+}
+
+class FakePingResult {
+  failed: boolean = false;
+}
+
+class FakeTvApi {
+  capturedClient: string = '';
+  capturedDevice: string = '';
+  stoppedId: string = '';
+
+  async playbackProgress(body: PlaybackProgressRequest): Promise<FakeProgressResult> {
+    this.capturedClient = body.client ?? '';
+    this.capturedDevice = body.device_id ?? '';
+    return new FakeProgressResult();
+  }
+
+  async playbackSessionPing(_id: string): Promise<FakePingResult> {
+    return new FakePingResult();
+  }
+
+  async playbackSessionStop(id: string): Promise<void> {
+    this.stoppedId = id;
+  }
+}
+
 export default function harmonyUpgradesTest(): void {
   describe('HarmonyUpgradesTest', () => {
     it('formats_user_stars_from_10_point_scale', 0, () => {
@@ -150,23 +178,33 @@ export default function harmonyUpgradesTest(): void {
       expect(t5.query).assertEqual('诺兰');
     });
 
+    it('decodes_formkit_serialized_params_json_string', 0, () => {
+      const inner: Record<string, Object> = {
+        'mcContinueKind': 'play',
+        'mcLibraryId': 7,
+        'mcMediaItemId': 321,
+        'mcSeason': 2,
+        'mcEpisode': 5,
+        'mcPositionMs': 91000,
+        'mcTitle': '三体'
+      };
+      const formWantParams: Record<string, Object> = {
+        'params': JSON.stringify(inner)
+      };
+      const decoded = decodeContinueParams(formWantParams);
+      expect(decoded !== null).assertTrue();
+      expect(decoded?.kind).assertEqual('play');
+      expect(decoded?.libraryId).assertEqual(7);
+      expect(decoded?.mediaItemId).assertEqual(321);
+      expect(decoded?.season).assertEqual(2);
+      expect(decoded?.episode).assertEqual(5);
+      expect(decoded?.positionMs).assertEqual(91000);
+      expect(decoded?.title).assertEqual('三体');
+    });
+
     it('reports_tv_playback_session_with_harmony_tv_client_and_device_id', 0, async () => {
-      let capturedClient: string = '';
-      let capturedDevice: string = '';
-      let stoppedId: string = '';
-      const fakeApi = {
-        playbackProgress: async (body: PlaybackProgressRequest) => {
-          capturedClient = body.client ?? '';
-          capturedDevice = body.device_id ?? '';
-          return { ended_by_admin: false };
-        },
-        playbackSessionPing: async (_id: string) => {
-          return { failed: false };
-        },
-        playbackSessionStop: async (id: string) => {
-          stoppedId = id;
-        }
-      } as Object as MovieClawApi;
+      const fake = new FakeTvApi();
+      const fakeApi: MovieClawApi = fake as Object as MovieClawApi;
 
       const view: PlaybackSessionView = {
         decision: { outcome: 'plan', tier: 0, file_id: 55, audio_tracks: [], subtitles: [], reason: 'direct' },
@@ -187,11 +225,11 @@ export default function harmonyUpgradesTest(): void {
         subtitleTrack: 's0'
       });
       expect(ended).assertFalse();
-      expect(capturedClient).assertEqual('harmony_tv');
-      expect(capturedDevice).assertEqual('livingroom-tv');
+      expect(fake.capturedClient).assertEqual('harmony_tv');
+      expect(fake.capturedDevice).assertEqual('livingroom-tv');
       expect(await port.ping()).assertEqual('ok');
       await port.close();
-      expect(stoppedId).assertEqual('sess-tv-99');
+      expect(fake.stoppedId).assertEqual('sess-tv-99');
     });
   });
 }

@@ -303,7 +303,7 @@ export struct LibraryPosterCell {
           .border({ width: 1, color: Theme.line, radius: Theme.posterRadius })
           .saturate(this.dead ? 0 : 1)
           .opacity(this.dead ? 0.5 : this.artworkOpacity)
-          .geometryTransition(this.geometryId.length > 0 ? this.geometryId : undefined)
+          .geometryTransition(this.geometryId)
 
         Row({ space: 4 }) {
           if (this.played) {

@@ -52,25 +52,12 @@ export struct PlayerDiagnosticsPage {
   }
 
   @Builder
-  Card(title: string, content: () => void) {
+  VividCard() {
     Column({ space: 7 }) {
-      Text(title)
+      Text('高动态光影与全景声管线')
         .fontSize(13)
         .fontWeight(FontWeight.Medium)
         .fontColor(Theme.textMuted)
-      content()
-    }
-    .width('100%')
-    .alignItems(HorizontalAlign.Start)
-    .padding(16)
-    .backgroundColor(Theme.surface)
-    .borderRadius(Theme.cardRadius)
-    .border({ width: 1, color: Theme.line })
-  }
-
-  @Builder
-  VividCard() {
-    this.Card('高动态光影与全景声管线', (): void => {
       Text(this.host.isHdrActive()
         ? 'HDR 高亮动态余量（1000 nits XComponent Headroom）：已激活'
         : '动态范围：SDR 标准动态范围（字幕舒适亮度）')
@@ -88,12 +75,22 @@ export struct PlayerDiagnosticsPage {
         .fontSize(12)
         .fontColor(Theme.textMuted)
         .width('100%')
-    })
+    }
+    .width('100%')
+    .alignItems(HorizontalAlign.Start)
+    .padding(16)
+    .backgroundColor(Theme.surface)
+    .borderRadius(Theme.cardRadius)
+    .border({ width: 1, color: Theme.line })
   }
 
   @Builder
   DeviceCard() {
-    this.Card('设备状况', (): void => {
+    Column({ space: 7 }) {
+      Text('设备状况')
+        .fontSize(13)
+        .fontWeight(FontWeight.Medium)
+        .fontColor(Theme.textMuted)
       if (this.deviceLines.length === 0) {
         Text('正在读取设备信息…')
           .fontSize(13)
@@ -107,12 +104,22 @@ export struct PlayerDiagnosticsPage {
           .fontColor(Theme.text)
           .width('100%')
       }, (line: string): string => line)
-    })
+    }
+    .width('100%')
+    .alignItems(HorizontalAlign.Start)
+    .padding(16)
+    .backgroundColor(Theme.surface)
+    .borderRadius(Theme.cardRadius)
+    .border({ width: 1, color: Theme.line })
   }
 
   @Builder
   BenchCard() {
-    this.Card('网络测速', (): void => {
+    Column({ space: 7 }) {
+      Text('网络测速')
+        .fontSize(13)
+        .fontWeight(FontWeight.Medium)
+        .fontColor(Theme.textMuted)
       Text(this.host.session?.stream_url
         ? '对当前服务器的播放流测一次往返延迟和下载吞吐（约 4 秒）'
         : '本机副本播放不经过服务器，无需测速')
@@ -141,6 +148,12 @@ export struct PlayerDiagnosticsPage {
             .width('100%')
         }, (line: string): string => line)
       }
-    })
+    }
+    .width('100%')
+    .alignItems(HorizontalAlign.Start)
+    .padding(16)
+    .backgroundColor(Theme.surface)
+    .borderRadius(Theme.cardRadius)
+    .border({ width: 1, color: Theme.line })
   }
 }

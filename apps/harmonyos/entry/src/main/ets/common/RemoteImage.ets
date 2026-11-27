@@ -134,9 +134,9 @@ export class RemoteImageCache {
     if (this.cache.has(key)) {
       this.cache.delete(key);
     } else if (this.cache.size >= RemoteImageCache.MAX_ENTRIES) {
-      const oldest: IteratorResult<string> = this.cache.keys().next();
-      if (!oldest.done) {
-        this.cache.delete(oldest.value);
+      for (const oldestKey of this.cache.keys()) {
+        this.cache.delete(oldestKey);
+        break;
       }
     }
     this.cache.set(key, pixelMap);

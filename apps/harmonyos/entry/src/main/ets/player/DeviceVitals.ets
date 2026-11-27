@@ -49,8 +49,8 @@ export class DeviceVitals {
     s.osVersion = deviceInfo.osFullName;
     s.apiLevel = deviceInfo.sdkApiVersion;
     try {
-      s.heapUsedMb = hidebug.getNativeHeapAllocatedSize() / 1048576;
-      s.heapTotalMb = hidebug.getNativeHeapSize() / 1048576;
+      s.heapUsedMb = Number(hidebug.getNativeHeapAllocatedSize()) / 1048576;
+      s.heapTotalMb = Number(hidebug.getNativeHeapSize()) / 1048576;
     } catch (_err) {
       s.heapUsedMb = 0;
       s.heapTotalMb = 0;
@@ -63,7 +63,7 @@ export class DeviceVitals {
         bearers.includes(connection.NetBearType.BEARER_WIFI),
         bearers.includes(connection.NetBearType.BEARER_ETHERNET),
         bearers.includes(connection.NetBearType.BEARER_CELLULAR));
-      s.netDownKbps = caps.linkDownstreamBandwidthKbps;
+      s.netDownKbps = caps.linkDownBandwidthKbps ?? 0;
     } catch (_error) {
       s.netType = '无网络';
     }

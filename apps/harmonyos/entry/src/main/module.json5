@@ -85,7 +85,7 @@
         "label": "$string:EntryFormAbility_label",
         "description": "$string:EntryFormAbility_desc",
         "type": "form",
-        "exported": true,
+        "exported": false,
         "metadata": [
           {
             "name": "ohos.extension.form",

@@ -19,7 +19,7 @@ import {
   SessionTranscriptView
 } from '../api/Models';
 import { JsonValue } from '../api/JsonValue';
-import { LibraryRouteParams } from '../library/LibraryDetailPage';
+import { LibraryRouteParams } from '../library/LibraryRouteParams';
 import { ItemRouteParams } from '../library/LibraryItemDetailPage';
 import { DiscoverDetailParams } from '../discover/DiscoverDetailPage';
 import { SubscriptionParams } from '../subscriptions/SubscriptionDetailPage';
@@ -247,7 +247,7 @@ export struct ChatPage {
 
   /** 监听输入法高度：弹出把输入区顶上去，收起还原（同 iOS 贴键盘） */
   private observeKeyboard(): void {
-    const context: common.UIAbilityContext = getContext(this) as common.UIAbilityContext;
+    const context: common.UIAbilityContext = this.getUIContext().getHostContext() as common.UIAbilityContext;
     window.getLastWindow(context).then((win: window.Window): void => {
       // 组件可能已在 Promise 落定前销毁：不再注册（否则监听无人解绑，还会回调已销毁组件）
       if (this.disposed) {
@@ -1476,7 +1476,7 @@ export struct ChatPage {
   /** 三种来源共用：选 → 压缩 → 上传 → 进托盘（逐张，失败只提示不打断其它） */
   private async addImages(source: string): Promise<void> {
     this.uploadError = '';
-    const context: common.UIAbilityContext = getContext(this) as common.UIAbilityContext;
+    const context: common.UIAbilityContext = this.getUIContext().getHostContext() as common.UIAbilityContext;
     const client = AppModel.shared.client;
     if (client === null) {
       return;

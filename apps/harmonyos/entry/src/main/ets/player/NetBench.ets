@@ -80,6 +80,7 @@ export class NetBench {
     }
     const client = http.createHttp();
     let totalBytes: number = 0;
+    let streamFailed: boolean = false;
     try {
       const header: Record<string, string> = { 'Range': 'bytes=0-' };
       if (token.length > 0) {
@@ -88,19 +89,21 @@ export class NetBench {
       client.on('dataReceiveProgress', (data: http.DataReceiveProgressInfo) => {
         totalBytes = data.receiveSize;
       });
-      await client.requestInStream(url, {
+      const started: number = Date.now();
+      const streamDone: Promise<void> = client.requestInStream(url, {
         method: http.RequestMethod.GET,
         header: header,
         connectTimeout: 5000,
         readTimeout: windowMs + 2000
+      }).then((): void => {
+      }).catch((): void => {
+        streamFailed = true;
       });
-      const from: number = totalBytes;
-      const started: number = Date.now();
-      await NetBench.sleep(windowMs);
-      result.bytes = Math.max(0, totalBytes - from);
+      await Promise.race([NetBench.sleep(windowMs), streamDone]);
+      result.bytes = Math.max(0, totalBytes);
       result.seconds = Math.max(0.1, (Date.now() - started) / 1000);
       if (result.bytes <= 0) {
-        result.error = '服务器没有返回数据，测不出吞吐';
+        result.error = streamFailed ? '下载测速失败（网络或服务器不可达）' : '服务器没有返回数据，测不出吞吐';
       }
     } catch (_error) {
       result.error = '下载测速失败（网络或服务器不可达）';
