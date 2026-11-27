@@ -10,6 +10,8 @@ import { PlaybackSessionView, AudioTrackView, SubtitlePlanView, PlaybackSegmentV
 
 import { PlayerParams } from '../player/PlayerParams';
 
+import { PerfTelemetry } from '../common/PerfTelemetry';
+
 import { PhonePlaybackHost, PlayerPhase, QualityOption } from '../playback/PhonePlaybackHost';
 
 interface PlayerMenuRowOptions {
@@ -42,8 +44,23 @@ export struct PlayerPage {
   private episodeScroller: Scroller = new Scroller();
   /** 选集列表刚打开，等当前集行首帧布局完成后滚过去（只滚一次，之后不打扰手动滚动） */
   private episodeScrollPending: boolean = false;
-  aboutToAppear(): void { this.host.bindUI(this.getUIContext()); this.host.aboutToAppear(); }
+  /** 起播打点只报一次：host.playing 首次变 true 时结束 playback_open 计时 */
+  private reportedPlaybackOpen: boolean = false;
+  aboutToAppear(): void {
+    PerfTelemetry.begin('playback_open');
+    this.host.bindUI(this.getUIContext());
+    this.host.aboutToAppear();
+  }
   aboutToDisappear(): void { this.host.aboutToDisappear(); }
+
+  /** 首次进入播放态 = 起播耗时终点（只报一次；暂停/续播不重复计） */
+  @Monitor('host.playing')
+  onHostPlayingChange(): void {
+    if (this.host.playing && !this.reportedPlaybackOpen) {
+      this.reportedPlaybackOpen = true;
+      PerfTelemetry.end('playback_open');
+    }
+  }
 
   // ---- 选集舞台（iOS EpisodeStageLayout：画面让位，面板不盖画面） ----
 

@@ -16,6 +16,7 @@ import { ServerAddress } from './ServerAddress';
 import { ServerRoutes } from './ServerRoutes';
 import { SavedServer, SavedServers } from './SavedServers';
 import { TokenVault } from './TokenVault';
+import { PerfTelemetry } from './PerfTelemetry';
 
 /** 偏好存储键。集中定义避免散落的字符串拼错。 */
 class SessionKeys {
@@ -243,9 +244,13 @@ export class AppModel {
       return;
     }
     if (await this.tryRestoreSnapshot()) {
+      // 会话就绪打点：快照恢复路径（PerfTelemetry 只在冷启动首次生效）
+      PerfTelemetry.end('session_ready', 'snapshot');
       return;
     }
     await this.reconnect();
+    // 会话就绪打点：重连路径（快照缺失/失效时走全量同步）
+    PerfTelemetry.end('session_ready', 'reconnect');
   }
 
   /**

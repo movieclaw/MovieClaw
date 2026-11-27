@@ -18,16 +18,21 @@ import { MpvTrust } from '../playback/MpvTrust';
 import { OfflineDisk } from '../offline/OfflineDisk';
 import { OfflineDownloader } from '../offline/OfflineDownloader';
 import { NotifyPrefs } from '../notify/NotifyPrefs';
+import { ImageDiskCache } from '../common/ImageDiskCache';
 import { NotifyCenter } from '../notify/NotifyCenter';
 import { NotifyRouter } from '../notify/NotifyRouter';
 import { AgentAIConsent } from '../agent/AgentAIConsent';
 import { DevConfig } from '../common/DevConfig';
+import { PerfTelemetry } from '../common/PerfTelemetry';
 import { Theme } from '../theme/AppTheme';
 
 const DOMAIN = 0x0000;
 
 export default class EntryAbility extends UIAbility {
   onCreate(want: Want, launchParam: AbilityConstant.LaunchParam): void {
+    // 冷启动打点（进程进 onCreate → 首页 loadContent 完成 / 会话就绪，见 PerfTelemetry）
+    PerfTelemetry.begin('cold_start');
+    PerfTelemetry.begin('session_ready');
     // App 全局深色（对应 iOS/Web 的暗色基调），不跟随系统外观
     this.context.getApplicationContext().setColorMode(ConfigurationConstant.ColorMode.COLOR_MODE_DARK);
     // 会话偏好存储尽早初始化；异步加载不阻塞首帧
@@ -56,6 +61,9 @@ export default class EntryAbility extends UIAbility {
     // 离线下载的存档根目录与下载器（长时任务申请要 UIAbilityContext）
     OfflineDisk.init(this.context);
     OfflineDownloader.shared.activate(this.context);
+    // 图片 L2 磁盘缓存（cacheDir/img_cache_v1，LRU 256MB）：冷启动/换页秒出图，
+    // 未就绪时图片管线自动降级为仅内存，不阻塞
+    ImageDiskCache.init(this.context);
     // 系统通知（M1 本机差分）：偏好先就位（点按参数、WorkExtension 进程都要读它），
     // NotifyCenter 记下包名（wantAgent 拉回本 Ability 用）；开关开着就幂等重注册后台兜底任务
     NotifyPrefs.init(this.context);
@@ -140,6 +148,8 @@ export default class EntryAbility extends UIAbility {
         hilog.error(DOMAIN, 'MovieClaw', 'Failed to load the content. Cause: %{public}s', JSON.stringify(err));
         return;
       }
+      // 首页内容装载完成 = 冷启动计时终点（car/tv/phone 同一口径，按入口页记维度）
+      PerfTelemetry.end('cold_start', entryPage);
       hilog.info(DOMAIN, 'MovieClaw', '%{public}s', 'Succeeded in loading the content.');
       if (isCar || isTv) {
         // 车机 / TV 无状态栏/手势条避让问题，只统一窗口底色为深色
