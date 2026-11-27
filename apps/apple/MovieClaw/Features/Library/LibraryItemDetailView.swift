@@ -68,6 +68,8 @@ struct LibraryItemDetailView: View {
     @State private var reachability = ServerReachability.shared
     @State private var offlineStore = OfflineStore.shared
     @State private var localOnly = false
+    /// 在线短暂失败回落到本机副本（`reachability.isOffline` 仍为 false）：恢复在线且 `fileCount` 不变时补刷分集区
+    @State private var fallbackFromTransientError = false
     /// 在线时服务器说这个条目不在了，但 iPhone 上还有副本
     @State private var goneOnServer = false
 
@@ -245,9 +247,36 @@ struct LibraryItemDetailView: View {
 
     private var playUnitKey: String { playUnit.map { "\($0.season)/\($0.episode)" } ?? "-" }
 
+    /// 当前单元对应的文件列表：电影取 `detail.files`；剧集始终从最新的 `detail.files` 按选中集的 `(season, episode)`
+    /// 实时解析（按 `episode.fileIds` 顺序优先排前，无季集匹配时再按 `fileIds` 兜底），避免 `reload()` 更新 `detail`
+    /// （本地快照秒开后在线刷新、AI 字幕生成/删除回调、下拉刷新、多版本增删/洗版但 `fileCount` 不变）时停在旧快照（issue #1336）。
+    static func resolvedTrackFiles(
+        detail: API.LibraryItemDetailView,
+        selectedEpisode: SelectedEpisode?
+    ) -> [API.LibraryFileView] {
+        guard detail.kind == "tv" else { return detail.files }
+        guard let selectedEpisode else { return [] }
+        let byEpisode = detail.files.filter {
+            $0.seasonNumber == selectedEpisode.season && $0.episodeNumber == selectedEpisode.episode.episodeNumber
+        }
+        if !byEpisode.isEmpty {
+            let order = Dictionary(
+                selectedEpisode.episode.fileIds.enumerated().map { ($0.element, $0.offset) },
+                uniquingKeysWith: { first, _ in first }
+            )
+            return byEpisode.enumerated().sorted { lhs, rhs in
+                let lhsRank = order[lhs.element.id] ?? Int.max
+                let rhsRank = order[rhs.element.id] ?? Int.max
+                return lhsRank != rhsRank ? lhsRank < rhsRank : lhs.offset < rhs.offset
+            }.map(\.element)
+        }
+        let byId = Dictionary(detail.files.map { ($0.id, $0) }, uniquingKeysWith: { _, latest in latest })
+        return selectedEpisode.episode.fileIds.compactMap { byId[$0] }
+    }
+
     private var trackFiles: [API.LibraryFileView] {
         guard let detail else { return [] }
-        return isMovie ? detail.files : (selectedEpisode?.files ?? [])
+        return Self.resolvedTrackFiles(detail: detail, selectedEpisode: selectedEpisode)
     }
 
     private var availableTrackFiles: [API.LibraryFileView] { trackFiles.filter { $0.state == "in_place" } }
@@ -296,7 +325,10 @@ struct LibraryItemDetailView: View {
                             refreshKey: episodesVersion,
                             onSeasonChange: { selectedSeason = $0 }
                         ) { selection in
-                            if selection?.files.map(\.id) != selectedEpisode?.files.map(\.id) { selectedTrackFileId = nil }
+                            if selection?.season != selectedEpisode?.season
+                                || selection?.episode.episodeNumber != selectedEpisode?.episode.episodeNumber {
+                                selectedTrackFileId = nil
+                            }
                             selectedEpisode = selection
                         }
                     }
@@ -316,7 +348,7 @@ struct LibraryItemDetailView: View {
                     if let series, !readOnly {
                         LibrarySeriesSection(series: series, libraryId: libraryId, itemId: itemId)
                     }
-                    let files = isMovie ? detail.files : (selectedEpisode?.files ?? [])
+                    let files = trackFiles
                     if !files.isEmpty {
                         fileSection(detail, files: files)
                     }
@@ -1206,6 +1238,7 @@ struct LibraryItemDetailView: View {
             failed = false
         }
         if reachability.isOffline {
+            fallbackFromTransientError = false
             if local == nil, detail == nil { failed = true }
             return
         }
@@ -1213,12 +1246,16 @@ struct LibraryItemDetailView: View {
             async let item = api.libraryItemsGet(libraryId: libraryId, mediaItemId: itemId)
             async let lib = try? api.libraryGet(libraryId: libraryId)
             let (d, l) = try await (item, lib)
+            let previousFileCount = detail?.fileCount
+            let needsEpisodeRefresh = fallbackFromTransientError && previousFileCount == d.fileCount
             detail = d
             if let l { library = l }
             failed = false
             localOnly = false
+            fallbackFromTransientError = false
             goneOnServer = false
             if !d.chaptersPending { chapterPolls = 0 }
+            if needsEpisodeRefresh { episodesVersion += 1 }
             offlineStore.refresh(detail: d)
         } catch is CancellationError {
         } catch let error as APIError where error.status == 404 {
@@ -1226,6 +1263,7 @@ struct LibraryItemDetailView: View {
                 // 服务器上没了，iPhone 上还有：显示本机副本，仍可播放、删除
                 detail = offlineStore.offlineDetail(local)
                 localOnly = true
+                fallbackFromTransientError = true
                 goneOnServer = true
                 return
             }
@@ -1236,6 +1274,7 @@ struct LibraryItemDetailView: View {
                 // 连不上服务器：停在本机数据上，只显示本机有的文件与集
                 detail = offlineStore.offlineDetail(local)
                 localOnly = true
+                fallbackFromTransientError = true
                 return
             }
             // 网络抖动：保留已显示的内容，首次加载才落兜底态
