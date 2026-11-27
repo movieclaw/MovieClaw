@@ -592,15 +592,17 @@ def test_concurrent_first_detection_shares_one_probe(monkeypatch) -> None:
     assert all(result.available for result in results)
 
 
-async def test_preview_of_ambiguous_pgs_spawns_no_probe(monkeypatch) -> None:
+async def test_preview_of_ambiguous_pgs_spawns_no_probe(tmp_path: Path, monkeypatch) -> None:
     """环境预热之后，语言待确认的 PGS 预检不再现场起任何子进程。"""
     calls = _stub_bundled_environment(monkeypatch)
     pgs._environment()  # 相当于启动预热（conftest 已把 warm_capability 换成空操作）
+    video = tmp_path / "Movie.mkv"
+    video.write_bytes(b"video")
     row = LibraryFile(
         id=42,
         library_id=1,
         media_item_id=1,
-        file_path="/media/Movie.mkv",
+        file_path=str(video),
         duration_seconds=6000,
         subtitle_streams=[{"codec": "hdmv_pgs_subtitle", "language": "chi"}],
         external_subtitles=[],
