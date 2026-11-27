@@ -121,7 +121,7 @@ export default function homeRowsTest() {
         [makeLibrary(1, 'movie'), makeLibrary(2, 'video'), makeLibrary(3, 'tv')];
       const rows: HomeRow[] = HomeRows.build([], libraries, []);
       expect(rowIds(rows).join(','))
-        .assertEqual('up-next,favorites,libraries,genres:movie,genres:tv,lib:1,lib:2,lib:3');
+        .assertEqual('up-next,favorites,rated,libraries,genres:movie,genres:tv,lib:1,lib:2,lib:3');
     });
 
     it('insertGenreRows_老偏好没存过类型行时补插在「我的媒体库」之后', 0, () => {
@@ -132,14 +132,14 @@ export default function homeRowsTest() {
       ];
       const rows: HomeRow[] = HomeRows.build(prefs, libraries, []);
       expect(rowIds(rows).join(','))
-        .assertEqual('up-next,favorites,libraries,genres:movie,genres:tv,lib:1,lib:2');
+        .assertEqual('up-next,favorites,rated,libraries,genres:movie,genres:tv,lib:1,lib:2');
     });
 
     it('dropGenreRow_该类型一个可见库都不剩时类型行跟着消失_另一类型照常补齐', 0, () => {
       const libraries: LibraryView[] = [makeLibrary(3, 'tv')];
       const prefs: HomeRowPref[] = [{ id: 'genres:movie' }];
       const rows: HomeRow[] = HomeRows.build(prefs, libraries, []);
-      expect(rowIds(rows).join(',')).assertEqual('up-next,favorites,libraries,genres:tv,lib:3');
+      expect(rowIds(rows).join(',')).assertEqual('up-next,favorites,rated,libraries,genres:tv,lib:3');
     });
 
     it('legacyKindRows_v030 隐藏的类型行丢弃_显示中的按当前可见库迁移_没库的消失', 0, () => {

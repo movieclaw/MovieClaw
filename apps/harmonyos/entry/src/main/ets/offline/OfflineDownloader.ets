@@ -7,6 +7,8 @@ import { hilog } from '@kit.PerformanceAnalysisKit';
 import { ApiClient, ApiError } from '../api/ApiClient';
 import { MovieClawApi } from '../api/Endpoints';
 import { TokenVault } from '../common/TokenVault';
+import { LiveViewBridge } from '../common/LiveViewBridge';
+import { DownloadLiveSnapshot } from '../common/LiveViewModel';
 import { OfflineDisk } from './OfflineDisk';
 import { OfflineStore } from './OfflineStore';
 import { OfflinePackager } from './OfflinePackager';
@@ -486,7 +488,8 @@ export class OfflineDownloader {
     let exportWait: string | null = null;
     let exportsAhead: number = -1;
     let received: number = 0;
-    let lastProgressAt: number = 0;
+    let lastProgressAt: number = Date.now();
+    let lastProgressBytes: number = 0;
     let file: fileIo.File | null = null;
     let baseOffset: number = canResume ? resumeFrom : 0;
 
@@ -518,10 +521,15 @@ export class OfflineDownloader {
         fileIo.writeSync(file.fd, chunk);
         received += chunk.byteLength;
         const now: number = Date.now();
-        if (now - lastProgressAt >= 1000) {
+        const dtMs: number = now - lastProgressAt;
+        if (dtMs >= 1000) {
+          const deltaBytes: number = Math.max(0, received - lastProgressBytes);
+          const speedBps: number = dtMs > 0 ? Math.round((deltaBytes * 1000) / dtMs) : 0;
           lastProgressAt = now;
+          lastProgressBytes = received;
           const expected: number | null = contentLength >= 0 ? baseOffset + contentLength : null;
           store.updateReceived(fileId, baseOffset + received, expected);
+          this.pushLiveProgress(unitNow, baseOffset + received, expected ?? unitNow.expectedBytes, speedBps, false);
         }
       });
       unit.state = OfflineUnitState.downloading;
@@ -589,6 +597,7 @@ export class OfflineDownloader {
           done.etag = etag;
         }
         store.upsert(done);
+        this.pushLiveProgress(done, finalSize, finalSize, 0, true);
         // 下完了：告诉服务端可以回收导出（尽力而为，服务端另有过期）
         if (done.exportId !== null) {
           new MovieClawApi(new ApiClient(owner.origin, token))
@@ -739,7 +748,33 @@ export class OfflineDownloader {
     }
   }
 
+  private pushLiveProgress(unit: OfflineUnit, bytesDone: number, bytesTotal: number,
+    speedBps: number, done: boolean): void {
+    const store: OfflineStore = OfflineStore.shared;
+    const summary: OfflineItemSummary | undefined = store.items.get(unit.mediaItemId);
+    const title: string = summary !== undefined ? summary.title : 'MovieClaw';
+    const epLabel: string = unit.episode > 0 ? `S${unit.season}E${unit.episode}` : '';
+    let remaining: number = 0;
+    for (const u of store.units.values()) {
+      if (u.fileId !== unit.fileId && (u.state === OfflineUnitState.queued
+        || u.state === OfflineUnitState.preparing || u.state === OfflineUnitState.downloading)) {
+        remaining += 1;
+      }
+    }
+    const snap: DownloadLiveSnapshot = new DownloadLiveSnapshot(
+      title, epLabel, bytesDone, bytesTotal, speedBps, remaining, done);
+    if (done && remaining === 0) {
+      LiveViewBridge.shared.stopDownload(this.appContext, snap).catch((): void => {
+      });
+    } else {
+      LiveViewBridge.shared.syncDownload(this.appContext, snap, done).catch((): void => {
+      });
+    }
+  }
+
   private async releaseBackground(): Promise<void> {
+    LiveViewBridge.shared.stopDownload(this.appContext).catch((): void => {
+    });
     if (!this.backgroundHeld) {
       return;
     }

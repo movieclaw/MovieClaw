@@ -10,6 +10,11 @@ import homeRowsTest from './HomeRows.test';
 import staleLoadGuardTest from './StaleLoadGuard.test';
 import pgsPrepareGuardTest from './PgsPrepareGuard.test';
 import playbackTrackSelectionTest from './PlaybackTrackSelection.test';
+import appLanguageTest from './AppLanguage.test';
+import chaptersTest from './Chapters.test';
+import playerDiagnosticsTest from './PlayerDiagnostics.test';
+import harmonyUpgradesTest from './HarmonyUpgrades.test';
+import harmonyPhase2Test from './HarmonyPhase2.test';
 
 export default function testsuite() {
   playerInteractionTest();
@@ -24,4 +29,9 @@ export default function testsuite() {
   staleLoadGuardTest();
   pgsPrepareGuardTest();
   playbackTrackSelectionTest();
+  appLanguageTest();
+  chaptersTest();
+  playerDiagnosticsTest();
+  harmonyUpgradesTest();
+  harmonyPhase2Test();
 }

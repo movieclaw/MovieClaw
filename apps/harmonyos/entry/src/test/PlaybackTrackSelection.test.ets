@@ -4,7 +4,7 @@ import {
   restorableSubtitleIndex,
   selectedSubtitleTrack,
   subtitleIndexForRef
-} from '../main/ets/common/AvPlayerEngine';
+} from '../main/ets/playback/PlayRequest';
 
 function subtitle(ref: string, kind: string): SubtitlePlanView {
   return { track_ref: ref, kind: kind, is_default: false, is_ai: false };

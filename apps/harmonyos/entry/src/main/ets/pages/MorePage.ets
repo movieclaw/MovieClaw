@@ -6,6 +6,7 @@ import { AccountSwitcherSheet } from '../common/AccountSwitcherSheet';
 import { GlassButtonModifier, GlassTone } from '../common/GlassControls';
 import { NativeDialog } from '../common/NativeDialog';
 import { DeviceApprovalDialog } from '../settings/DeviceApprovalDialog';
+import { PairingScanner, ScanOutcome, ScanOutcomeKind } from '../common/PairingScanner';
 import { AppModel, AppPhase, SavedAccount } from '../common/AppModel';
 import { ServerRoutes } from '../common/ServerRoutes';
 import { Permissions } from '../common/Permissions';
@@ -19,6 +20,7 @@ import { MovieClawApi } from '../api/Endpoints';
 import { SessionSummary, SessionTranscriptView } from '../api/Models';
 import { ChatParams } from '../agent/ChatParams';
 import { AgentSessionsSignal } from '../agent/AgentSessionsSignal';
+import { PluginsSection } from '../plugins/PluginsSection';
 import { OfflineStore } from '../offline/OfflineStore';
 import {
   OfflineCapacityCard,
@@ -44,6 +46,7 @@ import { SpatialMaterial } from '../common/SpatialMaterial';
 enum MoreSection {
   conversations,
   downloads,
+  plugins,
   server
 }
 
@@ -417,6 +420,9 @@ export struct MorePage {
     if (permissions.canDownloadVideo || this.store.items.size > 0) {
       out.push(MoreSection.downloads);
     }
+    if (permissions.isAdmin && online) {
+      out.push(MoreSection.plugins);
+    }
     if (online) {
       out.push(MoreSection.server);
     }
@@ -441,6 +447,9 @@ export struct MorePage {
     if (section === MoreSection.downloads) {
       return '下载';
     }
+    if (section === MoreSection.plugins) {
+      return '插件';
+    }
     return '服务器';
   }
 
@@ -450,6 +459,9 @@ export struct MorePage {
     }
     if (section === MoreSection.downloads) {
       return $r('sys.symbol.arrow_down_to_line');
+    }
+    if (section === MoreSection.plugins) {
+      return $r('sys.symbol.square_grid_2x2');
     }
     return $r('sys.symbol.externaldrive');
   }
@@ -518,11 +530,37 @@ export struct MorePage {
 
   // MARK: 扫码批准（宿主工具栏的扫码钮）
 
+  private approvalInitialCode: string = '';
+  private approvalInitialHint: string = '';
+
   @Monitor('scanSignal')
   onScanSignal(): void {
     if (this.scanSignal > 0) {
-      this.openScanApproval();
+      this.scanForApproval(false);
     }
+  }
+
+  private async scanForApproval(reopenOnCancel: boolean): Promise<void> {
+    const outcome: ScanOutcome = await PairingScanner.scan(this.getUIContext().getHostContext());
+    if (outcome.kind === ScanOutcomeKind.cancelled) {
+      if (reopenOnCancel) {
+        this.approvalInitialCode = '';
+        this.approvalInitialHint = '';
+        this.openScanApproval();
+      }
+      return;
+    }
+    if (outcome.kind === ScanOutcomeKind.recognized) {
+      this.approvalInitialCode = outcome.text;
+      this.approvalInitialHint = '';
+    } else if (outcome.kind === ScanOutcomeKind.unrecognized) {
+      this.approvalInitialCode = '';
+      this.approvalInitialHint = '这不是 MovieClaw 的登录二维码，换一张试试';
+    } else {
+      this.approvalInitialCode = '';
+      this.approvalInitialHint = '这台设备上用不了相机扫码，请改为手动输入配对码';
+    }
+    this.openScanApproval();
   }
 
   private openScanApproval(): void {
@@ -586,7 +624,12 @@ export struct MorePage {
   @Builder
   ApprovalCard() {
     DeviceApprovalDialog({
-      scanFirst: true,
+      initialCode: this.approvalInitialCode,
+      initialHint: this.approvalInitialHint,
+      onRescan: (): void => {
+        this.closeApproval();
+        this.scanForApproval(true);
+      },
       onClose: (): void => {
         this.closeApproval();
       }
@@ -626,6 +669,10 @@ export struct MorePage {
           OfflineWatchedCard()
           OfflineDownloadedSection({ navStack: this.navStack })
           OfflineOtherOwnersSection()
+        } else if (this.visibleSection() === MoreSection.plugins) {
+          ListItem() {
+            PluginsSection({ navStack: this.navStack })
+          }
         } else {
           this.ServerSectionItem()
         }

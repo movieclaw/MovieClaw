@@ -2108,6 +2108,19 @@ export interface FavoriteItemView {
   probe_pending_count: number
   favorite_season_number?: number | null
   favorite_episode_number?: number | null
+  user_rating?: number | null
+}
+
+/** 首页「我的高分作品」的一格：单库海报墙条目视图 + 落点库与评分时间。 */
+export interface RatedItemView extends LibraryItemView {
+  library_id: number
+  rated_at?: string | null
+}
+
+/** 「我的高分作品」分区的数据载荷。 */
+export interface RatedItemsView {
+  items: RatedItemView[]
+  total: number
 }
 
 /** 「我的收藏」分区的数据载荷。``total`` 是去重后的收藏作品总数， */
@@ -3071,6 +3084,10 @@ export interface LibraryItemDetailView {
   series_collection_id?: number | null
   /// 这部片所属的合集（不含系列与「我的收藏」）
   collections: ItemCollectionRef[]
+  /// 剧集播出状态：airing=在播 / ended=完结；电影或状态未知为 null
+  air_status?: string | null
+  /// 当前成员的个人评分（1–10 整数，1=半星，10=5 星）；未评分为 null
+  user_rating?: number | null
 }
 
 /** 海报行「选中展开」要的展示信息（电视首页，同 Netflix 电视版的焦点卡）。 */
@@ -3138,6 +3155,14 @@ export interface LibraryItemView {
   inventory_summary?: LibraryInventorySummaryView | null
   /// 在位但尚未探出介质规格的文件数——扫描补探阶段前端据此把「还在处理」的条目排到海报墙前面并点亮标记
   probe_pending_count: number
+  /// 海报墙按需角标字段（badges 参数请求时回填）
+  dynamic_range?: string | null
+  has_atmos?: boolean | null
+  has_chinese_subtitle?: boolean | null
+  progress_percent?: number | null
+  unplayed_count?: number | null
+  /// 当前观看者的个人评分（1–10 整数，1=半星，10=5 星）；未评分为 null
+  user_rating?: number | null
 }
 
 /** 首页「按类型找电影 / 剧集」的一格：一个 TMDB 类型、跨库部数，以及贴在卡片上的封面。 */
@@ -4848,15 +4873,48 @@ export interface PlaybackMarksRequest {
   episode_number?: number | null
   played?: boolean | null
   favorite?: boolean | null
+  /// 个人评分（0–10 整数）：不传=不改，0=清除，1–10=设置（1=半星，10=5 星）
+  rating?: number | null
   device_id?: string | null
 }
 
-/** 目标在当前成员名下的已看 / 收藏状态。读接口与写接口同一形状， */
+/** 目标在当前成员名下的已看 / 收藏 / 个人评分状态。读接口与写接口同一形状， */
 /** 写完直接拿它刷新按钮，不必再查一次。 */
 export interface PlaybackMarksView {
   played: boolean
   is_favorite: boolean
   unplayed_count?: number | null
+  user_rating?: number | null
+}
+
+/** 一条外部播放器能直接加载的文本字幕。 */
+export interface PlaybackExternalSubtitleView {
+  track: string
+  label?: string | null
+  language?: string | null
+  format: string
+  url: string
+}
+
+/** 外部播放器签名直链请求。 */
+export interface PlaybackExternalLinkRequest {
+  media_item_id: number
+  season_number?: number
+  episode_number?: number
+  file_id?: number | null
+}
+
+/** 外部播放器签名直链响应（12 小时有效、单文件范围、不建播放会话）。 */
+export interface PlaybackExternalLinkView {
+  file_id: number
+  stream_url: string
+  subtitles: PlaybackExternalSubtitleView[]
+  title: string
+  file_name: string
+  container?: string | null
+  start_ms: number
+  duration_ms?: number | null
+  expires_at: string
 }
 
 /** 一次播放结束时上报的记录。指标口径按 CTA-2066，不自创。 */

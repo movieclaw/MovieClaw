@@ -675,6 +675,10 @@ export class PlaybackController {
     this.intent.rate = rate; this.publish();
     await this.command((engine: PlayerEngine): Promise<void> => engine.setRate(rate));
   }
+  async setGain(gain: number): Promise<void> {
+    this.gain = Math.max(0, Math.min(2, gain));
+    await this.command((engine: PlayerEngine): Promise<void> => engine.setGain(this.gain));
+  }
   async setSubtitleStyle(style: SubtitleStyle): Promise<void> {
     this.style = style;
     await this.command((engine: PlayerEngine): Promise<void> => engine.setSubtitleStyle(style));

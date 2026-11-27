@@ -1,9 +1,11 @@
 import { Theme } from '../theme/AppTheme';
 import { GlassButtonModifier, GlassTone, GlassSwitchModifier } from '../common/GlassControls';
 import { AppModel } from '../common/AppModel';
+import { pickFolder } from '../common/FolderPicker';
+import { SpatialMaterial } from '../common/SpatialMaterial';
 import { ApiError } from '../api/ApiClient';
 import { MovieClawApi } from '../api/Endpoints';
-import { LibraryPayload, LibraryView } from '../api/Models';
+import { FsBrowseView, FsEntry, LibraryPayload, LibraryView } from '../api/Models';
 
 /** 分区（对应 iOS `LibraryFormSheet` 编辑态的分层：按用途分区折叠，同时只开一个） */
 class FormSection {
@@ -38,6 +40,13 @@ export struct LibraryFormSheet {
 
   // 可编辑字段
   @Local private name: string = '';
+  @Local private roots: string[] = [];
+  @Local private draftManualRoot: string = '';
+  @Local private showFsBrowser: boolean = false;
+  @Local private fsCurrentPath: string = '';
+  @Local private fsParentPath: string | null = null;
+  @Local private fsEntries: FsEntry[] = [];
+  @Local private fsLoading: boolean = false;
   @Local private realtimeWatch: boolean = false;
   @Local private autoClearMissing: boolean = false;
   @Local private generateThumbnails: boolean = false;
@@ -72,6 +81,7 @@ export struct LibraryFormSheet {
       const view: LibraryView = await api.libraryGet(this.libraryId);
       this.library = view;
       this.name = view.name;
+      this.roots = view.root_paths.slice();
       this.realtimeWatch = view.realtime_watch;
       this.autoClearMissing = view.auto_clear_missing;
       this.generateThumbnails = view.generate_thumbnails;
@@ -114,12 +124,16 @@ export struct LibraryFormSheet {
       this.toast('库名不能为空');
       return;
     }
+    if (this.roots.length === 0) {
+      this.toast('至少需要保留一个根目录');
+      return;
+    }
     this.busy = true;
     try {
       const payload: LibraryPayload = {
         name: trimmed,
         kind: view.kind,
-        root_paths: view.root_paths,
+        root_paths: this.roots.slice(),
         realtime_watch: this.realtimeWatch,
         auto_clear_missing: this.autoClearMissing,
         generate_thumbnails: this.generateThumbnails,
@@ -171,7 +185,60 @@ export struct LibraryFormSheet {
     if (view === null) {
       return '';
     }
-    return `${this.kindLabel(view.kind)}  ·  ${view.root_paths.length} 个根目录`;
+    return `${this.kindLabel(view.kind)}  ·  ${this.roots.length} 个根目录`;
+  }
+
+  private addRootPath(raw: string): void {
+    const clean: string = raw.trim();
+    if (clean.length === 0) {
+      return;
+    }
+    if (this.roots.indexOf(clean) >= 0) {
+      this.toast('该目录已存在');
+      return;
+    }
+    const next: string[] = this.roots.slice();
+    next.push(clean);
+    this.roots = next;
+  }
+
+  private removeRootPath(path: string): void {
+    const next: string[] = this.roots.filter((p: string): boolean => p !== path);
+    this.roots = next;
+  }
+
+  private async openServerBrowser(initialPath?: string): Promise<void> {
+    const api: MovieClawApi | null = this.api();
+    if (api === null) {
+      return;
+    }
+    this.showFsBrowser = true;
+    this.fsLoading = true;
+    try {
+      const view: FsBrowseView = await api.fsBrowse(initialPath);
+      this.fsCurrentPath = view.path;
+      this.fsParentPath = view.parent ?? null;
+      this.fsEntries = view.entries;
+    } catch (error) {
+      this.toast(this.messageOf(error));
+    } finally {
+      this.fsLoading = false;
+    }
+  }
+
+  private async pickLocalFolder(): Promise<void> {
+    const ctx = this.getUIContext().getHostContext();
+    if (ctx === undefined) {
+      return;
+    }
+    try {
+      const picked: string = await pickFolder(ctx);
+      if (picked.length > 0) {
+        this.addRootPath(picked);
+      }
+    } catch (_err) {
+      this.toast('打开本机目录选择器失败');
+    }
   }
 
   /** 折叠态摘要行：先回答「这个库配成了什么样」（iOS 的设计要点） */
@@ -241,6 +308,13 @@ export struct LibraryFormSheet {
     .width('100%')
     .height('100%')
     .backgroundColor(Theme.bg)
+    .bindSheet($$this.showFsBrowser, this.ServerBrowserSheet(), {
+      height: SheetSize.LARGE,
+      dragBar: true,
+      showClose: false,
+      systemMaterial: SpatialMaterial.sheet(),
+      backgroundColor: Theme.bg
+    })
   }
 
   /** 顶栏：左上 ✕ 关闭、右上「保存」（对应 iOS 的 sheet 工具条） */
@@ -398,22 +472,189 @@ export struct LibraryFormSheet {
         .fontColor(Theme.textFaint)
         .margin({ bottom: 14 })
 
-      this.FieldLabel(`根目录（${this.library !== null ? this.library.root_paths.length : 0}）`)
-      ForEach(this.library !== null ? this.library.root_paths : [], (path: string) => {
-        Text(path)
-          .fontSize(13)
-          .fontColor(Theme.textMuted)
-          .width('100%')
-          .padding({ top: 8, bottom: 8 })
+      this.FieldLabel(`根目录（${this.roots.length}）`)
+      ForEach(this.roots, (path: string) => {
+        Row({ space: 8 }) {
+          Text(path)
+            .fontSize(13)
+            .fontColor(Theme.text)
+            .layoutWeight(1)
+            .maxLines(2)
+            .textOverflow({ overflow: TextOverflow.Ellipsis })
+          SymbolGlyph($r('sys.symbol.xmark'))
+            .fontSize(14)
+            .fontColor([Theme.textMuted])
+            .width(28)
+            .height(28)
+            .onClick(() => {
+              this.removeRootPath(path);
+            })
+        }
+        .width('100%')
+        .padding({ left: 10, right: 6, top: 6, bottom: 6 })
+        .backgroundColor(Theme.surfaceRaised)
+        .borderRadius(8)
+        .margin({ bottom: 6 })
       }, (path: string) => path)
-      Text('根目录的增删在「管理媒体库」里做。')
-        .fontSize(12)
-        .fontColor(Theme.textFaint)
-        .padding({ bottom: 4 })
+
+      Row({ space: 8 }) {
+        Button() {
+          Text('浏览服务器目录')
+            .fontSize(13)
+            .fontColor(Theme.accentStrong)
+        }
+        .attributeModifier(new GlassButtonModifier(GlassTone.Secondary))
+        .padding({ left: 12, right: 12, top: 7, bottom: 7 })
+        .borderRadius(14)
+        .onClick(() => {
+          this.openServerBrowser(this.roots.length > 0 ? this.roots[0] : undefined);
+        })
+        Button() {
+          Text('本机文件夹')
+            .fontSize(13)
+            .fontColor(Theme.textMuted)
+        }
+        .attributeModifier(new GlassButtonModifier(GlassTone.Secondary))
+        .padding({ left: 12, right: 12, top: 7, bottom: 7 })
+        .borderRadius(14)
+        .onClick(() => {
+          this.pickLocalFolder();
+        })
+      }
+      .width('100%')
+      .margin({ top: 4, bottom: 8 })
+
+      Row({ space: 8 }) {
+        TextInput({ text: this.draftManualRoot, placeholder: '/media/movies 手动输入路径' })
+          .layoutWeight(1)
+          .height(38)
+          .fontSize(13)
+          .fontColor(Theme.text)
+          .backgroundColor(Theme.surfaceRaised)
+          .borderRadius(9)
+          .padding({ left: 10, right: 10 })
+          .onChange((val: string): void => {
+            this.draftManualRoot = val;
+          })
+          .onSubmit(() => {
+            this.addRootPath(this.draftManualRoot);
+            this.draftManualRoot = '';
+          })
+        Button() {
+          Text('添加')
+            .fontSize(13)
+            .fontColor('#0b0d12')
+        }
+        .attributeModifier(new GlassButtonModifier(GlassTone.Primary))
+        .padding({ left: 12, right: 12, top: 8, bottom: 8 })
+        .borderRadius(10)
+        .onClick(() => {
+          this.addRootPath(this.draftManualRoot);
+          this.draftManualRoot = '';
+        })
+      }
+      .width('100%')
     }
     .width('100%')
     .alignItems(HorizontalAlign.Start)
     .padding({ left: 16, right: 16, top: 14, bottom: 14 })
+  }
+
+  @Builder
+  ServerBrowserSheet() {
+    Column({ space: 10 }) {
+      Row({ space: 8 }) {
+        Text('选择服务器目录')
+          .fontSize(17)
+          .fontWeight(600)
+          .fontColor(Theme.text)
+          .layoutWeight(1)
+        if (this.fsCurrentPath.length > 0) {
+          Button() {
+            Text('选此目录')
+              .fontSize(13)
+              .fontWeight(600)
+              .fontColor('#0b0d12')
+          }
+          .attributeModifier(new GlassButtonModifier(GlassTone.Primary))
+          .padding({ left: 12, right: 12, top: 6, bottom: 6 })
+          .borderRadius(14)
+          .onClick(() => {
+            this.addRootPath(this.fsCurrentPath);
+            this.showFsBrowser = false;
+          })
+        }
+      }
+      .width('100%')
+      .padding({ left: 16, right: 16, top: 16 })
+
+      Text(this.fsCurrentPath.length > 0 ? this.fsCurrentPath : '/')
+        .fontSize(12)
+        .fontColor(Theme.textMuted)
+        .width('100%')
+        .padding({ left: 16, right: 16 })
+
+      if (this.fsLoading) {
+        Column() {
+          LoadingProgress().width(24).height(24).color(Theme.textMuted)
+        }
+        .width('100%')
+        .layoutWeight(1)
+        .justifyContent(FlexAlign.Center)
+      } else {
+        Scroll() {
+          Column({ space: 4 }) {
+            if (this.fsParentPath !== null) {
+              Row({ space: 10 }) {
+                SymbolGlyph($r('sys.symbol.chevron_left'))
+                  .fontSize(14)
+                  .fontColor([Theme.accentStrong])
+                Text('返回上级目录 (..)')
+                  .fontSize(14)
+                  .fontColor(Theme.accentStrong)
+              }
+              .width('100%')
+              .padding({ left: 14, right: 14, top: 11, bottom: 11 })
+              .backgroundColor(Theme.surface)
+              .borderRadius(10)
+              .onClick(() => {
+                this.openServerBrowser(this.fsParentPath ?? undefined);
+              })
+            }
+            ForEach(this.fsEntries, (entry: FsEntry) => {
+              Row({ space: 10 }) {
+                SymbolGlyph($r('sys.symbol.folder'))
+                  .fontSize(16)
+                  .fontColor([Theme.accent2])
+                Text(entry.name)
+                  .fontSize(14)
+                  .fontColor(Theme.text)
+                  .layoutWeight(1)
+                  .maxLines(1)
+                  .textOverflow({ overflow: TextOverflow.Ellipsis })
+                SymbolGlyph($r('sys.symbol.chevron_right'))
+                  .fontSize(13)
+                  .fontColor([Theme.textFaint])
+              }
+              .width('100%')
+              .padding({ left: 14, right: 14, top: 11, bottom: 11 })
+              .backgroundColor(Theme.surface)
+              .borderRadius(10)
+              .onClick(() => {
+                this.openServerBrowser(entry.path);
+              })
+            }, (entry: FsEntry) => entry.path)
+          }
+          .width('100%')
+          .padding({ left: 16, right: 16, bottom: 28 })
+        }
+        .layoutWeight(1)
+        .scrollBar(BarState.Off)
+      }
+    }
+    .width('100%')
+    .height('100%')
+    .backgroundColor(Theme.bg)
   }
 
   /** 扫描与监控：各开关 + 一句说明 */

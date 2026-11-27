@@ -6,6 +6,7 @@ import { Permissions } from '../common/Permissions';
 import { AppModel } from '../common/AppModel';
 import { AppFooter } from '../common/AppFooter';
 import { TabBarStyle } from '../common/TabBarStyle';
+import { AppLanguage } from '../common/AppLanguage';
 
 /** 一个设置分区（对应 iOS `SettingsSection`） */
 export class SettingsSection {
@@ -76,7 +77,9 @@ export class SettingsCatalog {
         new SettingsSection('mcp', 'MCP 服务',
           '把 MovieClaw 的能力开放给 Claude Code、Cursor 等 AI 客户端', 'sys.symbol.externaldrive'),
         new SettingsSection('ai', 'AI 设定',
-          '智能体与字幕处理使用的默认模型', 'sys.symbol.wand_and_stars')
+          '智能体与字幕处理使用的默认模型', 'sys.symbol.wand_and_stars'),
+        new SettingsSection('plugins', '插件与市场',
+          '官方与第三方插件包、权限审批、插件网页与签名市场（iOS 未开放）', 'sys.symbol.square_grid_2x2')
       ]),
       new SettingsGroup('系统', [
         new SettingsSection('app', '更新与维护',
@@ -145,6 +148,8 @@ export struct SettingsIndexPage {
   @Local private model: AppModel = AppModel.shared;
   /** 底栏样式单例：开关读写它，MainTabsPage 持有同一个例、底栏跟着重建 */
   @Local private tabBarStyle: TabBarStyle = TabBarStyle.shared();
+  /** 语言单例：语言设置里切换后，读到 t() 的页面当场重建 */
+  @Local private appLanguage: AppLanguage = AppLanguage.shared();
 
   build() {
     HdsNavDestination() {
@@ -174,6 +179,15 @@ export struct SettingsIndexPage {
           ListItemGroup({ style: ListItemGroupStyle.NONE }) {
             ListItem() {
               this.TabBarStyleRow()
+            }
+          }
+          .borderRadius(Theme.cardRadius)
+          .backgroundColor(Theme.surface)
+          .border({ width: 1, color: Theme.line })
+          // 「语言」：zh-Hans / zh-Hant / en 三选一（对应 iOS LanguageSettings 的入口位置），切了当场生效
+          ListItemGroup({ style: ListItemGroupStyle.NONE }) {
+            ListItem() {
+              this.LanguageRow()
             }
           }
           .borderRadius(Theme.cardRadius)
@@ -221,7 +235,7 @@ export struct SettingsIndexPage {
      * 返回键与标题由官方 HdsNavDestination 渲染，滚动时标题栏从透明渐显磨砂。
      */
     .titleMode(HdsNavDestinationTitleMode.MINI)
-    .titleBar(AppNavBar.subPageTitleBar('设置'))
+    .titleBar(AppNavBar.subPageTitleBar(this.appLanguage.t('settings.title')))
     .bindToScrollable([this.scroller])
     .dynamicHideTitleBar(AppNavBar.dynamicHide())
     .onReady((ctx: NavDestinationContext) => {
@@ -288,10 +302,10 @@ export struct SettingsIndexPage {
         .fontColor([Theme.accent2])
         .width(26)
       Column({ space: 2 }) {
-        Text('经典底栏')
+        Text(this.appLanguage.t('settings.classic_tabs'))
           .fontSize(15)
           .fontColor(Theme.text)
-        Text('开 = 通用的整宽贴底栏；关 = 悬浮胶囊（默认）')
+        Text(this.appLanguage.t('settings.classic_tabs_hint'))
           .fontSize(12)
           .fontColor(Theme.textMuted)
       }
@@ -309,6 +323,36 @@ export struct SettingsIndexPage {
     .padding({ left: 16, right: 16, top: 11, bottom: 11 })
   }
 
+  /** 「语言」行：与上面各分区同一套排布；右侧副标题显示当前语言的自称 */
+  @Builder
+  LanguageRow() {
+    Row({ space: 12 }) {
+      SymbolGlyph($r('sys.symbol.globe'))
+        .fontSize(18)
+        .fontColor([Theme.accent2])
+        .width(26)
+      Column({ space: 2 }) {
+        Text(this.appLanguage.t('settings.language.title'))
+          .fontSize(15)
+          .fontColor(Theme.text)
+        Text(this.appLanguage.name())
+          .fontSize(12)
+          .fontColor(Theme.textMuted)
+      }
+      .layoutWeight(1)
+      .alignItems(HorizontalAlign.Start)
+      SymbolGlyph($r('sys.symbol.chevron_right'))
+        .fontSize(13)
+        .fontColor([Theme.textFaint])
+    }
+    .width('100%')
+    .alignItems(VerticalAlign.Center)
+    .padding({ left: 16, right: 16, top: 11, bottom: 11 })
+    .onClick(() => {
+      this.navStack.pushPathByName('languageSettings', null);
+    })
+  }
+
   /** 「图标更换」行：与「关于」行同一套排布（图标列 + 标题 + 副标题 + 箭头） */
   @Builder
   IconRow() {
@@ -318,10 +362,10 @@ export struct SettingsIndexPage {
         .fontColor([Theme.accent2])
         .width(26)
       Column({ space: 2 }) {
-        Text('图标')
+        Text(this.appLanguage.t('settings.icon'))
           .fontSize(15)
           .fontColor(Theme.text)
-        Text('选择应用内展示的图标（26 款设计）')
+        Text(this.appLanguage.t('settings.icon_hint'))
           .fontSize(12)
           .fontColor(Theme.textMuted)
       }
@@ -348,10 +392,10 @@ export struct SettingsIndexPage {
         .fontColor([Theme.accent2])
         .width(26)
       Column({ space: 2 }) {
-        Text('关于 MovieClaw')
+        Text(this.appLanguage.t('settings.about'))
           .fontSize(15)
           .fontColor(Theme.text)
-        Text('版本与开源许可')
+        Text(this.appLanguage.t('settings.about_hint'))
           .fontSize(12)
           .fontColor(Theme.textMuted)
       }
@@ -420,6 +464,9 @@ export struct SettingsIndexPage {
     }
     if (symbol === 'sys.symbol.wand_and_stars') {
       return $r('sys.symbol.wand_and_stars');
+    }
+    if (symbol === 'sys.symbol.square_grid_2x2') {
+      return $r('sys.symbol.square_grid_2x2');
     }
     return $r('sys.symbol.gearshape');
   }

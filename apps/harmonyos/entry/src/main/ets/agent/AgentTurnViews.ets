@@ -298,13 +298,23 @@ export struct AgentUserBubbleView {
   }
 }
 
+/**
+ * 处理过程折叠块的展开状态（由 ChatPage 持有、按 openKey 存取）：
+ * 行 id 带内容签名，流式期间行会被 LazyForEach 反复重建，@Local 的展开态活不过一次重建；
+ * 挂到外层 Map 里（@ObservedV2 + @Trace）才能跨重建保留用户的展开选择。
+ */
+@ObservedV2
+export class AgentProcessOpenState {
+  @Trace open: boolean = false;
+}
+
 /** 处理过程折叠块：进行中显示实时状态、完成后一句话总结；点开看思考与工具调用 */
 @ComponentV2
 export struct AgentProcessBlockView {
   @Require @Param items: AgentProcessItem[];
   @Param active: boolean = false;
+  @Require @Param openState: AgentProcessOpenState;
 
-  @Local private open: boolean = false;
   @Local private dim: boolean = false;
   private pulseTimer: number = -1;
 
@@ -367,7 +377,7 @@ export struct AgentProcessBlockView {
           SymbolGlyph($r('sys.symbol.chevron_right'))
             .fontSize(11)
             .fontColor([Theme.textFaint])
-            .rotate({ angle: this.open ? 90 : 0 })
+            .rotate({ angle: this.openState.open ? 90 : 0 })
           Text(this.headerText())
             .fontSize(13)
             .fontWeight(FontWeight.Medium)
@@ -377,11 +387,11 @@ export struct AgentProcessBlockView {
         .padding({ top: 6, bottom: 6 })
         .onClick((): void => {
           this.getUIContext().animateTo({ duration: 180, curve: Curve.EaseOut }, (): void => {
-            this.open = !this.open;
+            this.openState.open = !this.openState.open;
           });
         })
 
-        if (this.open) {
+        if (this.openState.open) {
           Row() {
             Divider()
               .vertical(true)

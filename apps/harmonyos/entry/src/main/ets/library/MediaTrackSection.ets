@@ -47,19 +47,24 @@ const MAX_VISIBLE_CHIPS: number = 4;
 export struct MediaTrackSection {
   /** 当前播放单元的在位文件（state == "in_place"；外面过滤） */
   @Prop files: LibraryFileView[] = [];
-  @State private selectedFileId: number = -1;
+  /** 外层受控选中的文件 ID（<= 0 时退回内部选中态或首个在位文件） */
+  @Prop selectedFileId: number = -1;
+  @State private internalSelectedFileId: number = -1;
   /** 弹层状态：'audio' / 'subtitle'，空串表示未开 */
   @State private sheetKind: string = '';
   @State private sheetOpen: boolean = false;
   /** 打开弹层时聚焦的语言组；空串从头展示 */
   @State private focusLanguage: string = '';
+  /** 切换多版本文件时通知外层（同步起播、章节、离线下载与外部播放器） */
+  onSelectFile: (fileId: number) => void = (_fileId: number): void => {};
   /** AI 字幕生成 / 删除外挂 / 校准完成后由外层刷新详情（轨道与字幕列表都会变） */
   onChanged: () => void = (): void => {};
 
-  /** 选中的文件：外部指定的，否则第一个 */
+  /** 选中的文件：外部指定的优先，其次内部选中的，否则第一个 */
   private selectedFile(): LibraryFileView | null {
+    const targetId: number = this.selectedFileId > 0 ? this.selectedFileId : this.internalSelectedFileId;
     for (const file of this.files) {
-      if (file.id === this.selectedFileId) {
+      if (file.id === targetId) {
         return file;
       }
     }
@@ -306,7 +311,8 @@ export struct MediaTrackSection {
       ForEach(this.files, (file: LibraryFileView) => {
         MenuItem({ content: `${this.isSelected(file) ? '✓ ' : ''}${trackFileOptionLabel(file)}` })
           .onClick(() => {
-            this.selectedFileId = file.id;
+            this.internalSelectedFileId = file.id;
+            this.onSelectFile(file.id);
           })
       }, (file: LibraryFileView) => `${file.id}`)
     }

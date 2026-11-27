@@ -15,13 +15,6 @@
     "installationFree": false,
     "pages": "$profile:main_pages",
     "routerMap": "$profile:router_map",
-    /*
-     * 沉浸光感应用级开关（ArkUI 沉浸式系统材质，targetSDK≥26 才生效）：
-     * enable 后，未写自定义背景的弹窗类组件默认上材质——Toast/菜单→THICK、
-     * 弹出框→ULTRA_THICK；写死过 backgroundColor 的弹窗不受影响（需显式
-     * systemMaterial 才接管）。组件级设置优先于此开关。低于 26 的系统上
-     * 该配置无效果，由 SpatialMaterial.supported 运行时兜底。
-     */
     "metadata": [
       {
         "name": "ohos.arkui.UIMaterial.state",
@@ -33,25 +26,19 @@
         "name": "ohos.permission.INTERNET"
       },
       {
-        /* 后台播放要它：配 AVSession 一起用，缺一个退后台就会被系统停掉 */
         "name": "ohos.permission.KEEP_BACKGROUND_RUNNING"
       },
       {
         "name": "ohos.permission.GET_NETWORK_INFO"
       },
       {
-        /* 批准 / 拒绝设备登录时震一下（同 iOS UINotificationFeedbackGenerator）；normal 级，声明即可 */
         "name": "ohos.permission.VIBRATE"
       }
     ],
     "abilities": [
       {
         "name": "EntryAbility",
-        /*
-          长时任务必须在这里声明模式，否则 `startBackgroundRunning` 会报
-          `9800005 Continuous Task verification failed. The bgMode is invalid.`
-          ——错误只说「模式无效」，不告诉你「得先在清单里声明」，这一步是必需的。
-        */
+        "continuable": true,
         "backgroundModes": ["audioPlayback", "dataTransfer"],
         "srcEntry": "./ets/entryability/EntryAbility.ets",
         "description": "$string:EntryAbility_desc",
@@ -68,6 +55,19 @@
             "actions": [
               "ohos.want.action.home"
             ]
+          },
+          {
+            "entities": [
+              "entity.system.browsable"
+            ],
+            "actions": [
+              "ohos.want.action.viewData"
+            ],
+            "uris": [
+              {
+                "scheme": "movieclaw"
+              }
+            ]
           }
         ]
       }
@@ -75,10 +75,23 @@
     "extensionAbilities": [
       {
         "name": "WorkNotifyExtensionAbility",
-        /* 系统通知的延迟任务回调：退后台后由系统按活跃度拉起（最快 2 小时一次），跑在独立扩展进程 */
         "srcEntry": "./ets/notify/WorkNotifyExtensionAbility.ets",
         "type": "workScheduler",
         "exported": false
+      },
+      {
+        "name": "EntryFormAbility",
+        "srcEntry": "./ets/entryformability/EntryFormAbility.ets",
+        "label": "$string:EntryFormAbility_label",
+        "description": "$string:EntryFormAbility_desc",
+        "type": "form",
+        "exported": false,
+        "metadata": [
+          {
+            "name": "ohos.extension.form",
+            "resource": "$profile:form_config"
+          }
+        ]
       },
       {
         "name": "EntryBackupAbility",
@@ -90,7 +103,7 @@
             "name": "ohos.extension.backup",
             "resource": "$profile:backup_config"
           }
-        ],
+        ]
       }
     ]
   }

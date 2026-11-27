@@ -1,13 +1,15 @@
 import { Theme } from '../theme/AppTheme';
-import { GlassButtonModifier, GlassTone } from '../common/GlassControls';
+import { GlassButtonModifier, GlassSwitchModifier, GlassTone } from '../common/GlassControls';
 import { PageTopBar } from '../common/PageTopBar';
 import { AppModel } from '../common/AppModel';
+import { AppLanguage } from '../common/AppLanguage';
 import { RemoteImage } from '../common/RemoteImage';
 import { ImageUrls, ImageVariant } from '../common/ImageUrls';
 import { ItemRouteParams } from '../library/LibraryItemDetailPage';
 import { OfflineStore } from './OfflineStore';
 import { OfflineDisk } from './OfflineDisk';
 import { OfflineDownloader } from './OfflineDownloader';
+import { OfflineSmartCache } from './OfflineSmartCache';
 import { OfflineUnitText } from './OfflineUi';
 import { OfflineItemSummary, OfflineOwner, OfflineUnit, OfflineUnitState } from './OfflineModels';
 
@@ -875,20 +877,113 @@ export struct OfflineCapacityCard {
   }
 }
 
-/** 下载管理页：五个分区拼一页（独立入口，「我的」页的下载段也复用同一批分区） */
+/** 追剧智能预缓配置卡（Wi-Fi 自动缓存下一集 + 看完自动清理旧集） */
+@ComponentV2
+export struct OfflineSmartCacheCard {
+  @Local smart: OfflineSmartCache = OfflineSmartCache.shared;
+  @Local lang: AppLanguage = AppLanguage.shared();
+
+  build() {
+    ListItem() {
+      Column({ space: 12 }) {
+        Text(this.lang.t('offline.smart_title'))
+          .fontSize(13)
+          .fontWeight(FontWeight.Medium)
+          .fontColor(Theme.textFaint)
+          .width('100%')
+
+        Row({ space: 12 }) {
+          Column({ space: 2 }) {
+            Text(this.lang.t('offline.smart_prefetch'))
+              .fontSize(15)
+              .fontColor(Theme.text)
+            Text(this.lang.t('offline.smart_prefetch_hint'))
+              .fontSize(12)
+              .fontColor(Theme.textMuted)
+          }
+          .layoutWeight(1)
+          .alignItems(HorizontalAlign.Start)
+
+          Toggle({ type: ToggleType.Switch, isOn: this.smart.wifiPrefetchNext })
+            .attributeModifier(new GlassSwitchModifier())
+            .onChange((on: boolean): void => {
+              this.smart.setWifiPrefetchNext(on);
+            })
+        }
+        .width('100%')
+        .alignItems(VerticalAlign.Center)
+
+        Divider().color(Theme.line).strokeWidth(0.5)
+
+        Row({ space: 12 }) {
+          Column({ space: 2 }) {
+            Text(this.lang.t('offline.smart_evict'))
+              .fontSize(15)
+              .fontColor(Theme.text)
+            Text(this.lang.t('offline.smart_evict_hint'))
+              .fontSize(12)
+              .fontColor(Theme.textMuted)
+          }
+          .layoutWeight(1)
+          .alignItems(HorizontalAlign.Start)
+
+          Toggle({ type: ToggleType.Switch, isOn: this.smart.autoEvictWatched })
+            .attributeModifier(new GlassSwitchModifier())
+            .onChange((on: boolean): void => {
+              this.smart.setAutoEvictWatched(on);
+            })
+        }
+        .width('100%')
+        .alignItems(VerticalAlign.Center)
+
+        if (this.smart.autoEvictWatched) {
+          Row({ space: 8 }) {
+            Text(this.lang.t('offline.smart_keep').replace('{0}', String(this.smart.keepWatchedCount)))
+              .fontSize(12)
+              .fontColor(Theme.textMuted)
+              .layoutWeight(1)
+            ForEach([0, 1, 2], (count: number) => {
+              Text(`${count}`)
+                .fontSize(12)
+                .fontWeight(this.smart.keepWatchedCount === count ? FontWeight.Bold : FontWeight.Normal)
+                .fontColor(this.smart.keepWatchedCount === count ? '#0b0d12' : Theme.textMuted)
+                .padding({ left: 10, right: 10, top: 4, bottom: 4 })
+                .borderRadius(12)
+                .backgroundColor(this.smart.keepWatchedCount === count ? Theme.accentStrong : Theme.glassFill)
+                .onClick((): void => {
+                  this.smart.setKeepWatchedCount(count);
+                })
+            }, (count: number): string => `keep-${count}`)
+          }
+          .width('100%')
+          .alignItems(VerticalAlign.Center)
+        }
+      }
+      .width('100%')
+      .padding(16)
+      .backgroundColor(Theme.surface)
+      .borderRadius(Theme.cardRadius)
+      .border({ width: 1, color: Theme.line })
+    }
+  }
+}
+
+/** 下载管理页：六个分区拼一页（独立入口，「我的」页的下载段也复用同一批分区） */
 @ComponentV2
 export struct OfflineStoragePage {
   private navStack: NavPathStack = new NavPathStack();
+  @Local private lang: AppLanguage = AppLanguage.shared();
 
   build() {
     NavDestination() {
       Column() {
-        PageTopBar({ title: '下载', onBack: (): void => {
+        PageTopBar({ title: this.lang.t('offline.title'), onBack: (): void => {
           this.navStack.pop();
         } })
         List({ space: 12 }) {
           OfflineDownloadingSection({ navStack: this.navStack })
           OfflineWatchedCard()
+          OfflineSmartCacheCard()
           OfflineDownloadedSection({ navStack: this.navStack })
           OfflineOtherOwnersSection()
           OfflineCapacityCard()

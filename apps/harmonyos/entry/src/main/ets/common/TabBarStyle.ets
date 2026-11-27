@@ -53,6 +53,11 @@ export class TabBarStyle {
     this.floating = floating;
     // 观测不到 `@Trace` 的 V1 页面（媒体库详情、全部合集）靠版本号重排底部留白
     WindowInsets.bumpRevision();
+    this.persist(TabBarStyle.key, floating);
+  }
+
+  /** 偏好落盘：等 store 就绪后写入；失败静默——内存值本次会话内仍然生效 */
+  private persist(key: string, value: preferences.ValueType): void {
     const save = async (): Promise<void> => {
       const signal: Promise<void> | null = TabBarStyle.ready;
       if (signal !== null) {
@@ -63,7 +68,7 @@ export class TabBarStyle {
         return;
       }
       try {
-        await store.put(TabBarStyle.key, floating);
+        await store.put(key, value);
         await store.flush();
       } catch (error) {
       }

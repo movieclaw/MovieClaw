@@ -21,6 +21,8 @@ import { Formatters } from '../common/Formatters';
 import { ShellChrome } from '../common/ShellChrome';
 import { FoldState } from '../common/FoldState';
 import { AppModel, ClipReturn } from '../common/AppModel';
+import { ContinuationBridge } from '../common/ContinuationBridge';
+import { Chapters } from '../player/Chapters';
 
 import { ImageUrls } from '../common/ImageUrls';
 
@@ -28,6 +30,8 @@ import { ApiError } from '../api/ApiClient';
 import { MovieClawApi } from '../api/Endpoints';
 import { OfflineDisk } from '../offline/OfflineDisk';
 import { OfflineStore } from '../offline/OfflineStore';
+import { OfflineSmartCache } from '../offline/OfflineSmartCache';
+import { OfflineSubtitleSync } from '../offline/OfflineSubtitleSync';
 import { OfflineViewingRecorder } from '../offline/OfflineViewings';
 import { OfflinePlaybackSpec, OfflineProgress, OfflineUnit } from '../offline/OfflineModels';
 import { ClientCapabilityIn, PlaybackSessionRequest, PlaybackSessionView, PlaybackDecisionView, PlaybackStateView, AudioTrackView, EpisodeView, LibraryItemDetailView, PlaybackChapterMarkView, PlaybackItemView, SeasonEpisodesView, SubtitlePlanView, TrickplayView, PlaybackSegmentView, PlaybackDiagnosticsView, PlaybackPolicyView, PlaybackArtifactUploadView } from '../api/Models';
@@ -426,10 +430,21 @@ export class PhonePlaybackHost implements PlaybackTestHost {
   @Trace engineWidth: number = 0;
   @Trace engineHeight: number = 0;
 
-  // —— 自绘字幕样式（本机外挂轨；流式轨由系统渲染改不了，iOS SubtitleStyle）——
+  // —— 自绘字幕样式与同步（全流通用 + MPV libass 原生特效开关）——
   @Trace subFontScale: number = 5.2;
   @Trace subBottom: number = 8;
   @Trace subBackground: boolean = true;
+  @Trace subNativeAss: boolean = false;
+  @Trace subDelayMs: number = 0;
+
+  // —— HDR Vivid / Audio Vivid 规格、海报与系统音量面板驱动 ——
+  @Trace posterUrl: string = '';
+  @Trace dynamicRange: string = '';
+  @Trace volumeLevel: number = 7;
+  @Trace maxVolumeLevel: number = 15;
+  @Trace systemVolumeReady: boolean = false;
+  /** 折叠屏悬停操控台：0 = 自动跟随半折悬停态，1 = 手动展开，-1 = 手动收起 */
+  @Trace tabletopForce: number = 0;
 
   private ui: UIContext | null = null;
   bindUI(context: UIContext): void { this.ui = context; }
@@ -464,17 +479,21 @@ export class PhonePlaybackHost implements PlaybackTestHost {
     this.trickplay.onSheetLoaded = (): void => {
       this.trickplayVersion++;
     };
-    // 自绘字幕样式（本机外挂轨）：异步回读，慢一点也只是先按默认样式画
+    // 自绘字幕样式（全流通用）：异步回读，慢一点也只是先按默认样式画
     PlayerPrefs.subtitleStyle().then((style: SubStyle): void => {
       this.subFontScale = style.fontScale;
       this.subBottom = style.bottomPercent;
       this.subBackground = style.background;
+      this.subNativeAss = style.nativeAss;
+      style.delayMs = this.subDelayMs;
       this.controller.setSubtitleStyle(style);
     });
+    this.initSystemVolume();
   }
 
   aboutToDisappear(): void {
     this.detached = true;
+    ContinuationBridge.shared().clearActive();
     if (this.foldListener !== null) {
       try {
         display.off('foldStatusChange', this.foldListener);
@@ -599,6 +618,7 @@ export class PhonePlaybackHost implements PlaybackTestHost {
       const view = await gateway.open(body, PlayerPrefs.engine(), true);
       if (epoch !== this.sessionEpoch || this.disposed) { await gateway.stop(view); return; }
       this.session = view;
+      this.dynamicRange = view.decision.video?.dynamic_range ?? '';
       this.reclaimPgsSidecarIfFileChanged(view);
       PlaybackTestProbe.record('session', `tier=${view.decision.tier};file=${view.decision.file_id}`);
       PlaybackTestProbe.record('delivery', JSON.stringify({ tier: view.decision.tier,
@@ -690,13 +710,19 @@ export class PhonePlaybackHost implements PlaybackTestHost {
     if (media === null || OfflineDisk.fileSize(media) <= 0) {
       return false;
     }
+    // 联网起播本机副本前与续播点并发补齐后来生成的外挂/AI 字幕（最多等 2 秒，超时不阻塞开播）
+    const ownerKey: string | null = store.key();
+    const syncJob: Promise<void> = ownerKey !== null
+      ? OfflineSubtitleSync.shared.syncWaiting(unit, ownerKey, this.api(), 2000)
+      : Promise.resolve();
+    const resumeJob: Promise<number> = this.localResumeMs(store, unit);
+    await syncJob;
+    const resumeMs: number = await resumeJob;
+    if (epoch !== this.sessionEpoch || this.disposed) { return false; }
     const spec: OfflinePlaybackSpec | null = store.spec(unit);
     if (spec === null) {
       return false;
     }
-    // 续播点：能连上服务端就以它为准（一家人共用一份观看记录），2 秒拿不到用本机的
-    const resumeMs: number = await this.localResumeMs(store, unit);
-    if (epoch !== this.sessionEpoch || this.disposed) { return false; }
     this.localMediaPath = media;
     this.localUnit = unit;
     this.localSpec = spec;
@@ -896,7 +922,8 @@ export class PhonePlaybackHost implements PlaybackTestHost {
     // 没有位图字幕能力——按次强制 mpv。会话已申报 pgs_overlay（0.48 起选 PGS
     // 不再触发服务端发烧录），burnedRef 只会出现在不认该申报的老服务器上。
     const pgsRender: boolean = currentKind === 'pgs' && currentRef !== burnedRef;
-    const enginePref: string = pgsRender ? 'mpv' : PlayerPrefs.engine();
+    const assNativeRender: boolean = currentKind === 'ass' && this.subNativeAss && currentRef !== burnedRef;
+    const enginePref: string = (pgsRender || assNativeRender) ? 'mpv' : PlayerPrefs.engine();
     const nativeOrdinal: number | null = this.nativeEmbeddedOrdinalFor(enginePref);
     const subtitleUrl = nativeOrdinal === null && this.subtitleIndex >= 0
       && this.subtitleIndex < view.subtitle_urls.length && currentRef !== burnedRef && currentKind !== 'pgs'
@@ -1120,7 +1147,7 @@ export class PhonePlaybackHost implements PlaybackTestHost {
   private tickAvpSubtitle(snapshot: PlaybackSnapshot): void {
     const cues: SubtitleCue[] | null = this.avpSubtitleCues;
     if (cues === null || snapshot.engine !== 'avplayer') { return; }
-    const text: string = subtitleCueTextAt(cues, snapshot.positionMs - this.avpSubtitleOriginMs);
+    const text: string = subtitleCueTextAt(cues, snapshot.positionMs - this.avpSubtitleOriginMs - this.subDelayMs);
     if (text !== this.subtitleCue) { this.subtitleCue = text; }
   }
 
@@ -1203,6 +1230,27 @@ export class PhonePlaybackHost implements PlaybackTestHost {
       if (Math.floor(snapshot.positionMs / 500) !== this.timeBucket) {
         this.positionMs = snapshot.positionMs;
         this.timeBucket = Math.floor(snapshot.positionMs / 500);
+        if (this.mediaItemId > 0 && this.shareSlug.length === 0 && !this.isClip()) {
+          ContinuationBridge.shared().publishPlayback(
+            AppModel.origin(),
+            this.mediaItemId,
+            this.session?.decision.file_id ?? this.fileId,
+            this.seasonNumber,
+            this.episodeNumber,
+            (): number => this.positionMs,
+            this.title,
+            0
+          );
+          const nextEp: EpisodeView | null = this.nextEpisode();
+          if (nextEp !== null && nextEp.file_ids.length > 0) {
+            OfflineSmartCache.shared.maybePrefetchNext(
+              AppModel.shared.api,
+              nextEp.file_ids[0],
+              this.positionMs,
+              this.durationMs
+            );
+          }
+        }
       }
       this.viewingRecorder?.tick(snapshot.positionMs, snapshot.playing, snapshot.durationMs);
       this.sessionCoordinator.update(snapshot.positionMs, snapshot.durationMs, snapshot.playing,
@@ -1210,6 +1258,9 @@ export class PhonePlaybackHost implements PlaybackTestHost {
       if (snapshot.phase === 'ended') {
         this.ended = true;
         this.viewingRecorder?.finish(snapshot.positionMs, true);
+        if (!this.isClip() && this.episodeNumber > 0) {
+          OfflineSmartCache.shared.maybeEvictWatched(this.session?.decision.file_id ?? this.fileId);
+        }
       }
       if (snapshot.playing && !previousPlaying) {
         this.ended = false;
@@ -1377,6 +1428,22 @@ export class PhonePlaybackHost implements PlaybackTestHost {
     request.then((view: PlaybackItemView): void => {
       if (epoch !== this.sessionEpoch || this.disposed) { return; }
       this.title = view.title;
+      const resolvedPoster: string | null = ImageUrls.resolve(AppModel.origin(), view.poster_url ?? null, 'w500');
+      this.posterUrl = resolvedPoster ?? '';
+      const epSub: string = this.episodeNumber > 0 ? `第 ${this.seasonNumber} 季 · 第 ${this.episodeNumber} 集` : '';
+      this.guard?.setArtwork(this.posterUrl.length > 0 ? this.posterUrl : null, epSub);
+      if (this.mediaItemId > 0 && this.shareSlug.length === 0 && !this.isClip()) {
+        ContinuationBridge.shared().publishPlayback(
+          AppModel.origin(),
+          this.mediaItemId,
+          this.session?.decision.file_id ?? this.fileId,
+          this.seasonNumber,
+          this.episodeNumber,
+          (): number => this.positionMs,
+          this.title,
+          0
+        );
+      }
     }).catch((): void => {
       // 拿不到（离线放本机副本时）用本机存的条目名顶上；再没有就保持「播放」
       const local: LibraryItemDetailView | null = OfflineStore.shared.detail(this.mediaItemId);
@@ -1491,6 +1558,25 @@ export class PhonePlaybackHost implements PlaybackTestHost {
       return;
     }
     this.playEpisode(next);
+  }
+
+  /** 本季上一集（锁屏 / 手表 / 车机播控中心的「上一曲」用） */
+  previousEpisode(): EpisodeView | null {
+    let best: EpisodeView | null = null;
+    for (const episode of this.episodes) {
+      if (episode.owned && episode.episode_number < this.episodeNumber
+        && (best === null || episode.episode_number > best.episode_number)) {
+        best = episode;
+      }
+    }
+    return best;
+  }
+
+  playPrevious(): void {
+    const prev: EpisodeView | null = this.previousEpisode();
+    if (prev !== null) {
+      this.playEpisode(prev);
+    }
   }
 
   /**
@@ -1650,13 +1736,19 @@ export class PhonePlaybackHost implements PlaybackTestHost {
   /** 每 10 秒报一次进度（对应 iOS 的进度上报；后端据此算「继续观看」） */
   /** 起播看门狗：25 秒还没出画就判这一档失败，走降档回路 */
 
-  /** 懒建合规壳；播放/暂停命令回灌给播放器（锁屏与通知栏的按钮要能用） */
+  /** 懒建合规壳；播放/暂停/上下一集命令回灌给播放器（锁屏、手表与车机播控中心的按钮都能用） */
   async ensureGuard(): Promise<PlaybackGuard> {
     if (this.guard !== null) { return this.guard; }
-    this.guard = new PlaybackGuard(this.getUIContext().getHostContext() as common.UIAbilityContext,
+    const created: PlaybackGuard = new PlaybackGuard(this.getUIContext().getHostContext() as common.UIAbilityContext,
       (): void => { if (!this.clipEnded) { this.play(); } }, (): void => this.pause(),
       (position: number): void => this.seekTo(position));
-    return this.guard;
+    created.setEpisodeCommands((): void => { this.playPrevious(); }, (): void => { this.playNext(); });
+    const epSub: string = this.episodeNumber > 0 ? `第 ${this.seasonNumber} 季 · 第 ${this.episodeNumber} 集` : '';
+    if (this.posterUrl.length > 0 || epSub.length > 0) {
+      created.setArtwork(this.posterUrl.length > 0 ? this.posterUrl : null, epSub);
+    }
+    this.guard = created;
+    return created;
   }
 
   /**
@@ -2071,16 +2163,79 @@ export class PhonePlaybackHost implements PlaybackTestHost {
     if (view === null) {
       return null;
     }
-    let title: string | null = null;
-    for (const mark of view.chapters) {
-      if (mark.start_ms <= this.positionMs) {
-        const t: string | null = mark.title ?? null;
-        if (t !== null && t.length > 0) {
-          title = t;
+    const label: string = Chapters.currentLabel(view.chapters, this.positionMs, '');
+    return label.length > 0 ? label : null;
+  }
+
+  chapters(): PlaybackChapterMarkView[] {
+    return this.session?.chapters ?? [];
+  }
+
+  /** 横滑预览气泡里的目标章节标题 */
+  scrubChapterTitle(): string {
+    if (this.scrubMs < 0) {
+      return '';
+    }
+    return Chapters.currentLabel(this.chapters(), this.scrubMs, '');
+  }
+
+  /** 折叠悬停台上的当前字幕摘要 */
+  currentSubtitleSummary(): string {
+    const plans: SubtitlePlanView[] = this.session?.decision.subtitles ?? [];
+    if (this.subtitleIndex < 0 || this.subtitleIndex >= plans.length) {
+      return '字幕已关闭';
+    }
+    const base: string = this.subtitleLabel(plans[this.subtitleIndex], this.subtitleIndex);
+    return this.subDelayMs !== 0 ? `${base} (${this.subDelayLabel()})` : base;
+  }
+
+  /** 当前是否处于 HDR 视频渲染（激活 XComponent 1000nits 高亮动态余量） */
+  isHdrActive(): boolean {
+    const dr: string = this.dynamicRange.toLowerCase();
+    if (dr.length > 0 && dr !== 'sdr') {
+      return true;
+    }
+    const pix: string = this.enginePixel.toLowerCase();
+    return pix.indexOf('p010') >= 0 || pix.indexOf('10le') >= 0 || pix.indexOf('10be') >= 0;
+  }
+
+  /** 顶栏与悬停台展示的音画规格金标（HDR Vivid / 杜比视界 / Audio Vivid / 全景声 / ASS 特效） */
+  vividBadges(): string[] {
+    const out: string[] = [];
+    const dr: string = this.dynamicRange.toLowerCase();
+    if (dr.indexOf('vivid') >= 0) {
+      out.push('HDR Vivid');
+    } else if (dr.indexOf('dovi') >= 0 || dr.indexOf('dolby') >= 0 || dr === 'dv') {
+      out.push('杜比视界');
+    } else if (dr.indexOf('hdr10+') >= 0 || dr.indexOf('hdr10plus') >= 0) {
+      out.push('HDR10+');
+    } else if (dr.indexOf('hdr') >= 0) {
+      out.push('HDR10');
+    } else if (dr.indexOf('hlg') >= 0) {
+      out.push('HLG');
+    } else if (this.isHdrActive()) {
+      out.push('10-bit HDR');
+    }
+    const tracks: AudioTrackView[] = this.session?.decision.audio_tracks ?? [];
+    for (const track of tracks) {
+      if (this.audioRef.length > 0 ? track.ref === this.audioRef : track.is_default) {
+        const codec: string = (track.codec ?? '').toLowerCase();
+        if (codec.indexOf('av3a') >= 0 || codec.indexOf('vivid') >= 0) {
+          out.push('Audio Vivid');
+        } else if (codec.indexOf('joc') >= 0 || codec.indexOf('truehd') >= 0) {
+          out.push('全景声');
+        } else if ((track.channels ?? 0) >= 6) {
+          out.push(`${track.channels === 8 ? '7.1' : '5.1'} 环绕`);
         }
+        break;
       }
     }
-    return title;
+    const plans: SubtitlePlanView[] = this.session?.decision.subtitles ?? [];
+    if (this.subNativeAss && this.subtitleIndex >= 0 && this.subtitleIndex < plans.length
+      && plans[this.subtitleIndex].kind === 'ass') {
+      out.push('ASS 原生特效');
+    }
+    return out;
   }
 
   /** 时间 + 当前章节（iOS 的 `clock · chapter`） */
@@ -2377,6 +2532,7 @@ export class PhonePlaybackHost implements PlaybackTestHost {
     if (this.sheetKind === 'audio') { return '音轨'; }
     if (this.sheetKind === 'subtitle') { return '字幕'; }
     if (this.sheetKind === 'episodes') { return '选集'; }
+    if (this.sheetKind === 'chapters') { return '章节'; }
     if (this.sheetKind === 'quality') { return '画质'; }
     if (this.sheetKind === 'speed') { return '倍速'; }
     if (this.sheetKind === 'display') { return '画面'; }
@@ -2397,15 +2553,59 @@ export class PhonePlaybackHost implements PlaybackTestHost {
   }
   selectDisplay(mode: string): void { this.displayMode = mode; this.closeMenu(); }
   displayLabel(): string {
-    return this.displayMode === 'fill' ? '等比例铺满' : this.displayMode === 'stretch' ? '拉伸铺满' : '完整显示';
+    if (this.displayMode === 'fill') { return '等比例铺满'; }
+    if (this.displayMode === 'cinema219') { return '21:9 影院宽银幕'; }
+    if (this.displayMode === 'stretch') { return '拉伸铺满'; }
+    return '完整显示';
+  }
+  /** 折叠屏悬停操控台是否激活：半折悬停时自动切入（除非用户手动点全屏收起），也可在画面菜单手动开启预览 */
+  tabletopActive(): boolean {
+    if (this.isClip() || this.pipActive || FoldState.shared().coverActive) {
+      return false;
+    }
+    if (this.tabletopForce === 1) {
+      return this.layerHeight >= 420;
+    }
+    if (this.tabletopForce === -1) {
+      return false;
+    }
+    return FoldState.shared().halfFolded && this.layerHeight >= 420;
+  }
+  tabletopSplitY(): number {
+    const crease: number = FoldState.shared().creaseTopVp;
+    if (crease > 140 && crease < this.layerHeight - 160) {
+      return crease;
+    }
+    return Math.round(this.layerHeight * 0.48);
+  }
+  tabletopDeckTop(): number {
+    const split: number = this.tabletopSplitY();
+    const creaseH: number = FoldState.shared().creaseHeightVp;
+    return Math.min(this.layerHeight - 160, split + (creaseH > 0 ? creaseH : 6));
+  }
+  tabletopDeckHeight(): number {
+    return Math.max(160, this.layerHeight - this.tabletopDeckTop());
+  }
+  private videoViewportHeight(): number {
+    return this.tabletopActive() ? Math.max(120, this.tabletopSplitY()) : this.layerHeight;
   }
   surfaceWidth(): number {
+    const viewH: number = this.videoViewportHeight();
     if (this.displayMode === 'stretch') { return this.layerWidth; }
-    return this.displayMode === 'fill' ? Math.max(this.layerWidth, this.layerHeight * this.videoAspect)
-      : Math.min(this.layerWidth, this.layerHeight * this.videoAspect);
+    if (this.displayMode === 'cinema219') {
+      const targetH: number = Math.min(viewH, this.layerWidth / (21 / 9));
+      return Math.max(this.layerWidth, targetH * this.videoAspect);
+    }
+    return this.displayMode === 'fill' ? Math.max(this.layerWidth, viewH * this.videoAspect)
+      : Math.min(this.layerWidth, viewH * this.videoAspect);
   }
   surfaceHeight(): number {
-    return this.displayMode === 'stretch' ? this.layerHeight : this.surfaceWidth() / this.videoAspect;
+    const viewH: number = this.videoViewportHeight();
+    if (this.displayMode === 'stretch') { return viewH; }
+    if (this.displayMode === 'cinema219') {
+      return Math.min(viewH, this.layerWidth / (21 / 9));
+    }
+    return this.surfaceWidth() / this.videoAspect;
   }
   toggleControlLock(): void {
     this.controlsLocked = !this.controlsLocked; this.showSheet = false;
@@ -2494,27 +2694,59 @@ export class PhonePlaybackHost implements PlaybackTestHost {
     return this.inTopBarFallback(y) || this.inBottomBarFallback(y);
   }
 
+  private initSystemVolume(): void {
+    try {
+      const groupMgr = audio.getAudioManager().getVolumeManager().getVolumeGroupManagerSync(audio.DEFAULT_VOLUME_GROUP_ID);
+      const maxVol: number = groupMgr.getMaxVolumeSync(audio.AudioVolumeType.MEDIA);
+      const curVol: number = groupMgr.getVolumeSync(audio.AudioVolumeType.MEDIA);
+      if (maxVol > 0) {
+        this.maxVolumeLevel = maxVol;
+        this.volumeLevel = Math.max(0, Math.min(maxVol, curVol));
+        this.systemVolumeReady = true;
+      }
+    } catch (_err) {
+      this.systemVolumeReady = false;
+    }
+  }
+
+  private currentVolumeRatio(): number {
+    if (this.systemVolumeReady) {
+      try {
+        const groupMgr = audio.getAudioManager().getVolumeManager().getVolumeGroupManagerSync(audio.DEFAULT_VOLUME_GROUP_ID);
+        const curVol: number = groupMgr.getVolumeSync(audio.AudioVolumeType.MEDIA);
+        this.volumeLevel = Math.max(0, Math.min(this.maxVolumeLevel, curVol));
+      } catch (_err) {
+      }
+    }
+    return this.maxVolumeLevel > 0 ? this.volumeLevel / this.maxVolumeLevel : 0.5;
+  }
+
   adjustBegan(side: string): void {
     this.disarmAdjustHide();
     this.adjustSide = side;
     if (side === 'brightness') {
       this.adjustBase = this.currentBrightness();
     } else {
-      // 鸿蒙三方应用改不了系统音量：base 恒 0（HUD 走「音量由系统侧键控制」的降级分支）
-      this.adjustBase = 0;
+      this.adjustBase = this.currentVolumeRatio();
     }
     this.adjustValue = this.adjustBase;
   }
 
   adjustChanged(dy: number): void {
-    if (this.adjustSide !== 'brightness') {
-      return;
-    }
     // 上滑为增：屏幕坐标 y 向下，取负
     const sweep: number = Math.max(1, this.layerHeight * PhonePlaybackHost.fullSweepRatio);
     const value: number = Math.max(0, Math.min(1, this.adjustBase + -dy / sweep));
     this.adjustValue = value;
-    this.applyBrightness(value);
+    if (this.adjustSide === 'brightness') {
+      this.applyBrightness(value);
+    } else if (this.adjustSide === 'volume') {
+      // 驱动屏外挂载的官方 AVVolumePanel 无权限平滑调系统媒体音量，并在无面板环境下同步内核增益兜底
+      const nextLevel: number = Math.round(value * Math.max(1, this.maxVolumeLevel));
+      this.volumeLevel = nextLevel;
+      if (!this.systemVolumeReady) {
+        this.controller.setGain(value).catch((): void => {});
+      }
+    }
   }
 
   adjustEnded(): void {
@@ -3213,18 +3445,64 @@ export class PhonePlaybackHost implements PlaybackTestHost {
   adjustSubtitleStyle(fontScaleDelta: number, bottomDelta: number): void {
     this.subFontScale = Math.min(10, Math.max(2, Math.round((this.subFontScale + fontScaleDelta) * 10) / 10));
     this.subBottom = Math.min(40, Math.max(0, this.subBottom + bottomDelta));
-    const style: SubStyle = new SubStyle();
-    style.fontScale = this.subFontScale;
-    style.bottomPercent = this.subBottom;
-    style.background = this.subBackground;
-    PlayerPrefs.writeSubtitleStyle(style);
-    // mpv：样式直接交给 libass 渲染；AVPlayer 走上面的 @Local 变量自绘
-    this.controller.setSubtitleStyle(style);
+    this.syncSubtitleStyleToEngine(true);
   }
 
   toggleSubtitleBackground(): void {
     this.subBackground = !this.subBackground;
-    this.adjustSubtitleStyle(0, 0);
+    this.syncSubtitleStyleToEngine(true);
+  }
+
+  /** 切换 ASS/SSA 原生 libass GPU 特效渲染；若当前正播 ASS 且内核为 AVPlayer，当场无感切 MPV 激活特效 */
+  toggleNativeAss(): void {
+    this.subNativeAss = !this.subNativeAss;
+    this.syncSubtitleStyleToEngine(true);
+    const view: PlaybackSessionView | null = this.session;
+    const plans: SubtitlePlanView[] = view?.decision.subtitles ?? [];
+    if (this.subNativeAss && this.subtitleIndex >= 0 && this.subtitleIndex < plans.length
+      && plans[this.subtitleIndex].kind === 'ass' && this.controller.current().engine !== 'mpv'
+      && view !== null && (view.stream_url ?? '').length > 0) {
+      this.toast('已切换 MPV 启用 libass 原生特效字幕');
+      this.pendingSeekMs = this.positionMs;
+      this.attachPlayer(view.stream_url ?? '').catch((): void => {});
+    }
+  }
+
+  /** 字幕时间轴同步微调（毫秒，±100ms 步进，范围 -30s..+30s；AVPlayer 与 MPV 双内核即时生效） */
+  adjustSubtitleDelay(deltaMs: number): void {
+    this.subDelayMs = Math.max(-30000, Math.min(30000, this.subDelayMs + deltaMs));
+    this.syncSubtitleStyleToEngine(false);
+    this.tickAvpSubtitle(this.controller.current());
+  }
+
+  resetSubtitleDelay(): void {
+    if (this.subDelayMs === 0) {
+      return;
+    }
+    this.subDelayMs = 0;
+    this.syncSubtitleStyleToEngine(false);
+    this.tickAvpSubtitle(this.controller.current());
+  }
+
+  subDelayLabel(): string {
+    if (this.subDelayMs === 0) {
+      return '0.0s';
+    }
+    const sec: string = (Math.abs(this.subDelayMs) / 1000).toFixed(1);
+    return this.subDelayMs > 0 ? `+${sec}s` : `-${sec}s`;
+  }
+
+  private syncSubtitleStyleToEngine(persist: boolean): void {
+    const style: SubStyle = new SubStyle();
+    style.fontScale = this.subFontScale;
+    style.bottomPercent = this.subBottom;
+    style.background = this.subBackground;
+    style.nativeAss = this.subNativeAss;
+    style.delayMs = this.subDelayMs;
+    if (persist) {
+      PlayerPrefs.writeSubtitleStyle(style);
+    }
+    this.controller.setSubtitleStyle(style);
   }
 
   // MARK: 派生

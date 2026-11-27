@@ -373,6 +373,9 @@ export struct NetworkSection {
             .onSubmit(() => {
               this.commitProxyUrl();
             })
+            .onBlur(() => {
+              this.commitProxyUrl();
+            })
         }
         .width('100%')
         .alignItems(HorizontalAlign.Start)
@@ -584,6 +587,9 @@ export struct NetworkSection {
           onChange(v);
         })
         .onSubmit(() => {
+          this.commitMirrors();
+        })
+        .onBlur(() => {
           this.commitMirrors();
         })
     }

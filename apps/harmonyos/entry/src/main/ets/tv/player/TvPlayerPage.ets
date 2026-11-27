@@ -1,48 +1,42 @@
 /**
- * TV 播放器页（T020+T021，US4）：全屏画面 + 传输条 + 信息面板 + 情境元素 + 对话框。
- *
- * 结构（对齐参考端 MovieClawTV/Player/TVPlayerScreen.swift）：
- * - 画面：XComponent(SURFACE) 按视频宽高比 fit 摆放（引擎 start(surfaceId) 挂 AVPlayer）；
- * - 传输条（chrome）：片名行 + 缓冲/已播双层进度（含可跳段标记）+ 当前/剩余时间，
- *   4 秒无操作自动收起；暂停、面板打开、拖动中常显；
- * - 信息面板：字幕 / 音轨 / 画质三列同屏（音轨一条以上才有音轨列），选中即生效
- *   （字幕外挂轨即时切、烧录轨/音轨/画质走引擎重协商）；
- * - 情境元素（右下角，同一时刻只出一个）：跳过片头按钮、「即将播放」下一集卡
- *   （连播倒计时 + 观看片尾）；连播满上限播完弹「还在看《…》吗」；
- * - 对话框：错误（重试/返回，错误归因见引擎 errorKind）、软件转码同意、还在看吗；
- * - 返回键分级（playerBackHandler）：取消拖动 → 收面板 → 收下一集卡 → 退出。
- *
- * 焦点模型：平时焦点在根画面上（方向键 = 点按 ±10s / 长按连发快进快退 20×→40×→80×→160×
- * 松手跳落点 / 面板 / 呼出 chrome，OK = 播放暂停）；指针横滑 = 拖进度
- * （满屏一划 ≈ 片长 1/5 夹 1~15 分钟）；拖动/长按中浮出落点时间 + trickplay 缩略图；
- * 右下角按钮、对话框出现时 150ms 内显式抢焦点；面板打开焦点落字幕列当前行。
- * 引擎状态全部来自 TvAvPlayerEngine 的 @Trace（页面只渲染、不下播放决策）。
+ * TV 播放器页（US4 + 双 Vivid / 双内核影院增强）：
+ * - 视频表面：按 surfaceGeneration 代际挂载 XComponent(SURFACE)，支持 AVPlayer → libmpv 无感换面，
+ *   并按实时 HDR 流状态动态激活 `.hdrBrightness(1.0)` 高动态亮度余量；
+ * - 传输条（chrome）：实时展示 HDR Vivid / 杜比视界 / Audio Vivid / 杜比全景声 / MPV 硬解 / PGS / ASS 特效徽标；
+ * - 拖动预览浮层（Trickplay）：修复原生 PixelMap 显式释放，同时回显当前所处章节标题；
+ * - 顶部宽屏选集抽屉（播放剧集时在传输条展开态再按「上键」呼出）；
+ * - 四维影院控制面板（按「下键」或「菜单键」呼出）：
+ *   1) 音轨与字幕（含中文语言识别、字幕字号缩放、±0.1s 同步偏移、ASS 原生特效开关）
+ *   2) 画质、倍速（0.5×~3.0×）与播放内核（自动 / MPV / AVPlayer）
+ *   3) 章节跳转与选集
+ *   4) 音画链路实时诊断（Stats for Nerds：解码器、色彩像素格式、档位、服务端转码遥测）
  */
 import { KeyCode } from '@kit.InputKit';
 import { image } from '@kit.ImageKit';
 import { http } from '@kit.NetworkKit';
-import { hilog } from '@kit.PerformanceAnalysisKit';
 import { AppModel } from '../../common/AppModel';
 import { Formatters } from '../../common/Formatters';
 import { ImageUrls } from '../../common/ImageUrls';
+import { trackLanguageLabel } from '../../common/LanguageLabels';
 import { RemoteImage } from '../../common/RemoteImage';
-import { TvFocus } from '../components/TvFocus';
+import { Chapters } from '../../player/Chapters';
 import { MovieClawApi } from '../../api/Endpoints';
 import {
   AudioTrackView,
   EpisodeView,
+  PlaybackAutoSkipView,
+  PlaybackChapterMarkView,
+  PlaybackDiagnosticsView,
   PlaybackSegmentView,
-  PlaybackAutoSkipView, PlaybackSessionView,
+  PlaybackSessionView,
   SubtitlePlanView,
   TrickplayView
 } from '../../api/Models';
-import { TvColors } from '../theme/TvTheme';
-import { TvMetrics } from '../theme/TvTheme';
-import { TvType } from '../theme/TvTheme';
+import { TvFocus } from '../components/TvFocus';
 import { TvPlayRequest, TvUiState } from '../model/TvUiState';
-import { TvAvPlayerEngine, TvPlayback, TvPlayPhase, TvSkipSegments } from './TvAvPlayerEngine';
+import { TvPlayback, TvPlaybackHost, TvPlayPhase, TvSkipSegments } from '../playback/TvPlaybackHost';
+import { TvColors, TvMetrics, TvType } from '../theme/TvTheme';
 
-/** 画质选项（信息面板画质列；maxHeight 是上限语义：源不超就直通） */
 class TvQualityOption {
   readonly label: string;
   readonly maxHeight: number;
@@ -56,7 +50,7 @@ class TvQualityOption {
 
   static all(): TvQualityOption[] {
     return [
-      new TvQualityOption('自动（原画优先）', 0, '按源画质直通'),
+      new TvQualityOption('自动（原画优先）', 0, '按源画质与 HDR 直通'),
       new TvQualityOption('2160p', 2160, '4K 超高清'),
       new TvQualityOption('1080p', 1080, '全高清'),
       new TvQualityOption('720p', 720, '高清'),
@@ -65,27 +59,30 @@ class TvQualityOption {
   }
 }
 
-/**
- * 进度条缩略图（T028，同手机端 TrickplayTiles）：按需下载雪碧图，按落点裁出目标格子。
- * 雪碧图 token 已在地址里（不需要登录头）；裁格子走 `DecodingOptions.desiredRegion`，
- * 裁过的格子按序号缓存（一次拖动里每个序号最多裁一次）。
- */
+const TV_SPEEDS: number[] = [0.5, 0.75, 1.0, 1.25, 1.5, 2.0, 3.0];
+
 class TrickplayTiles {
   private index: TrickplayView | null = null;
   private sheets: Map<string, ArrayBuffer> = new Map<string, ArrayBuffer>();
   private loading: Set<string> = new Set<string>();
   private tiles: Map<number, image.PixelMap> = new Map<number, image.PixelMap>();
-  /** 雪碧图下载/裁格完成的回调（外面用它驱动界面刷新） */
   onSheetLoaded: (() => void) | null = null;
 
   setIndex(index: TrickplayView | null): void {
     this.index = index;
     this.sheets.clear();
     this.loading.clear();
+    this.releaseTiles();
+  }
+
+  private releaseTiles(): void {
+    this.tiles.forEach((tile: image.PixelMap): void => {
+      tile.release().catch((): void => {
+      });
+    });
     this.tiles.clear();
   }
 
-  /** 文件时间（毫秒）→ 该显示的格子；雪碧图还没下完返回 null（并开始下载） */
   tileAt(ms: number, origin: string): image.PixelMap | null {
     const index: TrickplayView | null = this.index;
     if (index === null || !index.ready || index.count <= 0 || index.interval_ms <= 0
@@ -106,7 +103,6 @@ class TrickplayTiles {
       this.loadSheet(path, origin + path);
       return null;
     }
-    // 裁格子：desiredRegion 是解码期裁剪，正好当 iOS 的 cgImage.cropping 用
     try {
       const source: image.ImageSource = image.createImageSource(buffer);
       const region: image.Region = {
@@ -117,7 +113,7 @@ class TrickplayTiles {
       source.createPixelMap({ desiredRegion: region }).then((tile: image.PixelMap): void => {
         source.release();
         if (this.tiles.size >= 60) {
-          this.tiles.clear();
+          this.releaseTiles();
         }
         this.tiles.set(ordinal, tile);
         if (this.onSheetLoaded !== null) {
@@ -126,8 +122,7 @@ class TrickplayTiles {
       }).catch((): void => {
         source.release();
       });
-    } catch (error) {
-      // 裁不出来：这一格就没有预览，不影响播放
+    } catch (_error) {
     }
     return null;
   }
@@ -154,14 +149,7 @@ class TrickplayTiles {
   }
 }
 
-/**
- * 按住左右键连续快进 / 快退的节奏（T028，同参考端 TVHoldScrub）：
- * 按住 0.4 秒起步（短于这个算点按，跳 10 秒），
- * 速度每 2 秒翻一倍：20× → 40× → 80× → 160×（片内秒数 / 秒）。
- * 起步不快到对不准，两小时的片子按住十来秒能走完大半。
- */
 class TvHoldScrub {
-  /** 长按门槛：短于这个算点按 */
   static readonly thresholdMs: number = 400;
 
   static rate(heldMs: number): number {
@@ -178,37 +166,71 @@ class TvHoldScrub {
   }
 }
 
-/** 信息面板的一行选项：焦点/悬浮高亮底、选中打勾、点选即生效 */
 @ComponentV2
-struct TvPanelOption {
+struct TvPanelTabPill {
   @Param label: string = '';
-  @Param detail: string = '';
-  /** 选中（打勾） */
-  @Param active: boolean = false;
-  /** FocusController.requestFocus 定位用 */
+  @Param selected: boolean = false;
   @Param focusKey: string = '';
   @Param onPick: (() => void) | null = null;
   @Local glow: boolean = false;
 
   build() {
-    Row({ space: 14 }) {
+    Text(this.label)
+      .fontSize(20)
+      .fontWeight(700)
+      .fontColor(this.glow ? '#0b0d12' : (this.selected ? '#ffffff' : 'rgba(255, 255, 255, 0.62)'))
+      .padding({ left: 24, right: 24, top: 10, bottom: 10 })
+      .borderRadius(999)
+      .backgroundColor(this.glow ? '#ffffff'
+        : (this.selected ? 'rgba(255, 255, 255, 0.18)' : 'rgba(255, 255, 255, 0.06)'))
+      .focusable(true)
+      .key(this.focusKey)
+      .onFocus((): void => {
+        this.glow = true;
+      })
+      .onBlur((): void => {
+        this.glow = false;
+      })
+      .onHover((isHover: boolean): void => {
+        this.glow = isHover;
+      })
+      .onClick((): void => {
+        const cb = this.onPick;
+        if (cb !== null) {
+          cb();
+        }
+      })
+  }
+}
+
+@ComponentV2
+struct TvPanelOption {
+  @Param label: string = '';
+  @Param detail: string = '';
+  @Param active: boolean = false;
+  @Param focusKey: string = '';
+  @Param onPick: (() => void) | null = null;
+  @Local glow: boolean = false;
+
+  build() {
+    Row({ space: 12 }) {
       Text('✓')
-        .fontSize(24)
+        .fontSize(20)
         .fontWeight(800)
         .fontColor('#ffd47a')
-        .width(28)
+        .width(24)
         .opacity(this.active ? 1 : 0)
-      Column({ space: 4 }) {
+      Column({ space: 3 }) {
         Text(this.label)
-          .fontSize(28)
+          .fontSize(22)
           .fontWeight(600)
-          .fontColor(this.glow ? TvColors.text : 'rgba(255, 255, 255, 0.78)')
+          .fontColor(this.glow ? TvColors.text : 'rgba(255, 255, 255, 0.80)')
           .maxLines(2)
           .textOverflow({ overflow: TextOverflow.Ellipsis })
         if (this.detail.length > 0) {
           Text(this.detail)
-            .fontSize(17)
-            .fontColor('rgba(255, 255, 255, 0.45)')
+            .fontSize(14)
+            .fontColor('rgba(255, 255, 255, 0.48)')
             .maxLines(1)
             .textOverflow({ overflow: TextOverflow.Ellipsis })
         }
@@ -217,9 +239,9 @@ struct TvPanelOption {
       .layoutWeight(1)
     }
     .width('100%')
-    .padding({ left: 22, right: 22, top: 13, bottom: 13 })
+    .padding({ left: 18, right: 18, top: 11, bottom: 11 })
     .borderRadius(11)
-    .backgroundColor(this.glow ? 'rgba(255, 255, 255, 0.14)' : Color.Transparent)
+    .backgroundColor(this.glow ? 'rgba(255, 255, 255, 0.16)' : Color.Transparent)
     .focusable(true)
     .key(this.focusKey)
     .onFocus((): void => {
@@ -232,7 +254,6 @@ struct TvPanelOption {
       this.glow = isHover;
     })
     .onClick((): void => {
-      // ClickEvent 没有 stopPropagation；子按钮的点击由根画面按 target.id 过滤
       const cb = this.onPick;
       if (cb !== null) {
         cb();
@@ -241,7 +262,6 @@ struct TvPanelOption {
   }
 }
 
-/** 信息面板「选集」列的一行：剧照缩略图 + 集号/集名；当前集打勾，缺集置灰不可点 */
 @ComponentV2
 struct TvPanelEpisodeRow {
   @Param episodeNumber: number = 0;
@@ -321,7 +341,6 @@ struct TvPanelEpisodeRow {
   }
 }
 
-/** 对话框按钮：玻璃胶囊，焦点/悬浮翻白底黑字（Apple TV 对话框样式） */
 @ComponentV2
 struct TvDialogButton {
   @Param label: string = '';
@@ -362,77 +381,55 @@ struct TvDialogButton {
 @ComponentV2
 export struct TvPlayerPage {
   @Local ui: TvUiState = TvUiState.shared;
-  @Local engine: TvAvPlayerEngine | null = null;
-  /** 传输条（chrome）可见性；4 秒无操作自动收起 */
+  @Local engine: TvPlaybackHost | null = null;
   @Local chromeVisible: boolean = true;
-  /** 信息面板（选集/字幕/音轨/画质）打开 */
   @Local panelOpen: boolean = false;
-  /** 自动连播倒计时 0~1（卡片上眉标给秒数） */
+  /** 面板页签：tracks | tuning | chapters | stats */
+  @Local panelTab: string = 'tracks';
+  /** 顶部宽屏选集抽屉（剧集播放中按上键呼出） */
+  @Local episodeDrawerOpen: boolean = false;
   @Local autoNextProgress: number = 0;
-  /** 无人值守的连续连播计数（满上限弹「还在看吗」） */
   @Local autoNextStreak: number = 0;
-  /** 「观看片尾」按过：这集不再倒计时（播完卡片会再出来） */
   @Local autoNextCancelled: boolean = false;
-  /** 下一集卡收起（返回键/观看片尾） */
   @Local nextDismissed: boolean = false;
-  /** 跳过按钮焦点/悬浮高亮 */
   @Local skipHovered: boolean = false;
-  /** 下一集卡两颗胶囊当前高亮的是哪颗（key 空串 = 都不高亮） */
   @Local cornerPillGlow: string = '';
 
-  // —— 拖动与连发快进（T028）——
-
-  /** 拖动/长按快进的落点（毫秒）；-1 = 没在拖。松手才真正跳（HLS 上途中跟随会打爆转码器） */
   @Local scrubMs: number = -1;
-  /** 长按连发速度（带方向，负 = 快退）；0 = 不是长按拖动 */
   @Local scrubRate: number = 0;
-  /** 雪碧图就位驱动浮层刷新 */
   @Local trickplayVersion: number = 0;
 
-  /** 焦点是否落在根画面（false = 在右下按钮/面板行/对话框上） */
   private surfaceFocused: boolean = false;
-  /** 右下角情境元素 / 对话框当前占焦的 key（变化时显式转焦点） */
   private contextualFocus: string = '';
-  /** 本轮拖动的出发点（长按中按返回 = 丢掉落点回这里） */
   private scrubBase: number = 0;
-  /** 正按住的方向键（KEYCODE_DPAD_LEFT/RIGHT；0 = 没按） */
   private arrowHeld: number = 0;
-  /** 长按门槛计时（0.4s 内松开 = 点按 ±10s） */
   private holdArmTimer: number = -1;
-  /** 长按连发节拍（100ms 推进落点） */
   private holdTickTimer: number = -1;
   private holdStartAt: number = 0;
   private pageWidth: number = 0;
   private pageHeight: number = 0;
-  private surfaceId: string = '';
-  private surfaceController: XComponentController = new XComponentController();
   private chromeTimer: number = -1;
   private clockTimer: number = -1;
-  /** 进度条缩略图（雪碧图按需下载、格子裁剪缓存） */
+  private autoExitScheduled: boolean = false;
   private trickplay: TrickplayTiles = new TrickplayTiles();
   private trickplayGen: number = 0;
-  /** 已加载缩略图对应的会话标识（换会话/换集时重新取） */
   private lastSessionId: string = '';
-  /** 自动跳过总开关（随会话下发；旧服务端没有该字段时默认开） */
   private autoSkipEnabled: boolean = true;
-  /** 本集已决定过的段起点：自然播进去自动跳一次，拖回去/跳回来只给按钮 */
   private skipHandled: number[] = [];
-  /** skipHandled 属于哪一集（换集清空） */
   private skipHandledEpisode: number = 0;
-  /** 选集列表滚动器（打开面板时定位到当前集） */
   private episodeScroller: Scroller = new Scroller();
+  private drawerScroller: Scroller = new Scroller();
 
   aboutToAppear(): void {
-    hilog.info(0x0000, 'DbgFlow', 'PLAYER_PAGE_APPEAR');
     const request: TvPlayRequest | null = this.ui.playerRequest;
-    const adopted: TvAvPlayerEngine | null = TvPlayback.adopt();
+    const adopted: TvPlaybackHost | null = TvPlayback.adopt();
     if (adopted !== null) {
       this.engine = adopted;
     } else if (request !== null) {
-      // 兜底：视图比 begin 先挂（异常路径）——就地建引擎并预协商
-      const engine: TvAvPlayerEngine = new TvAvPlayerEngine(request);
-      this.engine = engine;
-      engine.prepare();
+      const host: TvPlaybackHost = new TvPlaybackHost(request);
+      this.engine = host;
+      host.prepare().catch((): void => {
+      });
     }
     this.ui.playerBackHandler = (): boolean => this.handleBack();
     this.trickplay.onSheetLoaded = (): void => {
@@ -444,7 +441,6 @@ export struct TvPlayerPage {
   }
 
   aboutToDisappear(): void {
-    hilog.info(0x0000, 'DbgFlow', 'PLAYER_PAGE_DISAPPEAR');
     this.ui.playerBackHandler = null;
     this.cancelScrub();
     this.trickplayGen++;
@@ -457,24 +453,28 @@ export struct TvPlayerPage {
       clearInterval(this.clockTimer);
       this.clockTimer = -1;
     }
+    this.engine?.stopDiagnostics();
     this.engine = null;
     TvPlayback.end();
   }
 
-  /** 引擎非空断言：aboutToAppear 先于 build，页面挂起时引擎一定就位 */
-  private eng(): TvAvPlayerEngine {
-    return this.engine as TvAvPlayerEngine;
+  private eng(): TvPlaybackHost {
+    return this.engine as TvPlaybackHost;
   }
 
-  // MARK: - 遥控键
+  private surfaceGenerations(): number[] {
+    const e: TvPlaybackHost | null = this.engine;
+    return [e !== null ? e.surfaceGeneration : 0];
+  }
+
+  // MARK: - 遥控器与媒体按键
 
   private onKey(event: KeyEvent): boolean {
-    const engine: TvAvPlayerEngine | null = this.engine;
+    const engine: TvPlaybackHost | null = this.engine;
     if (engine === null) {
       return false;
     }
     const code: number = event.keyCode;
-    // 左右键松开：长按拖动跳到落点，点按跳 10 秒（T028）
     if (event.type === KeyType.Up
       && (code === KeyCode.KEYCODE_DPAD_LEFT || code === KeyCode.KEYCODE_DPAD_RIGHT)) {
       if (this.arrowHeld === code) {
@@ -486,39 +486,67 @@ export struct TvPlayerPage {
     if (event.type !== KeyType.Down) {
       return false;
     }
-    // 播放/暂停在焦点落在任何非模态元素上时都生效（同 tvOS onPlayPauseCommand）
     if (code === KeyCode.KEYCODE_MEDIA_PLAY_PAUSE) {
       this.noteUserActivity();
       engine.togglePlay();
       this.showChrome();
       return true;
     }
-    if (this.isModal() || this.panelOpen) {
-      // 对话框/面板的行自己走焦点导航；返回键走 ui.handleBack → playerBackHandler
-      return false;
-    }
-    if (code === KeyCode.KEYCODE_DPAD_LEFT) {
-      if (this.surfaceFocused) {
-        this.noteUserActivity();
-        this.pressArrow(code);
-        return true;
-      }
-      return false;
-    }
-    if (code === KeyCode.KEYCODE_DPAD_RIGHT) {
-      if (this.surfaceFocused) {
-        this.noteUserActivity();
-        this.pressArrow(code);
-        return true;
-      }
-      return false;
-    }
-    if (code === KeyCode.KEYCODE_DPAD_UP) {
+    if (code === KeyCode.KEYCODE_MEDIA_NEXT) {
+      this.noteUserActivity();
+      engine.playNext();
       this.showChrome();
       return true;
     }
+    if (code === KeyCode.KEYCODE_MEDIA_PREVIOUS) {
+      this.noteUserActivity();
+      engine.playPrevious();
+      this.showChrome();
+      return true;
+    }
+    if (code === KeyCode.KEYCODE_MEDIA_FAST_FORWARD) {
+      this.noteUserActivity();
+      engine.seekBy(30000);
+      this.showChrome();
+      return true;
+    }
+    if (code === KeyCode.KEYCODE_MEDIA_REWIND) {
+      this.noteUserActivity();
+      engine.seekBy(-15000);
+      this.showChrome();
+      return true;
+    }
+    if (code === KeyCode.KEYCODE_MENU) {
+      if (this.panelOpen) {
+        this.closePanel();
+      } else if (!this.isModal()) {
+        this.openPanel('tracks');
+      }
+      return true;
+    }
+    if (this.isModal() || this.panelOpen || this.episodeDrawerOpen) {
+      return false;
+    }
+    if (code === KeyCode.KEYCODE_DPAD_LEFT && this.surfaceFocused) {
+      this.noteUserActivity();
+      this.pressArrow(code);
+      return true;
+    }
+    if (code === KeyCode.KEYCODE_DPAD_RIGHT && this.surfaceFocused) {
+      this.noteUserActivity();
+      this.pressArrow(code);
+      return true;
+    }
+    if (code === KeyCode.KEYCODE_DPAD_UP) {
+      if (this.chromeVisible && this.hasEpisodePicker()) {
+        this.openEpisodeDrawer();
+      } else {
+        this.showChrome();
+      }
+      return true;
+    }
     if (code === KeyCode.KEYCODE_DPAD_DOWN) {
-      this.openPanel();
+      this.openPanel('tracks');
       return true;
     }
     if ((code === KeyCode.KEYCODE_DPAD_CENTER || code === KeyCode.KEYCODE_ENTER)
@@ -531,12 +559,8 @@ export struct TvPlayerPage {
     return false;
   }
 
-  // MARK: - 拖动与连发快进（T028：点按 ±10s；长按 0.4s 起步 20×→40×→80×→160× 松手跳落点）
-
-  /** 按下左右键：先立门槛计时；期间一直按着才升级成长按拖动 */
   private pressArrow(code: number): void {
     if (this.arrowHeld !== 0) {
-      // 已在按住另一方向（系统连发 Down 事件）：不重置节奏
       if (this.scrubMs >= 0) {
         this.showChrome();
       }
@@ -552,7 +576,6 @@ export struct TvPlayerPage {
     }, TvHoldScrub.thresholdMs);
   }
 
-  /** 松开左右键：长按拖动跳到落点；没到门槛 = 点按，跳 10 秒 */
   private releaseArrow(): void {
     const held: number = this.arrowHeld;
     this.arrowHeld = 0;
@@ -561,7 +584,6 @@ export struct TvPlayerPage {
       this.holdArmTimer = -1;
     }
     if (this.scrubRate !== 0 || (this.scrubMs >= 0 && this.holdTickTimer >= 0)) {
-      // 长按拖动结束：跳到落点继续播放
       const target: number = this.scrubMs;
       this.stopHoldTick();
       this.scrubMs = -1;
@@ -574,9 +596,8 @@ export struct TvPlayerPage {
     this.showChrome();
   }
 
-  /** 过了长按门槛：落点从当前位置起步，100ms 节拍按倍速推进 */
   private beginHoldScrub(): void {
-    const engine: TvAvPlayerEngine | null = this.engine;
+    const engine: TvPlaybackHost | null = this.engine;
     if (engine === null || engine.durationMs <= 0 || this.scrubMs >= 0) {
       return;
     }
@@ -591,7 +612,7 @@ export struct TvPlayerPage {
   }
 
   private tickHoldScrub(): void {
-    const engine: TvAvPlayerEngine | null = this.engine;
+    const engine: TvPlaybackHost | null = this.engine;
     if (engine === null || this.scrubMs < 0) {
       this.stopHoldTick();
       return;
@@ -600,7 +621,6 @@ export struct TvPlayerPage {
     const direction: number = this.arrowHeld === KeyCode.KEYCODE_DPAD_LEFT ? -1 : 1;
     const rate: number = TvHoldScrub.rate(heldMs) * direction;
     this.scrubRate = rate;
-    // 每拍 100ms：落点按「片内秒数/秒」推进，夹在片长内
     let target: number = this.scrubMs + rate * 100;
     const duration: number = engine.durationMs;
     if (duration > 0) {
@@ -617,7 +637,6 @@ export struct TvPlayerPage {
     }
   }
 
-  /** 取消拖动：长按中按返回、离开页面——丢掉落点回原处（画面没动过） */
   private cancelScrub(): void {
     this.arrowHeld = 0;
     if (this.holdArmTimer >= 0) {
@@ -629,12 +648,10 @@ export struct TvPlayerPage {
     this.scrubRate = 0;
   }
 
-  // MARK: - 指针滑动拖动（T028：满屏一划 ≈ 片长 1/5，夹在 1~15 分钟，松手才跳）
-
   private beginSwipeScrub(): void {
-    const engine: TvAvPlayerEngine | null = this.engine;
+    const engine: TvPlaybackHost | null = this.engine;
     if (engine === null || engine.durationMs <= 0 || this.isModal() || this.panelOpen
-      || this.scrubMs >= 0) {
+      || this.episodeDrawerOpen || this.scrubMs >= 0) {
       return;
     }
     this.noteUserActivity();
@@ -644,7 +661,7 @@ export struct TvPlayerPage {
   }
 
   private updateSwipeScrub(offsetX: number): void {
-    const engine: TvAvPlayerEngine | null = this.engine;
+    const engine: TvPlaybackHost | null = this.engine;
     if (engine === null || this.scrubMs < 0 || this.pageWidth <= 0 || this.scrubRate !== 0) {
       return;
     }
@@ -657,7 +674,6 @@ export struct TvPlayerPage {
 
   private endSwipeScrub(): void {
     if (this.scrubMs < 0 || this.scrubRate !== 0) {
-      // 长按拖动途中的滑动不算（按边缘时手指带出来的）
       return;
     }
     const target: number = this.scrubMs;
@@ -666,12 +682,10 @@ export struct TvPlayerPage {
     this.showChrome();
   }
 
-  // MARK: - 进度条缩略图（T028 trickplay）
+  // MARK: - Trickplay 缩略图
 
-  /** 从已签名的取流地址里取 token（缩略图索引 / 雪碧图复用同一份授权） */
   private streamToken(): string {
-    const engine: TvAvPlayerEngine | null = this.engine;
-    const view: PlaybackSessionView | null = engine !== null ? engine.session : null;
+    const view: PlaybackSessionView | null = this.engine?.session ?? null;
     const url: string = view !== null ? (view.stream_url ?? '') : '';
     const at: number = url.indexOf('?');
     if (at < 0) {
@@ -686,14 +700,9 @@ export struct TvPlayerPage {
     return '';
   }
 
-  /**
-   * 缩略图索引：开会话时服务端才在后台生成，没就绪就隔一阵再问
-   * （最多 6 次、间隔 30 秒，失败无所谓）。换会话/换集重新来。
-   */
   private loadTrickplay(): void {
     const api: MovieClawApi | null = AppModel.shared.api;
-    const engine: TvAvPlayerEngine | null = this.engine;
-    const view = engine !== null ? engine.session : null;
+    const view = this.engine?.session ?? null;
     const fileId: number = view !== null ? (view.decision.file_id ?? 0) : 0;
     const token: string = this.streamToken();
     this.trickplayGen++;
@@ -705,8 +714,7 @@ export struct TvPlayerPage {
     this.pollTrickplay(api, gen, fileId, token, 0);
   }
 
-  private pollTrickplay(api: MovieClawApi, gen: number, fileId: number,
-    token: string, attempt: number): void {
+  private pollTrickplay(api: MovieClawApi, gen: number, fileId: number, token: string, attempt: number): void {
     if (gen !== this.trickplayGen || attempt >= 6) {
       return;
     }
@@ -729,7 +737,6 @@ export struct TvPlayerPage {
     });
   }
 
-  /** 拖动落点该显示的缩略图格子（雪碧图还没下完返回 null，只显示时间） */
   private scrubTile(): image.PixelMap | null {
     if (this.scrubMs < 0) {
       return null;
@@ -737,27 +744,25 @@ export struct TvPlayerPage {
     return this.trickplay.tileAt(this.scrubMs, AppModel.origin());
   }
 
-  /**
-   * 换会话/换集/重协商：缩略图索引重新取（文件变了落点格子也变了）。
-   *
-   * 原来用 `@Monitor('engine.session')`，但 `engine` 初始为 null，V2 在组件初始化时
-   * 找不到这条路径（日志：`@Monitor path 'engine.session' - initialize not found`），
-   * 监视器永远不触发。改为 100ms 时钟里比对会话标识，简单可靠。
-   */
+  private scrubChapterTitle(): string {
+    if (this.scrubMs < 0) {
+      return '';
+    }
+    const chs: PlaybackChapterMarkView[] = this.engine?.chapters() ?? [];
+    return Chapters.currentTitle(chs, this.scrubMs);
+  }
+
   private syncSessionTrickplay(): void {
-    const engine: TvAvPlayerEngine | null = this.engine;
+    const engine: TvPlaybackHost | null = this.engine;
     const view: PlaybackSessionView | null = engine !== null ? engine.session : null;
-    const id: string = view !== null
-      ? `${view.session_id ?? ''}@${view.decision.file_id ?? 0}`
-      : '';
+    const id: string = view !== null ? `${view.session_id ?? ''}@${view.decision.file_id ?? 0}` : '';
     if (id === this.lastSessionId) {
       return;
     }
     this.lastSessionId = id;
-    // 自动跳过总开关随会话下发（旧服务端没有就按默认开）
-    const auto: PlaybackAutoSkipView | null = view !== null ? view.auto_skip ?? null : null;
+    const auto: PlaybackAutoSkipView | null = view !== null ? (view.auto_skip ?? null) : null;
     this.autoSkipEnabled = auto !== null ? auto.enabled : true;
-    // 换集后「本集处理过的段」重新开始算
+    this.autoExitScheduled = false;
     const episode: number = engine !== null ? engine.currentEpisode : 0;
     if (episode !== this.skipHandledEpisode) {
       this.skipHandledEpisode = episode;
@@ -766,14 +771,9 @@ export struct TvPlayerPage {
     this.loadTrickplay();
   }
 
-  /**
-   * 自动跳过片头/广告/预告：自然播进区间就跳到区间尾（同手机端 evaluateAutoSkip）。
-   * 每段只自动跳一次——用户拖回去重看时只保留「跳过」按钮，不再硬拽。
-   * 片尾（outro + to_end）不进这里：由「下一集」卡片倒计时自动连播处理。
-   */
   private evaluateAutoSkip(): void {
-    const engine: TvAvPlayerEngine | null = this.engine;
-    if (engine === null || this.panelOpen || this.scrubMs >= 0 || this.isModal()) {
+    const engine: TvPlaybackHost | null = this.engine;
+    if (engine === null || this.panelOpen || this.episodeDrawerOpen || this.scrubMs >= 0 || this.isModal()) {
       return;
     }
     if (engine.phase !== TvPlayPhase.playing) {
@@ -787,21 +787,18 @@ export struct TvPlayerPage {
     if (!this.autoSkipEnabled) {
       return;
     }
-    hilog.info(0x0000, 'DbgSkip', 'AUTO_SKIP type=%{public}s start=%{public}d end=%{public}d',
-      segment.type, segment.start_ms, segment.end_ms);
     engine.seekTo(segment.end_ms);
     this.showChrome();
   }
 
-  // MARK: - chrome 显隐
+  // MARK: - Chrome / 面板 / 抽屉
 
   private chromeMustStay(): boolean {
-    const engine: TvAvPlayerEngine | null = this.engine;
+    const engine: TvPlaybackHost | null = this.engine;
     if (engine === null) {
       return true;
     }
-    // 暂停时用户在找进度；面板开着；拖动中
-    return engine.phase === TvPlayPhase.paused || this.panelOpen || this.scrubMs >= 0;
+    return engine.phase === TvPlayPhase.paused || this.panelOpen || this.episodeDrawerOpen || this.scrubMs >= 0;
   }
 
   private showChrome(): void {
@@ -817,94 +814,101 @@ export struct TvPlayerPage {
     }, 4000);
   }
 
-  // MARK: - 信息面板
-
-  /**
-   * 安全请求焦点：requestFocus 对「祖先不可获焦 / 节点未挂树」会抛异常，
-   * 而这里都在定时器回调里——不接住就直接进程崩溃（实测 150002）。
-   * 焦点失败只是走焦不理想，不该让播放器退出。
-   */
   private requestFocusSafe(key: string): void {
     TvFocus.request(this.getUIContext(), key);
   }
 
-  private openPanel(): void {
-    const engine: TvAvPlayerEngine | null = this.engine;
-    if (engine === null || engine.session === null || this.isModal()) {
+  private openEpisodeDrawer(): void {
+    if (!this.hasEpisodePicker() || this.isModal()) {
       return;
     }
-    this.panelOpen = true;
+    this.episodeDrawerOpen = true;
     this.showChrome();
-    // 焦点落字幕列当前选中行（面板行刚挂载，稍等再定位才可靠）
     setTimeout((): void => {
-      if (this.panelOpen) {
-        this.requestFocusSafe(this.subtitleRowKey());
+      if (!this.episodeDrawerOpen) {
+        return;
       }
-    }, 140);
-    // 选集列直接定位到正在播的那一集（长剧集不用从头滚）
-    if (this.hasEpisodePicker()) {
-      setTimeout((): void => {
-        if (!this.panelOpen) {
-          return;
+      const cur: number = this.eng().currentEpisode;
+      const idx: number = this.eng().episodes.findIndex((e: EpisodeView): boolean => e.episode_number === cur);
+      if (idx >= 0) {
+        try {
+          this.drawerScroller.scrollToIndex(idx, false, ScrollAlign.CENTER);
+        } catch (_err) {
         }
-        const current: number = this.eng().currentEpisode;
-        const index: number = this.eng().episodes
-          .findIndex((episode: EpisodeView): boolean => episode.episode_number === current);
-        if (index >= 0) {
-          this.episodeScroller.scrollToIndex(index, true, ScrollAlign.CENTER);
-        }
-      }, 180);
-    }
+        this.requestFocusSafe(`tv_drawer_ep_${cur}`);
+      }
+    }, 120);
   }
 
-  private closePanel(): void {
-    this.panelOpen = false;
+  private closeEpisodeDrawer(): void {
+    this.episodeDrawerOpen = false;
     setTimeout((): void => {
       this.requestFocusSafe('tv_player_root');
     }, 60);
   }
 
-  /** 字幕列的行 key：第 0 行「关闭」，选项 1..n（焦点落打开面板那一刻的选中行） */
-  private subtitleRowKey(): string {
-    const engine: TvAvPlayerEngine | null = this.engine;
-    if (engine === null) {
-      return 'tv_panel_subtitle_0';
+  private openPanel(tab: string = 'tracks'): void {
+    const engine: TvPlaybackHost | null = this.engine;
+    if (engine === null || engine.session === null || this.isModal()) {
+      return;
     }
-    const index: number = engine.selectedSubtitleIndex;
-    return `tv_panel_subtitle_${index + 1}`;
-  }
-
-  // MARK: - 轨道 / 画质选择（选中即生效，面板保持打开）
-
-  private pickSubtitle(index: number): void {
-    this.eng().selectSubtitle(index);
+    this.episodeDrawerOpen = false;
+    this.panelTab = tab;
+    this.panelOpen = true;
+    if (tab === 'stats') {
+      engine.startDiagnostics();
+    } else {
+      engine.stopDiagnostics();
+    }
     this.showChrome();
+    setTimeout((): void => {
+      if (this.panelOpen) {
+        this.requestFocusSafe(`tv_panel_tab_${tab}`);
+      }
+    }, 120);
   }
 
-  private pickAudio(ref: string): void {
-    this.eng().selectAudio(ref);
-    this.showChrome();
+  private switchPanelTab(tab: string): void {
+    this.panelTab = tab;
+    if (tab === 'stats') {
+      this.eng().startDiagnostics();
+    } else {
+      this.eng().stopDiagnostics();
+    }
+    if (tab === 'chapters' && this.hasEpisodePicker()) {
+      setTimeout((): void => {
+        const cur: number = this.eng().currentEpisode;
+        const idx: number = this.eng().episodes.findIndex((e: EpisodeView): boolean => e.episode_number === cur);
+        if (idx >= 0) {
+          try {
+            this.episodeScroller.scrollToIndex(idx, true, ScrollAlign.CENTER);
+          } catch (_err) {
+          }
+        }
+      }, 100);
+    }
   }
 
-  private pickQuality(maxHeight: number): void {
-    this.eng().switchQuality(maxHeight);
-    this.showChrome();
+  private closePanel(): void {
+    this.panelOpen = false;
+    this.engine?.stopDiagnostics();
+    setTimeout((): void => {
+      this.requestFocusSafe('tv_player_root');
+    }, 60);
   }
 
-  // MARK: - 情境状态判定
+  // MARK: - 情境与自动连播
 
   private isModal(): boolean {
-    const engine: TvAvPlayerEngine | null = this.engine;
+    const engine: TvPlaybackHost | null = this.engine;
     if (engine === null) {
       return false;
     }
-    return engine.phase === TvPlayPhase.error || engine.phase === TvPlayPhase.consent
-      || this.asksStillWatching();
+    return engine.phase === TvPlayPhase.error || engine.phase === TvPlayPhase.consent || this.asksStillWatching();
   }
 
-  /** 连播满上限后放完：不自动接，问一句「还在看吗」 */
   private asksStillWatching(): boolean {
-    const engine: TvAvPlayerEngine | null = this.engine;
+    const engine: TvPlaybackHost | null = this.engine;
     const request: TvPlayRequest | null = this.ui.playerRequest;
     if (engine === null || request === null || !request.autoAdvance) {
       return false;
@@ -913,22 +917,19 @@ export struct TvPlayerPage {
       && this.autoNextStreak >= TvSkipSegments.autoNextMaxStreak;
   }
 
-  /** 「即将播放」卡片可不可见（对话框占着时不给；「观看片尾」按过收起） */
   private showsUpNext(): boolean {
-    const engine: TvAvPlayerEngine | null = this.engine;
+    const engine: TvPlaybackHost | null = this.engine;
     if (engine === null || this.isModal() || this.nextDismissed) {
       return false;
     }
     if (engine.nextEpisode() === null) {
       return false;
     }
-    return TvSkipSegments.shouldShowUpNext(engine.segments(), engine.positionMs,
-      engine.phase === TvPlayPhase.ended);
+    return TvSkipSegments.shouldShowUpNext(engine.segments(), engine.positionMs, engine.phase === TvPlayPhase.ended);
   }
 
-  /** 卡片要不要倒计时自动播下一集（连播关了不倒计时；满上限不倒计时） */
   private autoNextArmed(): boolean {
-    const engine: TvAvPlayerEngine | null = this.engine;
+    const engine: TvPlaybackHost | null = this.engine;
     const request: TvPlayRequest | null = this.ui.playerRequest;
     if (engine === null || request === null || !request.autoAdvance) {
       return false;
@@ -936,43 +937,36 @@ export struct TvPlayerPage {
     if (!this.showsUpNext() || this.autoNextCancelled) {
       return false;
     }
-    return TvSkipSegments.autoNextArmed(engine.segments(), engine.positionMs,
-      this.autoNextStreak, engine.phase === TvPlayPhase.ended);
+    return TvSkipSegments.autoNextArmed(
+      engine.segments(),
+      engine.positionMs,
+      this.autoNextStreak,
+      engine.phase === TvPlayPhase.ended
+    );
   }
 
-  /** 右下角当前该显示的「跳过」段（无 = null） */
   private activeSkipSeg(): PlaybackSegmentView | null {
-    const engine: TvAvPlayerEngine | null = this.engine;
-    return engine !== null ? engine.activeSkipSegment() : null;
+    return this.engine !== null ? this.engine.activeSkipSegment() : null;
   }
 
   private pausedVisible(): boolean {
-    const engine: TvAvPlayerEngine | null = this.engine;
-    if (engine === null) {
-      return false;
-    }
-    return engine.phase === TvPlayPhase.paused && engine.positionMs > 0 && !this.isModal();
+    const engine: TvPlaybackHost | null = this.engine;
+    return engine !== null && engine.phase === TvPlayPhase.paused && engine.positionMs > 0 && !this.isModal();
   }
 
   private busyVisible(): boolean {
-    const engine: TvAvPlayerEngine | null = this.engine;
+    const engine: TvPlaybackHost | null = this.engine;
     if (engine === null || this.isModal()) {
       return false;
     }
     return engine.phase === TvPlayPhase.negotiating
-      || (engine.buffering && (engine.phase === TvPlayPhase.playing
-        || engine.phase === TvPlayPhase.paused));
+      || (engine.buffering && (engine.phase === TvPlayPhase.playing || engine.phase === TvPlayPhase.paused));
   }
 
   private busyLabel(): string {
-    const engine: TvAvPlayerEngine | null = this.engine;
-    if (engine !== null && engine.phase === TvPlayPhase.negotiating) {
-      return '正在打开…';
-    }
-    return '正在缓冲…';
+    const engine: TvPlaybackHost | null = this.engine;
+    return engine !== null && engine.phase === TvPlayPhase.negotiating ? '正在打开…' : '正在缓冲…';
   }
-
-  // MARK: - 自动连播节拍（100ms 钟：倒计时 + 情境焦点）
 
   private startClock(): void {
     if (this.clockTimer >= 0) {
@@ -982,12 +976,28 @@ export struct TvPlayerPage {
       this.syncSessionTrickplay();
       this.evaluateAutoSkip();
       this.tickAutoNext();
+      this.checkMovieEndedExit();
       this.refreshContextualFocus();
     }, 100);
   }
 
+  private checkMovieEndedExit(): void {
+    const engine: TvPlaybackHost | null = this.engine;
+    if (engine === null || this.autoExitScheduled || engine.phase !== TvPlayPhase.ended) {
+      return;
+    }
+    if (engine.nextEpisode() === null) {
+      this.autoExitScheduled = true;
+      setTimeout((): void => {
+        if (this.engine !== null && this.engine.phase === TvPlayPhase.ended && this.engine.nextEpisode() === null) {
+          this.exitPlayer();
+        }
+      }, 1200);
+    }
+  }
+
   private tickAutoNext(): void {
-    const engine: TvAvPlayerEngine | null = this.engine;
+    const engine: TvPlaybackHost | null = this.engine;
     if (engine === null) {
       return;
     }
@@ -995,12 +1005,10 @@ export struct TvPlayerPage {
       this.autoNextProgress = 0;
       return;
     }
-    // 暂停时不走；播完照走（片尾短于倒计时时不能卡在最后一帧）
     if (engine.phase !== TvPlayPhase.playing && engine.phase !== TvPlayPhase.ended) {
       return;
     }
-    this.autoNextProgress = Math.min(1,
-      this.autoNextProgress + 100 / TvSkipSegments.autoNextMs);
+    this.autoNextProgress = Math.min(1, this.autoNextProgress + 100 / TvSkipSegments.autoNextMs);
     if (this.autoNextProgress < 1) {
       return;
     }
@@ -1010,11 +1018,10 @@ export struct TvPlayerPage {
     this.resetUpNextState();
   }
 
-  /** 右下角元素 / 对话框出现时显式抢焦点，消失时还给画面 */
   private refreshContextualFocus(): void {
     let target: string = '';
-    const engine: TvAvPlayerEngine | null = this.engine;
-    if (engine !== null && !this.panelOpen) {
+    const engine: TvPlaybackHost | null = this.engine;
+    if (engine !== null && !this.panelOpen && !this.episodeDrawerOpen) {
       if (this.isModal()) {
         if (engine.phase === TvPlayPhase.error) {
           target = 'tv_player_retry';
@@ -1034,9 +1041,7 @@ export struct TvPlayerPage {
     }
     const previous: string = this.contextualFocus;
     this.contextualFocus = target;
-    // 目标还没挂载稳，稍等再定位；收掉时焦点还给根画面
-    const finalKey: string = target.length > 0 ? target
-      : (previous.length > 0 ? 'tv_player_root' : '');
+    const finalKey: string = target.length > 0 ? target : (previous.length > 0 ? 'tv_player_root' : '');
     if (finalKey.length === 0) {
       return;
     }
@@ -1062,7 +1067,6 @@ export struct TvPlayerPage {
     this.showChrome();
   }
 
-  /** 收起「下一集」卡片接着放片尾（播完卡片会再出来） */
   private dismissUpNext(): void {
     this.noteUserActivity();
     this.nextDismissed = true;
@@ -1076,7 +1080,6 @@ export struct TvPlayerPage {
     this.noteUserActivity();
     this.eng().seekTo(segment.end_ms);
     this.showChrome();
-    // 手动跳过片头 = 这部剧「学过」了：告诉服务端，以后自动跳过（同手机端）
     if (segment.type === 'intro') {
       const api: MovieClawApi | null = AppModel.shared.api;
       const request: TvPlayRequest | null = this.ui.playerRequest;
@@ -1091,13 +1094,14 @@ export struct TvPlayerPage {
     this.ui.closePlayer();
   }
 
-  // MARK: - 返回键分级（TvUiState.handleBack 委托）
-
   private handleBack(): boolean {
     this.noteUserActivity();
     if (this.scrubMs >= 0) {
-      // 拖动/长按快进中按返回：取消拖动回原处（画面没动过，丢掉落点即可）
       this.cancelScrub();
+      return true;
+    }
+    if (this.episodeDrawerOpen) {
+      this.closeEpisodeDrawer();
       return true;
     }
     if (this.panelOpen) {
@@ -1105,19 +1109,18 @@ export struct TvPlayerPage {
       return true;
     }
     if (this.showsUpNext()) {
-      // 卡片在时返回 = 「观看片尾」，免得一按就退出播放
       this.dismissUpNext();
       return true;
     }
     return false;
   }
 
-  // MARK: - 文案与数据助手
+  // MARK: - 文案与派生
 
   private titleLine(): string {
     const request: TvPlayRequest | null = this.ui.playerRequest;
     const base: string = request !== null ? request.title : '播放';
-    const engine: TvAvPlayerEngine | null = this.engine;
+    const engine: TvPlaybackHost | null = this.engine;
     if (engine !== null && engine.currentSeason > 0 && engine.currentEpisode > 0) {
       return `${base} · 第 ${engine.currentSeason} 季第 ${engine.currentEpisode} 集`;
     }
@@ -1127,42 +1130,33 @@ export struct TvPlayerPage {
   private panelHintLine(): string {
     const parts: string[] = [];
     if (this.hasEpisodePicker()) {
-      parts.push('选集');
+      parts.push('▲ 选集抽屉');
     }
-    parts.push('字幕');
-    if (this.audioTracksList().length > 1) {
-      parts.push('音轨');
-    }
-    parts.push('画质');
-    return parts.join(' · ');
+    parts.push('▼ 音轨 · 字幕 · 倍速 · 章节 · 诊断');
+    return parts.join('    ');
   }
 
   private subtitlePlansList(): SubtitlePlanView[] {
-    const engine: TvAvPlayerEngine | null = this.engine;
-    return engine !== null ? engine.subtitlePlans() : [];
+    return this.engine !== null ? this.engine.subtitlePlans() : [];
   }
 
   private audioTracksList(): AudioTrackView[] {
-    const engine: TvAvPlayerEngine | null = this.engine;
-    return engine !== null ? engine.audioTracks() : [];
+    return this.engine !== null ? this.engine.audioTracks() : [];
   }
 
-  /** 「关闭」行打勾条件：没选任何外挂轨且当前流没烧录字幕 */
   private subtitleOffActive(): boolean {
-    const engine: TvAvPlayerEngine | null = this.engine;
-    return engine !== null && engine.selectedSubtitleIndex < 0
-      && engine.burnedSubtitleRef().length === 0;
+    const engine: TvPlaybackHost | null = this.engine;
+    return engine !== null && engine.selectedSubtitleIndex < 0 && engine.burnedSubtitleRef().length === 0;
   }
 
   private subtitleActiveAt(index: number): boolean {
-    const engine: TvAvPlayerEngine | null = this.engine;
+    const engine: TvPlaybackHost | null = this.engine;
     if (engine === null) {
       return false;
     }
     if (engine.selectedSubtitleIndex === index) {
       return true;
     }
-    // 没碰过字幕时：流里烧录的那条算选中（画面对勾与实际一致）
     if (engine.selectedSubtitleIndex < 0) {
       const plans: SubtitlePlanView[] = engine.subtitlePlans();
       const burned: string = engine.burnedSubtitleRef();
@@ -1175,20 +1169,20 @@ export struct TvPlayerPage {
     if (plan.title !== null && plan.title !== undefined && plan.title.length > 0) {
       return plan.title;
     }
-    if (plan.language !== null && plan.language !== undefined && plan.language.length > 0) {
-      return plan.language;
+    const lang: string = trackLanguageLabel(plan.language ?? null);
+    if (lang.length > 0) {
+      return lang;
     }
     return plan.track_ref;
   }
 
   private subtitleDetail(plan: SubtitlePlanView): string {
     const parts: string[] = [];
-    const hasTitle: boolean = plan.title !== null && plan.title !== undefined
-      && plan.title.length > 0;
-    if (hasTitle && plan.language !== null && plan.language !== undefined
-      && plan.language.length > 0) {
-      parts.push(plan.language);
+    const lang: string = trackLanguageLabel(plan.language ?? null);
+    if (plan.title !== null && plan.title !== undefined && plan.title.length > 0 && lang.length > 0) {
+      parts.push(lang);
     }
+    parts.push(plan.kind.toUpperCase());
     if (plan.is_default) {
       parts.push('默认');
     }
@@ -1202,8 +1196,12 @@ export struct TvPlayerPage {
   }
 
   private audioLabel(track: AudioTrackView): string {
-    if (track.language !== null && track.language !== undefined && track.language.length > 0) {
-      return track.language;
+    const lang: string = trackLanguageLabel(track.language ?? null);
+    if (lang.length > 0) {
+      return lang;
+    }
+    if (track.title !== null && track.title !== undefined && track.title.length > 0) {
+      return track.title;
     }
     if (track.codec !== null && track.codec !== undefined && track.codec.length > 0) {
       return track.codec.toUpperCase();
@@ -1250,17 +1248,12 @@ export struct TvPlayerPage {
   }
 
   private upNextStillUrl(next: EpisodeView): string {
-    const resolved: string | null = ImageUrls.resolve(AppModel.origin(),
-      next.still_url ?? null, null);
+    const resolved: string | null = ImageUrls.resolve(AppModel.origin(), next.still_url ?? null, null);
     return resolved !== null ? resolved : '';
   }
 
   private consentMessage(): string {
-    const engine: TvAvPlayerEngine | null = this.engine;
-    if (engine === null) {
-      return '';
-    }
-    const view = engine.session;
+    const view = this.engine?.session ?? null;
     if (view !== null) {
       const suggestion: string | null = view.decision.suggestion ?? null;
       if (suggestion !== null && suggestion.length > 0) {
@@ -1279,19 +1272,15 @@ export struct TvPlayerPage {
     return `还在看《${title}》吗？`;
   }
 
-  // MARK: - 进度条取值（拖动中一律读落点，同参考端 TVTransportBar 的 scrubMs 口径）
-
-  /** 时间轴上的「当前位置」：拖动中 = 落点，平时 = 播放位置 */
   private timelineMs(): number {
-    const engine: TvAvPlayerEngine | null = this.engine;
     if (this.scrubMs >= 0) {
       return this.scrubMs;
     }
-    return engine !== null ? engine.positionMs : 0;
+    return this.engine !== null ? this.engine.positionMs : 0;
   }
 
   private playedPct(): string {
-    const engine: TvAvPlayerEngine | null = this.engine;
+    const engine: TvPlaybackHost | null = this.engine;
     if (engine === null || engine.durationMs <= 0) {
       return '0%';
     }
@@ -1300,7 +1289,7 @@ export struct TvPlayerPage {
   }
 
   private bufferedPct(): string {
-    const engine: TvAvPlayerEngine | null = this.engine;
+    const engine: TvPlaybackHost | null = this.engine;
     if (engine === null || engine.durationMs <= 0 || engine.bufferedEndMs <= 0) {
       return '0%';
     }
@@ -1308,9 +1297,8 @@ export struct TvPlayerPage {
     return `${(fraction * 100).toFixed(2)}%`;
   }
 
-  /** 可跳段（片头/片尾）在进度条上的亮条（拖动时一眼看出哪截是片头） */
   private segmentPct(segment: PlaybackSegmentView): string {
-    const engine: TvAvPlayerEngine | null = this.engine;
+    const engine: TvPlaybackHost | null = this.engine;
     if (engine === null || engine.durationMs <= 0) {
       return '0%';
     }
@@ -1321,7 +1309,7 @@ export struct TvPlayerPage {
   }
 
   private segmentLeftPct(segment: PlaybackSegmentView): string {
-    const engine: TvAvPlayerEngine | null = this.engine;
+    const engine: TvPlaybackHost | null = this.engine;
     if (engine === null || engine.durationMs <= 0) {
       return '0%';
     }
@@ -1334,7 +1322,7 @@ export struct TvPlayerPage {
   }
 
   private remainingClock(): string {
-    const engine: TvAvPlayerEngine | null = this.engine;
+    const engine: TvPlaybackHost | null = this.engine;
     if (engine === null) {
       return '-0:00';
     }
@@ -1342,30 +1330,56 @@ export struct TvPlayerPage {
     return `-${Formatters.clock(left / 1000)}`;
   }
 
-  // MARK: - 画面尺寸（按视频宽高比 fit，双向夹紧）
-
   private fitWidth(): number {
-    const engine: TvAvPlayerEngine | null = this.engine;
-    const aspect: number = engine !== null ? engine.videoAspect : 0;
+    const aspect: number = this.engine !== null ? this.engine.videoAspect : 0;
     if (aspect <= 0) {
-      return this.pageWidth > 0 ? this.pageWidth : 1920;
+      return this.pageWidth > 0 ? this.pageWidth : 1280;
     }
     if (this.pageWidth <= 0 || this.pageHeight <= 0) {
-      return this.pageHeight > 0 ? this.pageHeight * aspect : 1920;
+      return this.pageHeight > 0 ? this.pageHeight * aspect : 1280;
     }
     return Math.min(this.pageWidth, this.pageHeight * aspect);
   }
 
   private fitHeight(): number {
-    const engine: TvAvPlayerEngine | null = this.engine;
-    const aspect: number = engine !== null ? engine.videoAspect : 0;
+    const aspect: number = this.engine !== null ? this.engine.videoAspect : 0;
     if (aspect <= 0) {
-      return this.pageHeight > 0 ? this.pageHeight : 1080;
+      return this.pageHeight > 0 ? this.pageHeight : 720;
     }
     return this.fitWidth() / aspect;
   }
 
-  // MARK: - 布局
+  private hasEpisodePicker(): boolean {
+    const engine: TvPlaybackHost | null = this.engine;
+    return engine !== null && engine.currentSeason > 0 && engine.episodes.length > 0;
+  }
+
+  private episodeStillUrl(episode: EpisodeView): string {
+    const resolved: string | null = ImageUrls.resolve(AppModel.origin(), episode.still_url ?? null, null);
+    return resolved === null ? '' : `${resolved}${resolved.includes('?') ? '&' : '?'}w=360`;
+  }
+
+  private pickEpisode(episodeNumber: number): void {
+    const engine: TvPlaybackHost | null = this.engine;
+    if (engine === null) {
+      return;
+    }
+    if (episodeNumber === engine.currentEpisode) {
+      this.panelOpen = false;
+      this.episodeDrawerOpen = false;
+      this.requestFocusSafe('tv_player_root');
+      return;
+    }
+    this.noteUserActivity();
+    this.panelOpen = false;
+    this.episodeDrawerOpen = false;
+    this.skipHandled = [];
+    engine.switchToEpisode(episodeNumber);
+    this.showChrome();
+    this.requestFocusSafe('tv_player_root');
+  }
+
+  // MARK: - 视图树
 
   build() {
     Stack() {
@@ -1376,7 +1390,7 @@ export struct TvPlayerPage {
       if (this.engine !== null && this.eng().subtitleCue.length > 0) {
         this.subtitleOverlay()
       }
-      if (this.chromeVisible && !this.panelOpen) {
+      if (this.chromeVisible && !this.panelOpen && !this.episodeDrawerOpen) {
         this.chromeBar()
       }
       if (this.scrubMs >= 0) {
@@ -1386,6 +1400,9 @@ export struct TvPlayerPage {
         this.busyOverlay()
       }
       this.contextualCorner()
+      if (this.episodeDrawerOpen) {
+        this.episodeDrawerOverlay()
+      }
       if (this.panelOpen) {
         this.panelOverlay()
       }
@@ -1405,15 +1422,11 @@ export struct TvPlayerPage {
       this.surfaceFocused = false;
     })
     .onKeyEvent((event: KeyEvent): boolean => this.onKey(event))
-    .onAreaChange((oldArea: Area, newArea: Area): void => {
+    .onAreaChange((_oldArea: Area, newArea: Area): void => {
       this.pageWidth = Number(newArea.width);
       this.pageHeight = Number(newArea.height);
     })
     .onClick((event: ClickEvent): void => {
-      // 指针遥控点画面 = 播放/暂停。点击会一路冒到根，ClickEvent 又没有
-      // stopPropagation——用 target.id 判定：只有真正点在画面上（target 是根
-      // 自己，各显示层都 hitTestBehavior(None) 穿透）才 toggle；
-      // 面板行 / 对话框 / 右下角按钮的点击 target 不是根，走它们自己的 onClick。
       if (event.target.id !== 'tv_player_root') {
         return;
       }
@@ -1421,7 +1434,6 @@ export struct TvPlayerPage {
       this.eng().togglePlay();
       this.showChrome();
     })
-    // 触控板/指针横向滑动 = 拖进度（T028）：满屏一划 ≈ 片长 1/5（夹 1~15 分钟），松手才跳
     .gesture(PanGesture({ fingers: 1, direction: PanDirection.Horizontal, distance: 24 })
       .onActionStart((): void => {
         this.beginSwipeScrub();
@@ -1434,28 +1446,31 @@ export struct TvPlayerPage {
       }))
   }
 
-  /** 视频面：XComponent(SURFACE)，按视频宽高比完整放入屏幕 */
   @Builder
   private videoSurface(): void {
-    XComponent({
-      id: 'tv_player_surface',
-      type: XComponentType.SURFACE,
-      controller: this.surfaceController
-    })
-      .width(this.fitWidth())
-      .height(this.fitHeight())
-      // SURFACE 型 XComponent 会消费触摸（真机实测），画面不需要触摸，交给根处理
-      .hitTestBehavior(HitTestMode.None)
-      .onLoad((): void => {
-        this.surfaceId = this.surfaceController.getXComponentSurfaceId();
-        const engine: TvAvPlayerEngine | null = this.engine;
-        if (engine !== null) {
-          engine.start(this.surfaceId);
-        }
-      })
+    if (this.engine !== null) {
+      ForEach(this.surfaceGenerations(), (gen: number) => {
+        XComponent({
+          id: `tv_player_surface_${gen}`,
+          type: XComponentType.SURFACE,
+          controller: this.eng().surfaceController
+        })
+          .width(this.fitWidth())
+          .height(this.fitHeight())
+          .hdrBrightness(this.eng().isHdrActive() ? 1.0 : 0.0)
+          .hitTestBehavior(HitTestMode.None)
+          .onLoad((): void => {
+            this.eng().surfaceReady(gen);
+          })
+          .onDestroy((): void => {
+            if (this.engine !== null) {
+              this.eng().surfaceDestroyed(gen);
+            }
+          })
+      }, (gen: number) => `surf_${gen}`)
+    }
   }
 
-  /** 暂停遮罩：只跟「用户暂停」走，左上角大标题（同 tvOS PausedOverlay） */
   @Builder
   private pausedOverlay(): void {
     Column() {
@@ -1485,26 +1500,25 @@ export struct TvPlayerPage {
     .height('100%')
     .linearGradient({
       angle: 180,
-      colors: [['rgba(0, 0, 0, 0.5)', 0.0], ['rgba(0, 0, 0, 0.18)', 0.4],
-        ['rgba(0, 0, 0, 0.65)', 1.0]]
+      colors: [['rgba(0, 0, 0, 0.5)', 0.0], ['rgba(0, 0, 0, 0.18)', 0.4], ['rgba(0, 0, 0, 0.65)', 1.0]]
     })
     .hitTestBehavior(HitTestMode.None)
   }
 
-  /** 系统字幕回调的文本层（引擎经 addSubtitleFromUrl 选轨后由 AVPlayer 吐出） */
   @Builder
   private subtitleOverlay(): void {
     Column() {
       Blank()
       Text(this.eng().subtitleCue)
-        .fontSize(26)
+        .fontSize(Math.round(this.eng().subFontScale * 5.0))
         .fontColor('#ffffff')
         .textAlign(TextAlign.Center)
-        .backgroundColor('rgba(0, 0, 0, 0.55)')
+        .backgroundColor(this.eng().subBackground ? 'rgba(0, 0, 0, 0.58)' : Color.Transparent)
+        .shadow({ radius: 6, color: 'rgba(0, 0, 0, 0.85)', offsetY: 2 })
         .borderRadius(8)
         .padding({ left: 18, right: 18, top: 6, bottom: 6 })
-        .constraintSize({ maxWidth: '70%' })
-        .margin({ bottom: this.chromeVisible ? 170 : 110 })
+        .constraintSize({ maxWidth: '74%' })
+        .margin({ bottom: this.chromeVisible ? 165 : Math.max(48, this.eng().subBottom * 7) })
     }
     .width('100%')
     .height('100%')
@@ -1512,31 +1526,55 @@ export struct TvPlayerPage {
     .hitTestBehavior(HitTestMode.None)
   }
 
-  /** 传输条（chrome）：顶部面板提示 + 底部片名/双层进度/时间行 */
   @Builder
   private chromeBar(): void {
     Column() {
       if (this.eng().session !== null && this.eng().phase !== TvPlayPhase.paused) {
-        Column({ space: 5 }) {
-          Text('∨')
-            .fontSize(20)
-            .fontWeight(700)
-            .fontColor('rgba(255, 255, 255, 0.7)')
-          Text(this.panelHintLine())
-            .fontSize(14)
-            .fontColor('rgba(255, 255, 255, 0.6)')
-        }
-        .alignItems(HorizontalAlign.Center)
-        .margin({ top: 40 })
+        Text(this.panelHintLine())
+          .fontSize(14)
+          .fontColor('rgba(255, 255, 255, 0.65)')
+          .padding({ left: 18, right: 18, top: 6, bottom: 6 })
+          .backgroundColor('rgba(14, 16, 22, 0.55)')
+          .borderRadius(999)
+          .margin({ top: 34 })
       }
       Blank()
-      Column({ space: 18 }) {
-        Text(this.titleLine())
-          .fontSize(TvType.playerTitle)
-          .fontWeight(700)
-          .fontColor('rgba(255, 255, 255, 0.92)')
-          .maxLines(1)
-          .textOverflow({ overflow: TextOverflow.Ellipsis })
+      Column({ space: 16 }) {
+        Row({ space: 10 }) {
+          Text(this.titleLine())
+            .fontSize(TvType.playerTitle)
+            .fontWeight(700)
+            .fontColor('rgba(255, 255, 255, 0.94)')
+            .maxLines(1)
+            .textOverflow({ overflow: TextOverflow.Ellipsis })
+            .layoutWeight(1)
+          if (this.eng().playbackSpeed !== 1) {
+            Text(`${this.eng().playbackSpeed}×`)
+              .fontSize(13)
+              .fontWeight(700)
+              .fontColor('#0b0d12')
+              .padding({ left: 8, right: 8, top: 3, bottom: 3 })
+              .backgroundColor('#f5c451')
+              .borderRadius(6)
+          }
+          ForEach(this.eng().vividBadges(), (badge: string) => {
+            Text(badge)
+              .fontSize(12)
+              .fontWeight(700)
+              .fontColor(badge.includes('Vivid') || badge.includes('杜比') ? '#ffd47a' : '#f3f5f9')
+              .padding({ left: 8, right: 8, top: 3, bottom: 3 })
+              .borderRadius(5)
+              .backgroundColor('rgba(255, 255, 255, 0.10)')
+              .border({
+                width: 1,
+                color: badge.includes('Vivid') || badge.includes('杜比')
+                  ? 'rgba(255, 212, 122, 0.75)' : 'rgba(255, 255, 255, 0.32)'
+              })
+          }, (badge: string) => badge)
+        }
+        .width('100%')
+        .alignItems(VerticalAlign.Center)
+
         Stack({ alignContent: Alignment.Start }) {
           Row()
             .width('100%')
@@ -1561,27 +1599,27 @@ export struct TvPlayerPage {
             .height(8)
             .borderRadius(4)
             .backgroundColor('#ffffff')
-          // 拖动中的播放头圆点（贴着已播白条前沿，同参考端 TVTransportBar）
           if (this.scrubMs >= 0) {
             Column()
-              .width(26)
-              .height(26)
-              .borderRadius(13)
+              .width(24)
+              .height(24)
+              .borderRadius(12)
               .backgroundColor('#ffffff')
-              .markAnchor({ x: 13, y: 13 })
+              .markAnchor({ x: 12, y: 12 })
               .position({ x: this.playedPct(), y: 4 })
           }
         }
         .width('100%')
         .height(8)
+
         Row() {
           Text(this.currentClock())
             .fontSize(TvType.playerTime)
-            .fontColor('rgba(255, 255, 255, 0.8)')
+            .fontColor('rgba(255, 255, 255, 0.82)')
           Blank()
           Text(this.remainingClock())
             .fontSize(TvType.playerTime)
-            .fontColor('rgba(255, 255, 255, 0.8)')
+            .fontColor('rgba(255, 255, 255, 0.82)')
         }
         .width('100%')
       }
@@ -1589,12 +1627,11 @@ export struct TvPlayerPage {
       .padding({
         left: TvMetrics.playerInset,
         right: TvMetrics.playerInset,
-        bottom: 44
+        bottom: 40
       })
       .linearGradient({
         angle: 180,
-        colors: [['rgba(0, 0, 0, 0)', 0.0], ['rgba(0, 0, 0, 0.78)', 0.5],
-          ['rgba(0, 0, 0, 0.9)', 1.0]]
+        colors: [['rgba(0, 0, 0, 0)', 0.0], ['rgba(0, 0, 0, 0.78)', 0.5], ['rgba(0, 0, 0, 0.92)', 1.0]]
       })
     }
     .width('100%')
@@ -1603,13 +1640,12 @@ export struct TvPlayerPage {
     .hitTestBehavior(HitTestMode.None)
   }
 
-  /** 起播/换流/卡缓冲转圈 */
   @Builder
   private busyOverlay(): void {
     Column({ space: 24 }) {
       LoadingProgress()
-        .width(64)
-        .height(64)
+        .width(60)
+        .height(60)
         .color('#ffffff')
       Text(this.busyLabel())
         .fontSize(TvType.body)
@@ -1621,60 +1657,53 @@ export struct TvPlayerPage {
     .hitTestBehavior(HitTestMode.None)
   }
 
-  /** 浮层左缘的横坐标：跟着播放头、贴两端夹紧（参考端同款钳制） */
   private scrubHudX(): number {
-    const engine: TvAvPlayerEngine | null = this.engine;
-    const pageWidth: number = this.pageWidth > 0 ? this.pageWidth : 1920;
+    const engine: TvPlaybackHost | null = this.engine;
+    const pageWidth: number = this.pageWidth > 0 ? this.pageWidth : 1280;
     const duration: number = engine !== null ? engine.durationMs : 0;
     if (duration <= 0) {
       return TvMetrics.playerInset;
     }
     const fraction: number = Math.max(0, Math.min(1, this.timelineMs() / duration));
-    const playheadX: number = TvMetrics.playerInset
-      + fraction * (pageWidth - 2 * TvMetrics.playerInset);
+    const playheadX: number = TvMetrics.playerInset + fraction * (pageWidth - 2 * TvMetrics.playerInset);
     const min: number = TvMetrics.playerInset;
-    const max: number = Math.max(min, pageWidth - TvMetrics.playerInset - 360);
-    return Math.max(min, Math.min(max, playheadX - 160));
+    const max: number = Math.max(min, pageWidth - TvMetrics.playerInset - 320);
+    return Math.max(min, Math.min(max, playheadX - 150));
   }
 
-  /**
-   * 拖动/长按快进浮层（T028）：落点 trickplay 缩略图 + 目标时间
-   * （长按时两侧带「◀◀ 40× / 40× ▶▶」倍速徽标），贴在传输条上方。
-   */
   @Builder
   private scrubHud(): void {
-    Column({ space: 10 }) {
+    Column({ space: 8 }) {
       if (this.trickplayVersion >= 0 && this.scrubTile() !== null) {
         Image(this.scrubTile() as image.PixelMap)
           .autoResize(true)
-          .width(320)
+          .width(296)
           .borderRadius(12)
           .clip(true)
       }
-      Row({ space: 12 }) {
+      if (this.scrubChapterTitle().length > 0) {
+        Text(this.scrubChapterTitle())
+          .fontSize(15)
+          .fontWeight(600)
+          .fontColor('#ffd47a')
+          .maxLines(1)
+      }
+      Row({ space: 10 }) {
         if (this.scrubRate < 0) {
-          Text('◀◀')
-            .fontSize(20)
+          Text(`◀◀ ${Math.abs(this.scrubRate)}×`)
+            .fontSize(19)
             .fontWeight(700)
-            .fontColor('rgba(255, 255, 255, 0.85)')
-          Text(`${Math.abs(this.scrubRate)}×`)
-            .fontSize(22)
-            .fontWeight(600)
-            .fontColor('rgba(255, 255, 255, 0.85)')
+            .fontColor('rgba(255, 255, 255, 0.86)')
         }
         Text(Formatters.clock(this.scrubMs / 1000))
-          .fontSize(22)
+          .fontSize(21)
           .fontWeight(600)
           .fontColor('#ffffff')
         if (this.scrubRate > 0) {
-          Text(`${this.scrubRate}×`)
-            .fontSize(22)
-            .fontWeight(600)
-            .fontColor('rgba(255, 255, 255, 0.85)')
-          Text('▶▶')
-            .fontSize(20)
+          Text(`${this.scrubRate}× ▶▶`)
+            .fontSize(19)
             .fontWeight(700)
-            .fontColor('rgba(255, 255, 255, 0.85)')
+            .fontColor('rgba(255, 255, 255, 0.86)')
         }
       }
       .alignItems(VerticalAlign.Center)
@@ -1682,16 +1711,10 @@ export struct TvPlayerPage {
     .alignItems(HorizontalAlign.Center)
     .position({ x: this.scrubHudX(), y: '100%' })
     .markAnchor({ x: 0, y: '100%' })
-    .offset({ y: -190 })
+    .offset({ y: -185 })
     .hitTestBehavior(HitTestMode.None)
   }
 
-  /**
-   * 右下角情境元素（同一时刻只出一个）：跳过按钮 / 下一集卡。
-   * 统一放进一个「贴底右对齐」的层里定位——不再用 position+markAnchor+offset 的
-   * 组合（实测在 720vp 画布上会算偏，按钮压到进度条/时间行上）。
-   * 该层本身 hitTest 穿透，只有按钮吃点击；空白处的点击照样回到根画面（播放/暂停）。
-   */
   @Builder
   private contextualCorner(): void {
     if (this.activeSkipSeg() !== null || this.showsUpNext()) {
@@ -1707,7 +1730,6 @@ export struct TvPlayerPage {
         }
         .width('100%')
         .justifyContent(FlexAlign.End)
-        // chrome 打开时抬到进度条上方，收起时贴近底部
         .padding({ right: TvMetrics.playerInset, bottom: this.chromeVisible ? 150 : 44 })
       }
       .width('100%')
@@ -1716,7 +1738,6 @@ export struct TvPlayerPage {
     }
   }
 
-  /** 跳过片头/片尾按钮：出现时自动拿焦点，按一下跳到这段结束处 */
   @Builder
   private skipButton(segment: PlaybackSegmentView): void {
     Row({ space: 10 }) {
@@ -1746,35 +1767,28 @@ export struct TvPlayerPage {
       return false;
     })
     .onFocus((): void => {
-      this.skipGlow(true);
+      this.skipHovered = true;
     })
     .onBlur((): void => {
-      this.skipGlow(false);
+      this.skipHovered = false;
     })
     .onHover((isHover: boolean): void => {
-      this.skipGlow(isHover);
+      this.skipHovered = isHover;
     })
     .onClick((): void => {
       this.doSkip(segment);
     })
   }
 
-  private skipGlow(glow: boolean): void {
-    this.getUIContext().animateTo({ duration: 120 }, (): void => {
-      this.skipHovered = glow;
-    });
-  }
-
-  /** 「即将播放」下一集卡：剧照 + 集号/集名 + 倒计时秒数 + 下一集/观看片尾 */
   @Builder
   private upNextCard(next: EpisodeView): void {
-    Column({ space: 20 }) {
-      Row({ space: 22 }) {
+    Column({ space: 18 }) {
+      Row({ space: 20 }) {
         Column() {
           RemoteImage({ url: this.upNextStillUrl(next), placeholderText: '暂无剧照' })
         }
-        .width(256)
-        .height(144)
+        .width(232)
+        .height(130)
         .borderRadius(12)
         .clip(true)
         Column({ space: 6 }) {
@@ -1783,46 +1797,44 @@ export struct TvPlayerPage {
             .fontWeight(600)
             .fontColor('rgba(255, 255, 255, 0.6)')
           Text(`第 ${next.episode_number} 集`)
-            .fontSize(24)
+            .fontSize(22)
             .fontWeight(700)
             .fontColor('#ffffff')
           if (next.name !== null && next.name !== undefined && next.name.length > 0) {
             Text(next.name)
-              .fontSize(17)
+              .fontSize(16)
               .fontColor('rgba(255, 255, 255, 0.65)')
               .maxLines(2)
               .textOverflow({ overflow: TextOverflow.Ellipsis })
           }
         }
         .alignItems(HorizontalAlign.Start)
-        .constraintSize({ maxWidth: 300 })
+        .constraintSize({ maxWidth: 280 })
       }
-      Row({ space: 16 }) {
-        this.cornerPill('tv_player_upnext', this.autoNextArmed() ? '立即播放' : '下一集',
-          (): void => {
-            this.runPlayNext();
-          })
+      Row({ space: 14 }) {
+        this.cornerPill('tv_player_upnext', this.autoNextArmed() ? '立即播放' : '下一集', (): void => {
+          this.runPlayNext();
+        })
         this.cornerPill('tv_player_credits', '观看片尾', (): void => {
           this.dismissUpNext();
         })
       }
     }
     .alignItems(HorizontalAlign.Start)
-    .width(600)
-    .padding({ left: 26, right: 26, top: 22, bottom: 22 })
-    .backgroundColor('rgba(12, 14, 20, 0.86)')
+    .width(560)
+    .padding({ left: 24, right: 24, top: 20, bottom: 20 })
+    .backgroundColor('rgba(12, 14, 20, 0.88)')
     .borderRadius(TvMetrics.cardCorner)
-    .border({ width: 1, color: 'rgba(255, 255, 255, 0.1)' })
+    .border({ width: 1, color: 'rgba(255, 255, 255, 0.12)' })
   }
 
-  /** 卡片上的两颗胶囊按钮（焦点/悬浮翻白） */
   @Builder
   private cornerPill(key: string, label: string, action: () => void): void {
     Text(label)
-      .fontSize(20)
+      .fontSize(19)
       .fontWeight(600)
       .fontColor(this.cornerPillGlow === key ? '#111319' : TvColors.text)
-      .padding({ left: 30, right: 30, top: 11, bottom: 11 })
+      .padding({ left: 28, right: 28, top: 10, bottom: 10 })
       .borderRadius(999)
       .backgroundColor(this.cornerPillGlow === key ? '#ffffff' : 'rgba(255, 255, 255, 0.12)')
       .focusable(true)
@@ -1843,48 +1855,424 @@ export struct TvPlayerPage {
       })
   }
 
-  /** 信息面板：选集（剧集）/字幕/音轨/画质 同屏（音轨一条以上才有音轨列） */
+  // MARK: - 顶部宽屏选集抽屉（剧集按「上键」呼出）
+
   @Builder
-  private panelOverlay(): void {
+  private episodeDrawerOverlay(): void {
     Column() {
-      Row({ space: this.hasEpisodePicker() ? 44 : 60 }) {
-        if (this.hasEpisodePicker()) {
-          this.panelEpisodeColumn()
+      Column({ space: 16 }) {
+        Row({ space: 12 }) {
+          Text(`第 ${this.eng().currentSeason} 季 · 快速选集`)
+            .fontSize(22)
+            .fontWeight(700)
+            .fontColor(TvColors.text)
+          Text('按返回键收起')
+            .fontSize(14)
+            .fontColor(TvColors.textMuted)
         }
-        this.panelSubtitleColumn()
-        if (this.audioTracksList().length > 1) {
-          this.panelAudioColumn()
+        .width('100%')
+        .padding({ left: TvMetrics.playerInset, right: TvMetrics.playerInset })
+
+        List({ space: 18, scroller: this.drawerScroller }) {
+          ForEach(this.eng().episodes, (ep: EpisodeView) => {
+            ListItem() {
+              Column() {
+                TvPanelEpisodeRow({
+                  episodeNumber: ep.episode_number,
+                  name: ep.name ?? '',
+                  stillUrl: this.episodeStillUrl(ep),
+                  active: ep.episode_number === this.eng().currentEpisode,
+                  playable: ep.owned,
+                  focusKey: `tv_drawer_ep_${ep.episode_number}`,
+                  onPick: (): void => {
+                    this.pickEpisode(ep.episode_number);
+                  }
+                })
+              }
+              .width(300)
+              .backgroundColor('rgba(20, 22, 30, 0.85)')
+              .borderRadius(14)
+              .border({
+                width: ep.episode_number === this.eng().currentEpisode ? 2 : 1,
+                color: ep.episode_number === this.eng().currentEpisode
+                  ? 'rgba(255, 212, 122, 0.85)' : 'rgba(255, 255, 255, 0.12)'
+              })
+            }
+          }, (ep: EpisodeView) => `drawer_${ep.episode_number}`)
         }
-        this.panelQualityColumn()
+        .listDirection(Axis.Horizontal)
+        .width('100%')
+        .height(84)
+        .scrollBar(BarState.Off)
+        .padding({ left: TvMetrics.playerInset, right: TvMetrics.playerInset })
       }
       .width('100%')
-      .padding({ left: 90, right: 90, top: 70, bottom: 36 })
+      .padding({ top: 38, bottom: 28 })
+      .backgroundColor('rgba(10, 12, 18, 0.88)')
+      .backgroundBlurStyle(BlurStyle.COMPONENT_THICK, { colorMode: ThemeColorMode.DARK })
+
       Blank()
     }
     .width('100%')
     .height('100%')
-    .backgroundColor('rgba(0, 0, 0, 0.55)')
   }
 
-  /** 有分集可换：本季分集表已加载 */
-  private hasEpisodePicker(): boolean {
-    const engine: TvAvPlayerEngine | null = this.engine;
-    return engine !== null && engine.currentSeason > 0 && engine.episodes.length > 0;
+  // MARK: - 四维影院控制面板
+
+  @Builder
+  private panelOverlay(): void {
+    Column({ space: 22 }) {
+      // 页签头
+      Row({ space: 12 }) {
+        TvPanelTabPill({
+          label: '音轨与字幕',
+          selected: this.panelTab === 'tracks',
+          focusKey: 'tv_panel_tab_tracks',
+          onPick: (): void => {
+            this.switchPanelTab('tracks');
+          }
+        })
+        TvPanelTabPill({
+          label: '画质 · 倍速 · 内核',
+          selected: this.panelTab === 'tuning',
+          focusKey: 'tv_panel_tab_tuning',
+          onPick: (): void => {
+            this.switchPanelTab('tuning');
+          }
+        })
+        if (this.hasEpisodePicker() || this.eng().chapters().length > 0) {
+          TvPanelTabPill({
+            label: this.hasEpisodePicker() ? '选集与章节' : '章节跳转',
+            selected: this.panelTab === 'chapters',
+            focusKey: 'tv_panel_tab_chapters',
+            onPick: (): void => {
+              this.switchPanelTab('chapters');
+            }
+          })
+        }
+        TvPanelTabPill({
+          label: '音画链路诊断',
+          selected: this.panelTab === 'stats',
+          focusKey: 'tv_panel_tab_stats',
+          onPick: (): void => {
+            this.switchPanelTab('stats');
+          }
+        })
+      }
+      .width('100%')
+      .padding({ left: 72, right: 72, top: 48 })
+
+      if (this.panelTab === 'tracks') {
+        Row({ space: 36 }) {
+          this.panelSubtitleColumn()
+          this.panelSubtitleTuningColumn()
+          if (this.audioTracksList().length > 0) {
+            this.panelAudioColumn()
+          }
+        }
+        .width('100%')
+        .layoutWeight(1)
+        .padding({ left: 72, right: 72, bottom: 40 })
+      } else if (this.panelTab === 'tuning') {
+        Row({ space: 36 }) {
+          this.panelQualityColumn()
+          this.panelSpeedColumn()
+          this.panelEngineColumn()
+        }
+        .width('100%')
+        .layoutWeight(1)
+        .padding({ left: 72, right: 72, bottom: 40 })
+      } else if (this.panelTab === 'chapters') {
+        Row({ space: 36 }) {
+          if (this.hasEpisodePicker()) {
+            this.panelEpisodeColumn()
+          }
+          if (this.eng().chapters().length > 0) {
+            this.panelChaptersColumn()
+          }
+        }
+        .width('100%')
+        .layoutWeight(1)
+        .padding({ left: 72, right: 72, bottom: 40 })
+      } else {
+        this.panelStatsView()
+      }
+    }
+    .width('100%')
+    .height('100%')
+    .backgroundColor('rgba(6, 8, 14, 0.80)')
+    .backgroundBlurStyle(BlurStyle.COMPONENT_THICK, { colorMode: ThemeColorMode.DARK })
   }
 
-  /** 选集列：本季每一集一行（剧照缩略图 + 集号/集名），选中即换集 */
+  @Builder
+  private panelSubtitleColumn(): void {
+    Column({ space: 12 }) {
+      Text(`字幕轨（${this.subtitlePlansList().length + 1}）`)
+        .fontSize(24)
+        .fontWeight(700)
+        .fontColor(TvColors.text)
+      List({ space: 2 }) {
+        ListItem() {
+          TvPanelOption({
+            label: '关闭字幕',
+            detail: '',
+            focusKey: 'tv_panel_subtitle_0',
+            active: this.subtitleOffActive(),
+            onPick: (): void => {
+              this.eng().selectSubtitle(-1);
+              this.showChrome();
+            }
+          })
+        }
+        ForEach(this.subtitlePlansList(), (plan: SubtitlePlanView, index: number) => {
+          ListItem() {
+            TvPanelOption({
+              label: this.subtitleLabel(plan),
+              detail: this.subtitleDetail(plan),
+              focusKey: `tv_panel_subtitle_${index + 1}`,
+              active: this.subtitleActiveAt(index),
+              onPick: (): void => {
+                this.eng().selectSubtitle(index);
+                this.showChrome();
+              }
+            })
+          }
+        }, (plan: SubtitlePlanView, index: number) => `${plan.track_ref}_${index}`)
+      }
+      .width('100%')
+      .layoutWeight(1)
+      .scrollBar(BarState.Off)
+    }
+    .layoutWeight(1)
+    .height('100%')
+    .alignItems(HorizontalAlign.Start)
+  }
+
+  @Builder
+  private panelSubtitleTuningColumn(): void {
+    Column({ space: 12 }) {
+      Text('字幕排版与同步')
+        .fontSize(24)
+        .fontWeight(700)
+        .fontColor(TvColors.text)
+      List({ space: 2 }) {
+        ListItem() {
+          TvPanelOption({
+            label: 'ASS 原生特效渲染',
+            detail: this.eng().subNativeAss ? '开启（libass GPU 原样排版）' : '关闭（纯文本白字渲染）',
+            active: this.eng().subNativeAss,
+            onPick: (): void => {
+              this.eng().toggleNativeAss();
+            }
+          })
+        }
+        ListItem() {
+          TvPanelOption({
+            label: `增大字号（当前 ${this.eng().subFontScale.toFixed(1)}）`,
+            detail: '适合客厅远距离观看',
+            onPick: (): void => {
+              this.eng().adjustSubtitleFont(0.4);
+            }
+          })
+        }
+        ListItem() {
+          TvPanelOption({
+            label: '减小字号',
+            detail: '收紧大屏字幕占比',
+            onPick: (): void => {
+              this.eng().adjustSubtitleFont(-0.4);
+            }
+          })
+        }
+        ListItem() {
+          TvPanelOption({
+            label: `字幕延后 +0.1s（当前 ${this.eng().subDelayLabel()}）`,
+            detail: '字幕比人声快时点此',
+            onPick: (): void => {
+              this.eng().adjustSubtitleDelay(100);
+            }
+          })
+        }
+        ListItem() {
+          TvPanelOption({
+            label: `字幕提前 -0.1s（当前 ${this.eng().subDelayLabel()}）`,
+            detail: '字幕比人声慢时点此',
+            onPick: (): void => {
+              this.eng().adjustSubtitleDelay(-100);
+            }
+          })
+        }
+        if (this.eng().subDelayMs !== 0) {
+          ListItem() {
+            TvPanelOption({
+              label: '重置字幕时间同步（0.0s）',
+              detail: '恢复原片时间轴',
+              onPick: (): void => {
+                this.eng().resetSubtitleDelay();
+              }
+            })
+          }
+        }
+      }
+      .width('100%')
+      .layoutWeight(1)
+      .scrollBar(BarState.Off)
+    }
+    .layoutWeight(1)
+    .height('100%')
+    .alignItems(HorizontalAlign.Start)
+  }
+
+  @Builder
+  private panelAudioColumn(): void {
+    Column({ space: 12 }) {
+      Text(`音轨（${this.audioTracksList().length}）`)
+        .fontSize(24)
+        .fontWeight(700)
+        .fontColor(TvColors.text)
+      List({ space: 2 }) {
+        ForEach(this.audioTracksList(), (track: AudioTrackView, index: number) => {
+          ListItem() {
+            TvPanelOption({
+              label: this.audioLabel(track),
+              detail: this.audioDetail(track),
+              focusKey: `tv_panel_audio_${index}`,
+              active: this.eng().activeAudioRef() === track.ref,
+              onPick: (): void => {
+                this.eng().selectAudio(track.ref);
+                this.showChrome();
+              }
+            })
+          }
+        }, (track: AudioTrackView, index: number) => `${track.ref}_${index}`)
+      }
+      .width('100%')
+      .layoutWeight(1)
+      .scrollBar(BarState.Off)
+    }
+    .layoutWeight(1)
+    .height('100%')
+    .alignItems(HorizontalAlign.Start)
+  }
+
+  @Builder
+  private panelQualityColumn(): void {
+    Column({ space: 12 }) {
+      Text('画质上限')
+        .fontSize(24)
+        .fontWeight(700)
+        .fontColor(TvColors.text)
+      List({ space: 2 }) {
+        ForEach(TvQualityOption.all(), (option: TvQualityOption, index: number) => {
+          ListItem() {
+            TvPanelOption({
+              label: option.label,
+              detail: option.hint,
+              focusKey: `tv_panel_quality_${index}`,
+              active: this.eng().maxHeight === option.maxHeight,
+              onPick: (): void => {
+                this.eng().switchQuality(option.maxHeight);
+                this.showChrome();
+              }
+            })
+          }
+        }, (option: TvQualityOption, index: number) => `${option.maxHeight}_${index}`)
+      }
+      .width('100%')
+      .layoutWeight(1)
+      .scrollBar(BarState.Off)
+    }
+    .layoutWeight(1)
+    .height('100%')
+    .alignItems(HorizontalAlign.Start)
+  }
+
+  @Builder
+  private panelSpeedColumn(): void {
+    Column({ space: 12 }) {
+      Text('播放倍速')
+        .fontSize(24)
+        .fontWeight(700)
+        .fontColor(TvColors.text)
+      List({ space: 2 }) {
+        ForEach(TV_SPEEDS, (spd: number) => {
+          ListItem() {
+            TvPanelOption({
+              label: spd === 1.0 ? '1.0×（正常速度）' : `${spd}×`,
+              detail: '',
+              active: Math.abs(this.eng().playbackSpeed - spd) < 0.01,
+              onPick: (): void => {
+                this.eng().setPlaybackSpeed(spd);
+                this.showChrome();
+              }
+            })
+          }
+        }, (spd: number) => `spd_${spd}`)
+      }
+      .width('100%')
+      .layoutWeight(1)
+      .scrollBar(BarState.Off)
+    }
+    .layoutWeight(1)
+    .height('100%')
+    .alignItems(HorizontalAlign.Start)
+  }
+
+  @Builder
+  private panelEngineColumn(): void {
+    Column({ space: 12 }) {
+      Text('播放内核')
+        .fontSize(24)
+        .fontWeight(700)
+        .fontColor(TvColors.text)
+      List({ space: 2 }) {
+        ListItem() {
+          TvPanelOption({
+            label: '自动调度（推荐）',
+            detail: 'AVPlayer 硬解优先，PGS/ASS/高阶封装无感接力 libmpv',
+            active: this.eng().enginePreference() === 'auto',
+            onPick: (): void => {
+              this.eng().switchEngine('auto');
+            }
+          })
+        }
+        ListItem() {
+          TvPanelOption({
+            label: '固定 libmpv 内核',
+            detail: '支持多声道直通、PGS 蓝光图形字幕与 ASS 原生特效',
+            active: this.eng().enginePreference() === 'mpv',
+            onPick: (): void => {
+              this.eng().switchEngine('mpv');
+            }
+          })
+        }
+        ListItem() {
+          TvPanelOption({
+            label: '固定 AVPlayer 系统内核',
+            detail: '鸿蒙系统媒体管线与最低功耗硬解',
+            active: this.eng().enginePreference() === 'avplayer',
+            onPick: (): void => {
+              this.eng().switchEngine('avplayer');
+            }
+          })
+        }
+      }
+      .width('100%')
+      .layoutWeight(1)
+      .scrollBar(BarState.Off)
+    }
+    .layoutWeight(1)
+    .height('100%')
+    .alignItems(HorizontalAlign.Start)
+  }
+
   @Builder
   private panelEpisodeColumn(): void {
-    Column({ space: 14 }) {
-      Row({ space: 10 }) {
-        Text('选集')
-          .fontSize(30)
-          .fontWeight(700)
-          .fontColor(TvColors.text)
-        Text(`第 ${this.eng().currentSeason} 季`)
-          .fontSize(20)
-          .fontColor('rgba(255, 255, 255, 0.4)')
-      }
+    Column({ space: 12 }) {
+      Text(`第 ${this.eng().currentSeason} 季选集`)
+        .fontSize(24)
+        .fontWeight(700)
+        .fontColor(TvColors.text)
       List({ space: 2, scroller: this.episodeScroller }) {
         ForEach(this.eng().episodes, (episode: EpisodeView) => {
           ListItem() {
@@ -1905,163 +2293,126 @@ export struct TvPlayerPage {
       .width('100%')
       .layoutWeight(1)
       .scrollBar(BarState.Off)
-      .fadingEdge(false)
     }
     .layoutWeight(1)
     .height('100%')
     .alignItems(HorizontalAlign.Start)
   }
 
-  private episodeStillUrl(episode: EpisodeView): string {
-    const resolved: string | null = ImageUrls.resolve(AppModel.origin(),
-      episode.still_url ?? null, null);
-    if (resolved === null) {
-      return '';
+  @Builder
+  private panelChaptersColumn(): void {
+    Column({ space: 12 }) {
+      Text(`影片章节（${this.eng().chapters().length}）`)
+        .fontSize(24)
+        .fontWeight(700)
+        .fontColor(TvColors.text)
+      List({ space: 2 }) {
+        ForEach(this.eng().chapters(), (ch: PlaybackChapterMarkView, idx: number) => {
+          ListItem() {
+            TvPanelOption({
+              label: Chapters.label(ch, `章节 ${idx + 1}`),
+              detail: Formatters.clock(ch.start_ms / 1000),
+              active: Chapters.activeIndex(this.eng().chapters(), this.eng().positionMs) === idx,
+              onPick: (): void => {
+                this.eng().seekTo(ch.start_ms);
+                this.closePanel();
+                this.showChrome();
+              }
+            })
+          }
+        }, (ch: PlaybackChapterMarkView, idx: number) => `ch_${idx}_${ch.start_ms}`)
+      }
+      .width('100%')
+      .layoutWeight(1)
+      .scrollBar(BarState.Off)
     }
-    return `${resolved}${resolved.includes('?') ? '&' : '?'}w=300`;
-  }
-
-  /** 换集：关面板、清掉本集的跳过记账、让引擎重协商到这一集 */
-  private pickEpisode(episodeNumber: number): void {
-    const engine: TvAvPlayerEngine | null = this.engine;
-    if (engine === null) {
-      return;
-    }
-    if (episodeNumber === engine.currentEpisode) {
-      this.closePanel();
-      return;
-    }
-    this.noteUserActivity();
-    this.panelOpen = false;
-    this.skipHandled = [];
-    engine.switchToEpisode(episodeNumber);
-    this.showChrome();
-    this.requestFocusSafe('tv_player_root');
+    .layoutWeight(1)
+    .height('100%')
+    .alignItems(HorizontalAlign.Start)
   }
 
   @Builder
-  private panelSubtitleColumn(): void {
-    Column({ space: 14 }) {
-      Row({ space: 10 }) {
-        Text('字幕')
-          .fontSize(30)
-          .fontWeight(700)
-          .fontColor(TvColors.text)
-        Text(`${this.subtitlePlansList().length + 1}`)
-          .fontSize(20)
-          .fontColor('rgba(255, 255, 255, 0.4)')
+  private panelStatsView(): void {
+    Column({ space: 16 }) {
+      Row({ space: 24 }) {
+        this.statCard('交付档位', this.eng().streamTierLabel(),
+          this.eng().session?.decision.reason ?? '')
+        this.statCard('解码管线', this.eng().decodeModeLine(),
+          this.eng().decodeSpecLine())
+        this.statCard('高动态与音效',
+          this.eng().vividBadges().length > 0 ? this.eng().vividBadges().join(' · ') : 'SDR 标准动态范围',
+          this.eng().isHdrActive() ? 'HDR 峰值亮度余量已激活（hdrBrightness 1.0）' : '标准色域映射')
       }
-      List({ space: 2 }) {
-        ListItem() {
-          TvPanelOption({
-            label: '关闭',
-            detail: '',
-            focusKey: 'tv_panel_subtitle_0',
-            active: this.subtitleOffActive(),
-            onPick: (): void => {
-              this.pickSubtitle(-1);
-            }
-          })
+      .width('100%')
+
+      if (this.eng().diag !== null) {
+        Column({ space: 8 }) {
+          Text('服务端实时供片遥测')
+            .fontSize(18)
+            .fontWeight(700)
+            .fontColor(TvColors.text)
+          Text(this.diagSummary(this.eng().diag as PlaybackDiagnosticsView))
+            .fontSize(15)
+            .fontColor(TvColors.textMuted)
+            .lineHeight(24)
         }
-        ForEach(this.subtitlePlansList(), (plan: SubtitlePlanView, index: number) => {
-          ListItem() {
-            TvPanelOption({
-              label: this.subtitleLabel(plan),
-              detail: this.subtitleDetail(plan),
-              focusKey: `tv_panel_subtitle_${index + 1}`,
-              active: this.subtitleActiveAt(index),
-              onPick: (): void => {
-                this.pickSubtitle(index);
-              }
-            })
-          }
-        }, (plan: SubtitlePlanView, index: number) => `${plan.track_ref}_${index}`)
+        .width('100%')
+        .padding(22)
+        .borderRadius(16)
+        .backgroundColor('rgba(255, 255, 255, 0.06)')
+        .alignItems(HorizontalAlign.Start)
       }
-      .width('100%')
-      .layoutWeight(1)
-      .scrollBar(BarState.Off)
-      .fadingEdge(false)
     }
+    .width('100%')
     .layoutWeight(1)
-    .height('100%')
+    .padding({ left: 72, right: 72, bottom: 40 })
     .alignItems(HorizontalAlign.Start)
   }
 
   @Builder
-  private panelAudioColumn(): void {
-    Column({ space: 14 }) {
-      Row({ space: 10 }) {
-        Text('音轨')
-          .fontSize(30)
-          .fontWeight(700)
-          .fontColor(TvColors.text)
-        Text(`${this.audioTracksList().length}`)
-          .fontSize(20)
-          .fontColor('rgba(255, 255, 255, 0.4)')
+  private statCard(title: string, primary: string, secondary: string): void {
+    Column({ space: 8 }) {
+      Text(title)
+        .fontSize(14)
+        .fontColor(TvColors.textMuted)
+      Text(primary.length > 0 ? primary : '—')
+        .fontSize(20)
+        .fontWeight(700)
+        .fontColor(TvColors.text)
+        .maxLines(2)
+      if (secondary.length > 0) {
+        Text(secondary)
+          .fontSize(14)
+          .fontColor(TvColors.textFaint)
+          .maxLines(2)
       }
-      List({ space: 2 }) {
-        ForEach(this.audioTracksList(), (track: AudioTrackView, index: number) => {
-          ListItem() {
-            TvPanelOption({
-              label: this.audioLabel(track),
-              detail: this.audioDetail(track),
-              focusKey: `tv_panel_audio_${index}`,
-              active: this.eng().activeAudioRef() === track.ref,
-              onPick: (): void => {
-                this.pickAudio(track.ref);
-              }
-            })
-          }
-        }, (track: AudioTrackView, index: number) => `${track.ref}_${index}`)
-      }
-      .width('100%')
-      .layoutWeight(1)
-      .scrollBar(BarState.Off)
-      .fadingEdge(false)
     }
     .layoutWeight(1)
-    .height('100%')
+    .padding(22)
+    .borderRadius(16)
+    .backgroundColor('rgba(255, 255, 255, 0.07)')
+    .border({ width: 1, color: 'rgba(255, 255, 255, 0.10)' })
     .alignItems(HorizontalAlign.Start)
   }
 
-  @Builder
-  private panelQualityColumn(): void {
-    Column({ space: 14 }) {
-      Row({ space: 10 }) {
-        Text('画质')
-          .fontSize(30)
-          .fontWeight(700)
-          .fontColor(TvColors.text)
-        Text(`${TvQualityOption.all().length}`)
-          .fontSize(20)
-          .fontColor('rgba(255, 255, 255, 0.4)')
-      }
-      List({ space: 2 }) {
-        ForEach(TvQualityOption.all(), (option: TvQualityOption, index: number) => {
-          ListItem() {
-            TvPanelOption({
-              label: option.label,
-              detail: option.hint,
-              focusKey: `tv_panel_quality_${index}`,
-              active: this.eng().maxHeight === option.maxHeight,
-              onPick: (): void => {
-                this.pickQuality(option.maxHeight);
-              }
-            })
-          }
-        }, (option: TvQualityOption, index: number) => `${option.maxHeight}_${index}`)
-      }
-      .width('100%')
-      .layoutWeight(1)
-      .scrollBar(BarState.Off)
-      .fadingEdge(false)
+  private diagSummary(d: PlaybackDiagnosticsView): string {
+    const parts: string[] = [];
+    parts.push(`处理模式：${d.processing_mode}`);
+    parts.push(`执行位置：${d.execution_location}`);
+    if ((d.encoder ?? '').length > 0) {
+      parts.push(`编码器：${d.encoder}`);
     }
-    .layoutWeight(1)
-    .height('100%')
-    .alignItems(HorizontalAlign.Start)
+    if ((d.job_speed ?? '').length > 0) {
+      parts.push(`转码速率：${d.job_speed}`);
+    }
+    if (d.lead_seconds !== null && d.lead_seconds !== undefined) {
+      parts.push(`缓冲领先：${Math.round(d.lead_seconds)} 秒`);
+    }
+    parts.push(`会话缓存：${Formatters.bytes(d.cache_bytes)}`);
+    return parts.join('  ·  ');
   }
 
-  // MARK: - 对话框（错误 / 同意 / 还在看吗）
+  // MARK: - 对话框
 
   @Builder
   private dialogs(): void {

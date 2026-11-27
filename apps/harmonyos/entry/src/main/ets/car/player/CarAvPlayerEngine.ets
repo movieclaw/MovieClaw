@@ -1,11 +1,11 @@
 /**
- * 车机播放引擎：TV / 车机共用的 `common/AvPlayerEngine` 的类型别名。
- * 车机独有交互（行车锁视频面隐藏、上一集）由共用引擎提供，页面层只做渲染。
+ * 车机播放引擎：由统一的 `car/playback/CarPlaybackHost`（AVPlayer + libmpv + PGS + 原生 ASS + 双 Vivid）
+ * 提供，保持与原 CarAvPlayerEngine 完全超集兼容。
  */
 export {
-  AvPlayerEngine as CarAvPlayerEngine,
-  PlayPhase as CarPlayPhase,
-  SkipSegments as CarSkipSegments,
-  Playback as CarPlayback,
+  CarAvPlayerEngine,
+  CarPlayPhase,
+  CarSkipSegments,
+  CarPlayback,
   PlayRequest
-} from '../../common/AvPlayerEngine';
+} from '../playback/CarPlaybackHost';

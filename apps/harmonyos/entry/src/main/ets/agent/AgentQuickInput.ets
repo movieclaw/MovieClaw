@@ -908,6 +908,7 @@ export struct AgentComposerPanel {
   /** 键盘高度（vp）：弹出把面板顶到键盘上面（同底栏卡的手动避让） */
   @Local private keyboardInset: number = 0;
   private keyboardWindow: window.Window | null = null;
+  private keyboardListener: ((height: number) => void) | null = null;
 
   aboutToAppear(): void {
     const context: common.Context | undefined = this.getUIContext().getHostContext();
@@ -916,16 +917,21 @@ export struct AgentComposerPanel {
     }
     window.getLastWindow(context).then((win: window.Window): void => {
       this.keyboardWindow = win;
-      win.on('keyboardHeightChange', (height: number): void => {
+      const listener = (height: number): void => {
         this.keyboardInset = height > 0 ? this.getUIContext().px2vp(height) : 0;
-      });
+      };
+      this.keyboardListener = listener;
+      win.on('keyboardHeightChange', listener);
     }).catch((): void => {
     });
   }
 
   aboutToDisappear(): void {
     if (this.keyboardWindow !== null) {
-      this.keyboardWindow.off('keyboardHeightChange');
+      if (this.keyboardListener !== null) {
+        this.keyboardWindow.off('keyboardHeightChange', this.keyboardListener);
+      }
+      this.keyboardListener = null;
       this.keyboardWindow = null;
     }
   }

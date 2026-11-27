@@ -1,4 +1,6 @@
-import { MovieClawApi } from '../api/Endpoints';
+import { Context } from '@kit.AbilityKit';
+import { fileIo } from '@kit.CoreFileKit';
+import { util } from '@kit.ArkTS';
 import {
   DiscoveredTitleView,
   DiscoveryPageSectionView,
@@ -17,11 +19,6 @@ export class DiscoverRowState {
 
 /**
  * 发现页的一行（对应 iOS `rows[ref]`）。
- *
- * `@ObservedV2` + `@Trace`：`state` / `items` 是**原地改**的（加载中 → 已加载），
- * 靠 V2 的字段级订阅让 `DiscoverRowView` 自己重绘。
- * 老写法（V1）做不到这点，只能把状态编进 `ForEach` 的 key 里逼框架重建整行——
- * 那个补丁已经删掉了。
  */
 @ObservedV2
 export class DiscoverRow {
@@ -51,13 +48,7 @@ export class DiscoverFailure {
 }
 
 /**
- * 一个视角（类型 × 数据源）的发现页数据（对应 iOS `DiscoverFeed`）。
- *
- * 三态约定（与 iOS、Web 一致）：hero = null 加载中（出骨架）/ 空数组 无或失败（收起）/ 有值轮播；
- * 每行缺省 = 加载中，FAILED = 失败（收起），LOADED = 渲染。
- *
- * 所有会变的字段都是 `@Trace`：页面直接读它们，改了就自动重绘，
- * 不需要「读出来拷进 @State」这一步（V1 必须那样，见 §10）。
+ * 一个视角（类型 × 数据源）的发现页数据（对应 iOS `DiscoverFeed` + 磁盘快照秒开）。
  */
 @ObservedV2
 export class DiscoverFeed {
@@ -68,7 +59,7 @@ export class DiscoverFeed {
   @Trace hero: DiscoveredTitleView[] | null = null;
   @Trace rows: DiscoverRow[] = [];
   @Trace failure: DiscoverFailure | null = null;
-  /** 首次进入该视角才拉取；已拉过就直接恢复（对应 iOS `loaded`） */
+  /** 本进程内已从网络成功拉取过（磁盘快照恢复时保持 false，实现首帧秒开 + 静默重验） */
   loaded: boolean = false;
 
   constructor(mediaType: string, provider: string) {
@@ -76,7 +67,6 @@ export class DiscoverFeed {
     this.provider = provider;
   }
 
-  /** 版面里声明了 Hero 区（对应 iOS `declaresHero`） */
   declaresHero(): boolean {
     const page: DiscoveryPageView | null = this.layout;
     if (page === null) {
@@ -90,7 +80,6 @@ export class DiscoverFeed {
     return false;
   }
 
-  /** 除 Hero 外的常规行（对应 iOS `rowSections`） */
   rowSections(): DiscoveryPageSectionView[] {
     const page: DiscoveryPageView | null = this.layout;
     if (page === null) {
@@ -105,7 +94,6 @@ export class DiscoverFeed {
     return out;
   }
 
-  /** 常规行全部失败（且没有一行成功）→ 整页错误态（对应 iOS `allRowsFailed`） */
   allRowsFailed(): boolean {
     if (this.rows.length === 0) {
       return false;
@@ -128,24 +116,159 @@ export class DiscoverFeed {
   }
 }
 
+interface DiscoverRowSnapshot {
+  ref: string;
+  title: string;
+  supportsFullListing: boolean;
+  items: DiscoveredTitleView[];
+}
+
+interface DiscoverFeedSnapshot {
+  key: string;
+  mediaType: string;
+  provider: string;
+  layout: DiscoveryPageView;
+  hero: DiscoveredTitleView[];
+  rows: DiscoverRowSnapshot[];
+}
+
+interface DiscoverDiskSnapshot {
+  origin: string;
+  savedAt: number;
+  feeds: DiscoverFeedSnapshot[];
+}
+
 /**
- * 视角缓存（对应 iOS `DiscoverFeedStore`）：同一个「类型:数据源」只建一个 feed，
- * 切回来直接恢复，不重新拉。
+ * 视角缓存 + 沙箱磁盘快照（对应 iOS `DiscoverFeedStore` + `DiscoverSnapshots`）：
+ * - 冷启动通过 `init(context)` 指定快照落盘路径；
+ * - 首次读 `feed()` 时同步从磁盘恢复上一次的 Hero 与各行片单，首帧零白屏骨架；
+ * - 随后 `DiscoverPage.load()` 后台静默重验并落盘最新快照。
  */
 @ObservedV2
 export class DiscoverStore {
   private static instance: DiscoverStore | null = null;
 
-  /** 惰性单例：静态字段初始化器早于 @ObservedV2 生效，那样建的实例不会被观察 */
   static get shared(): DiscoverStore {
     if (DiscoverStore.instance === null) {
       DiscoverStore.instance = new DiscoverStore();
     }
     return DiscoverStore.instance;
   }
-  private feeds: Map<string, DiscoverFeed> = new Map<string, DiscoverFeed>();
 
-  feed(mediaType: string, provider: string): DiscoverFeed {
+  private feeds: Map<string, DiscoverFeed> = new Map<string, DiscoverFeed>();
+  private cachePath: string | null = null;
+  private restoredOrigin: string | null = null;
+
+  init(context: Context): void {
+    this.cachePath = context.cacheDir + '/discover-cache.json';
+  }
+
+  /** 按当前服务器 origin 尝试恢复磁盘快照（幂等） */
+  ensureRestored(origin: string): void {
+    if (origin.length === 0 || this.restoredOrigin === origin || this.cachePath === null) {
+      return;
+    }
+    this.restoredOrigin = origin;
+    try {
+      const file: fileIo.File = fileIo.openSync(this.cachePath, fileIo.OpenMode.READ_ONLY);
+      let text: string = '';
+      try {
+        const stat: fileIo.Stat = fileIo.statSync(file.fd);
+        if (stat.size <= 0 || stat.size > 4 * 1024 * 1024) {
+          return;
+        }
+        const buf: ArrayBuffer = new ArrayBuffer(stat.size);
+        fileIo.readSync(file.fd, buf);
+        const decoder: util.TextDecoder = util.TextDecoder.create('utf-8');
+        text = decoder.decodeToString(new Uint8Array(buf));
+      } finally {
+        fileIo.closeSync(file);
+      }
+      const parsed: DiscoverDiskSnapshot = JSON.parse(text) as DiscoverDiskSnapshot;
+      if (parsed.origin !== origin || !Array.isArray(parsed.feeds)) {
+        return;
+      }
+      for (const snap of parsed.feeds) {
+        const existing: DiscoverFeed | undefined = this.feeds.get(snap.key);
+        const target: DiscoverFeed = existing !== undefined
+          ? existing
+          : new DiscoverFeed(snap.mediaType, snap.provider);
+        if (!target.loaded && target.layout === null) {
+          target.layout = snap.layout;
+          target.hero = snap.hero;
+          const restoredRows: DiscoverRow[] = [];
+          for (const r of snap.rows) {
+            const row: DiscoverRow = new DiscoverRow(r.ref, r.title, r.supportsFullListing);
+            row.items = r.items;
+            row.state = DiscoverRowState.loaded;
+            restoredRows.push(row);
+          }
+          target.rows = restoredRows;
+        }
+        this.feeds.set(snap.key, target);
+      }
+    } catch (_err) {
+    }
+  }
+
+  /** 将已成功加载的视角落盘 */
+  saveSnapshot(origin: string): void {
+    if (this.cachePath === null || origin.length === 0) {
+      return;
+    }
+    try {
+      const list: DiscoverFeedSnapshot[] = [];
+      this.feeds.forEach((feed: DiscoverFeed, key: string): void => {
+        if (feed.layout === null) {
+          return;
+        }
+        const rows: DiscoverRowSnapshot[] = [];
+        for (const r of feed.rows) {
+          if (r.state === DiscoverRowState.loaded) {
+            const rowSnap: DiscoverRowSnapshot = {
+              ref: r.ref,
+              title: r.title,
+              supportsFullListing: r.supportsFullListing,
+              items: r.items
+            };
+            rows.push(rowSnap);
+          }
+        }
+        const feedSnap: DiscoverFeedSnapshot = {
+          key: key,
+          mediaType: feed.mediaType,
+          provider: feed.provider,
+          layout: feed.layout,
+          hero: feed.hero ?? [],
+          rows: rows
+        };
+        list.push(feedSnap);
+      });
+      if (list.length === 0) {
+        return;
+      }
+      const disk: DiscoverDiskSnapshot = {
+        origin: origin,
+        savedAt: Date.now(),
+        feeds: list
+      };
+      const file: fileIo.File = fileIo.openSync(
+        this.cachePath,
+        fileIo.OpenMode.READ_WRITE | fileIo.OpenMode.CREATE | fileIo.OpenMode.TRUNC
+      );
+      try {
+        fileIo.writeSync(file.fd, JSON.stringify(disk));
+      } finally {
+        fileIo.closeSync(file);
+      }
+    } catch (_err) {
+    }
+  }
+
+  feed(mediaType: string, provider: string, origin: string = ''): DiscoverFeed {
+    if (origin.length > 0) {
+      this.ensureRestored(origin);
+    }
     const key: string = `${mediaType}:${provider}`;
     const hit: DiscoverFeed | undefined = this.feeds.get(key);
     if (hit !== undefined) {
@@ -156,7 +279,6 @@ export class DiscoverStore {
     return made;
   }
 
-  /** 院线地区变更：其余视角下次进入时重新拉取（对应 iOS `invalidateAll`） */
   invalidateAll(): void {
     this.feeds.forEach((feed: DiscoverFeed): void => {
       feed.loaded = false;

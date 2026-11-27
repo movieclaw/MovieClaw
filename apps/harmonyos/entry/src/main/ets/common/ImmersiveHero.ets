@@ -1,40 +1,76 @@
 import { Theme } from '../theme/AppTheme';
 import { RemoteImage } from './RemoteImage';
+import { AmbientColorStore, AmbientPalette } from './AmbientColor';
 
 /**
- * 沉浸大图的**共用实现**：整幅图 + 顶部压暗 + 底部渐变。
+ * 沉浸大图共用组件（全面升级：实时主色极光光晕 + 底边融合色 + `.geometryTransition` 一镜到底支持）：
  *
- * 为什么要有这个文件：条目详情页的 hero 与订阅轮播的 hero 是**同一张版式**
- * （对应 iOS 的 `hero(_:)` 与 `ImmersiveHeroBackdrop`，两者都是「整幅图 + 上压暗 + 下渐隐」），
- * 但之前是两页各写一遍——于是「高度不同、渐变不同、取图带不带派生变体不同」，
- * 同一部剧在两个页面里取景就不一样。**统一写，两边调用**。
- *
- * 高度缺省用 `Theme.heroHeight`（`min(屏宽 × 1.15, 屏高 × 0.62)`，逐值照搬 iOS）。
- * 页面自己的叠加内容（片名、时刻、指示器）由调用方**在 Builder 之后再叠**，
- * 这样两个页面共享底图、各自叠各的。
+ * - 自动从剧照采样电影主色调（`AmbientColorStore`），在底部与中段晕染出柔和色彩过渡，彻底告别死黑切边；
+ * - 传入 `geometryId` 时自动挂载 `.geometryTransition(id, { follow: true })`，与海报墙卡片形成丝滑弹簧一镜到底转场。
  */
-@Builder
-export function ImmersiveHeroBackdrop(url: string, heroHeight: number) {
-  Stack({ alignContent: Alignment.Bottom }) {
-    // 底图 + 顶部压暗（沉浸式下状态栏时钟与顶栏按钮压在图上，亮底图会吃掉白字）
-    Stack({ alignContent: Alignment.Top }) {
-      RemoteImage({ url: url })
-        .width('100%')
-        .height('100%')
+@ComponentV2
+export struct ImmersiveAmbientHero {
+  @Param url: string = '';
+  @Param heroHeight: number = Theme.heroHeight;
+  @Param geometryId: string = '';
+  @Local private ambient: AmbientColorStore = AmbientColorStore.shared;
+
+  private palette(): AmbientPalette {
+    // 访问 revision 建立 V2 响应式订阅，图片取色完成后自动柔和刷出氛围光
+    const rev: number = this.ambient.revision;
+    return rev >= 0 ? this.ambient.orFallback(this.url) : AmbientPalette.fallback;
+  }
+
+  build() {
+    Stack({ alignContent: Alignment.Bottom }) {
+      // 底层呼吸极光晕染（主色径向环境光）
       Column()
         .width('100%')
-        .height(Theme.statusBarInset + 72)
-        .linearGradient({ angle: 180, colors: [['rgba(0,0,0,0.5)', 0], ['rgba(0,0,0,0)', 1]] })
+        .height('100%')
+        .radialGradient({
+          center: ['50%', '38%'],
+          radius: '78%',
+          colors: [[this.palette().halo(0.42), 0], [Theme.bg, 1]]
+        })
+
+      Stack({ alignContent: Alignment.Top }) {
+        if (this.geometryId.length > 0) {
+          RemoteImage({ url: this.url, ambient: true })
+            .width('100%')
+            .height('100%')
+            .geometryTransition(this.geometryId, { follow: true })
+        } else {
+          RemoteImage({ url: this.url, ambient: true })
+            .width('100%')
+            .height('100%')
+        }
+        Column()
+          .width('100%')
+          .height(Theme.statusBarInset + 76)
+          .linearGradient({ angle: 180, colors: [['rgba(0,0,0,0.54)', 0], ['rgba(0,0,0,0)', 1]] })
+      }
+      .width('100%')
+      .height('100%')
+
+      // 双段电影级底边融合：上段透出提取的剧照主色微光，下段平滑沉入页面底色
+      Column()
+        .width('100%')
+        .height(this.heroHeight * 0.52)
+        .linearGradient({
+          angle: 180,
+          colors: [
+            ['rgba(0,0,0,0)', 0],
+            [this.palette().edge(0.68), 0.58],
+            [Theme.bg, 1]
+          ]
+        })
     }
     .width('100%')
-    .height('100%')
-
-    // 底部渐隐：融进页面底色（iOS 用 mask 在 0.56~1 之间渐隐，这里等价成一条渐变）
-    Column()
-      .width('100%')
-      .height(heroHeight * 0.45)
-      .linearGradient({ angle: 180, colors: [['rgba(0,0,0,0)', 0], [Theme.bg, 1]] })
+    .height(this.heroHeight)
   }
-  .width('100%')
-  .height(heroHeight)
+}
+
+@Builder
+export function ImmersiveHeroBackdrop(url: string, heroHeight: number, geometryId: string = '') {
+  ImmersiveAmbientHero({ url: url, heroHeight: heroHeight, geometryId: geometryId })
 }
