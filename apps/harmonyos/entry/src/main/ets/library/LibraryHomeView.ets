@@ -1,5 +1,16 @@
 import { connection } from '@kit.NetworkKit';
+import { accessibility } from '@kit.AccessibilityKit';
+import { curves } from '@kit.ArkUI';
 import { AppNavBar } from '../common/AppNavBar';
+import { TipsStore } from '../common/TipsStore';
+import { formatUserStars } from '../common/StarRatingBar';
+import {
+  REELS_FLOOR_REFRESH_AT,
+  ReelsFloorDim,
+  ReelsFloorGap,
+  ReelsFloorState,
+  ReelsFloorTipCard
+} from './ReelsFloor';
 import { Theme } from '../theme/AppTheme';
 import { TabBarCollapse } from '../common/TabBarCollapse';
 import { GlassButtonModifier, GlassTone } from '../common/GlassControls';
@@ -18,11 +29,12 @@ import {
   LibraryKindGenreView,
   LibraryView,
   PlaybackHistoryClearView,
+  RatedItemView,
   UpNextItemView,
   UpNextView
 } from '../api/Models';
 import { LibraryHomePrefs, LibraryHomeStore } from './LibraryHomeStore';
-import { LibraryCustomizeSheet } from './LibraryCustomizeSheet';
+import { LibraryCustomizeSheet, LibraryHomePrefsHolder } from './LibraryCustomizeSheet';
 import { LibraryRouteParams } from './LibraryRouteParams';
 import { KindWallParams } from './LibraryKindWallPage';
 import { CollectionRouteParams } from './CollectionDetailPage';
@@ -43,6 +55,7 @@ import {
   LibrariesKind,
   LibraryRowKind,
   MediaKindRowKind,
+  RatedKind,
   UpNextKind
 } from './HomeRows';
 import {
@@ -94,9 +107,11 @@ class PosterRowItem {
   readonly aspect: number;
   /** 长按信息（最近添加的季集范围、入库时间、收藏层级） */
   readonly info: string[];
+  /** 海报左下角金色徽章（我的评分或杜比视界/Atmos 规格） */
+  readonly goldBadge: string | null;
 
   constructor(id: number, libraryId: number, title: string, year: number | null,
-    url: string | null, aspect: number, info: string[]) {
+    url: string | null, aspect: number, info: string[], goldBadge: string | null = null) {
     this.id = id;
     this.libraryId = libraryId;
     this.title = title;
@@ -104,6 +119,25 @@ class PosterRowItem {
     this.url = url;
     this.aspect = aspect;
     this.info = info;
+    this.goldBadge = goldBadge;
+  }
+
+  private static badgeFromRatingOrSpec(userRating: number | null | undefined,
+    dynamicRange?: string | null, hasAtmos?: boolean | null): string | null {
+    if (userRating !== null && userRating !== undefined && userRating > 0) {
+      return `★ ${formatUserStars(userRating)}`;
+    }
+    const dr: string = dynamicRange ?? '';
+    if (dr === 'Dolby Vision') {
+      return hasAtmos === true ? 'DV · Atmos' : '杜比视界';
+    }
+    if (dr === 'HDR10+' || dr === 'HDR Vivid') {
+      return dr;
+    }
+    if (hasAtmos === true) {
+      return 'Atmos';
+    }
+    return null;
   }
 
   static fromItem(item: LibraryItemView, fallbackLibrary: number, origin: string): PosterRowItem {
@@ -117,17 +151,27 @@ class PosterRowItem {
     if (item.added_at !== null && item.added_at !== undefined) {
       info.push(`${libraryFromNow(item.added_at)}入库`);
     }
+    const badge: string | null = PosterRowItem.badgeFromRatingOrSpec(
+      item.user_rating, item.dynamic_range ?? null, item.has_atmos ?? null);
     return new PosterRowItem(item.media_item_id, item.library_id ?? fallbackLibrary, item.title,
       item.year ?? null, ImageUrls.resolve(origin, item.poster_url, ImageVariant.posterCard),
-      item.primary_aspect, info);
+      item.primary_aspect, info, badge);
   }
 
   static fromFavorite(item: FavoriteItemView, origin: string): PosterRowItem {
     const level: string | null = favoriteLevelLabel(item.kind,
       item.favorite_season_number ?? null, item.favorite_episode_number ?? null);
     const info: string[] = level !== null ? [level] : [];
+    const badge: string | null = PosterRowItem.badgeFromRatingOrSpec(item.user_rating);
     return new PosterRowItem(item.media_item_id, item.library_id, item.title, item.year ?? null,
-      ImageUrls.resolve(origin, item.poster_url, ImageVariant.posterCard), item.primary_aspect, info);
+      ImageUrls.resolve(origin, item.poster_url, ImageVariant.posterCard), item.primary_aspect, info, badge);
+  }
+
+  static fromRated(item: RatedItemView, origin: string): PosterRowItem {
+    const badge: string = `★ ${formatUserStars(item.user_rating)}`;
+    return new PosterRowItem(item.media_item_id, item.library_id, item.title, item.year ?? null,
+      ImageUrls.resolve(origin, item.poster_url, ImageVariant.posterCard), item.primary_aspect,
+      [`我的评分 ${badge}`], badge);
   }
 }
 
@@ -444,6 +488,8 @@ export struct LibraryHomeView {
   @State private upNext: UpNextItemView[] = [];
   @State private favoritesItems: PosterRowItem[] = [];
   @State private favoritesTotal: number = 0;
+  @State private ratedItems: PosterRowItem[] = [];
+  @State private ratedTotal: number = 0;
   @State private rowItems: Record<string, LibraryItemView[]> = {};
   /** 「按类型找」行各自的类型格子（Store 里跟着行条目同一道闸刷新，这里只是渲染副本） */
   @State private genresByKind: Record<string, LibraryKindGenreView[]> = {};
@@ -457,14 +503,30 @@ export struct LibraryHomeView {
   @State private clearingBusy: boolean = false;
   /** 轮询定时器句柄；-1 = 没在轮询 */
   private pollTimer: number = -1;
-  /** 竖向列表的滚动器（外层 Scroll 换成 List 后保留，口径不变） */
   /** 首页 List 的滚动器（宿主 bindToScrollable 要用同一个实例驱动标题栏显隐） */
   scroller: Scroller = new Scroller();
   /** 首页行清单的懒加载数据源（LazyForEach 只建可视区附近的行） */
   private rowSource: HomeRowSource = new HomeRowSource();
 
+  // —— 下拉二楼（35mm 胶片放映门 + Rich Haptics）——
+  @State private floor: ReelsFloorState = new ReelsFloorState();
+  @State private floorStills: string[] = [];
+  private floorSeed: number = Math.floor(Math.random() * 2147483647);
+  private floorEntering: boolean = false;
+  private static readonly FLOOR_TIP: string = 'library.reels-floor';
+  @State private floorTipLoaded: boolean = false;
+  @State private floorTipVisible: boolean = false;
+  private floorTipRecorded: boolean = false;
+  private floorTipDismissed: boolean = false;
+
   aboutToAppear(): void {
     this.permissions = Permissions.fromSession(AppModel.shared.session);
+    LibraryHomePrefsHolder.register((updatedRows: HomeRowPref[]): void => {
+      LibraryHomePrefs.shared.rows = updatedRows;
+      this.syncFromStore();
+      this.reload();
+    });
+    this.loadFloorTip();
     this.reload();
   }
 
@@ -505,6 +567,10 @@ export struct LibraryHomeView {
       ? store.favorites.items.map((item: FavoriteItemView): PosterRowItem => PosterRowItem.fromFavorite(item, origin))
       : [];
     this.favoritesTotal = store.favorites !== null ? store.favorites.total : 0;
+    this.ratedItems = store.rated !== null
+      ? store.rated.items.map((item: RatedItemView): PosterRowItem => PosterRowItem.fromRated(item, origin))
+      : [];
+    this.ratedTotal = store.rated !== null ? store.rated.total : 0;
     this.failed = store.failed;
     this.recentlyBusy = store.busyUntil > Date.now();
     const prefsRows: HomeRowPref[] | null = LibraryHomePrefs.shared.rows;
@@ -517,6 +583,54 @@ export struct LibraryHomeView {
     this.rowItems = record;
     this.genresByKind = store.genresByKind;
     this.rowSource.setRows(this.rows);
+    this.floorStills = this.computeFloorStills();
+    this.maybeShowFloorTip();
+  }
+
+  private computeFloorStills(): string[] {
+    const paths: string[] = [];
+    for (const item of this.upNext) {
+      if (item.backdrop_url !== null && item.backdrop_url !== undefined && item.backdrop_url.length > 0) {
+        paths.push(item.backdrop_url);
+      }
+    }
+    for (const key of Object.keys(this.rowItems)) {
+      for (const item of this.rowItems[key]) {
+        if (item.backdrop_url !== null && item.backdrop_url !== undefined && item.backdrop_url.length > 0) {
+          paths.push(item.backdrop_url);
+        }
+      }
+    }
+    const seen: Set<string> = new Set<string>();
+    const distinct: string[] = [];
+    for (const path of paths) {
+      if (!seen.has(path)) {
+        seen.add(path);
+        distinct.push(path);
+      }
+    }
+    const seed: number = this.floorSeed;
+    distinct.sort((a: string, b: string): number => {
+      return ((LibraryHomeView.hashString(a) + seed) % 1000003) - ((LibraryHomeView.hashString(b) + seed) % 1000003);
+    });
+    const origin: string = AppModel.origin();
+    const out: string[] = [];
+    for (const path of distinct.slice(0, 8)) {
+      const url: string | null = ImageUrls.resolve(origin, path, ImageVariant.reelStill);
+      if (url !== null) {
+        out.push(url);
+      }
+    }
+    return out;
+  }
+
+  private static hashString(value: string): number {
+    let hash: number = 2166136261;
+    for (let i: number = 0; i < value.length; i++) {
+      hash = hash ^ value.charCodeAt(i);
+      hash = Math.imul(hash, 16777619);
+    }
+    return hash >>> 0;
   }
 
   // MARK: 「按类型找」行
@@ -863,7 +977,97 @@ export struct LibraryHomeView {
     }
   }
 
-  // MARK: 片段入口
+  // MARK: 下拉二楼与片段入口
+
+  private async loadFloorTip(): Promise<void> {
+    await TipsStore.shared.ensureLoaded();
+    if (AppModel.shared.api === null) {
+      return;
+    }
+    this.floorTipLoaded = true;
+    this.maybeShowFloorTip();
+  }
+
+  private maybeShowFloorTip(): void {
+    if (!this.floorTipLoaded || this.floorTipVisible || this.floorTipDismissed) {
+      return;
+    }
+    if (this.visibleLibraries.length === 0) {
+      return;
+    }
+    if (this.screenReaderOpen()) {
+      return;
+    }
+    if (!TipsStore.shared.eligible(LibraryHomeView.FLOOR_TIP)) {
+      return;
+    }
+    this.floorTipVisible = true;
+    if (!this.floorTipRecorded) {
+      this.floorTipRecorded = true;
+      TipsStore.shared.recordDisplay(LibraryHomeView.FLOOR_TIP);
+    }
+  }
+
+  private screenReaderOpen(): boolean {
+    try {
+      return accessibility.isScreenReaderOpenSync();
+    } catch (_error) {
+      return false;
+    }
+  }
+
+  private closeFloorTip(): void {
+    this.floorTipDismissed = true;
+    this.floorTipVisible = false;
+    TipsStore.shared.invalidate(LibraryHomeView.FLOOR_TIP, 'closed');
+  }
+
+  private onFloorStateChange(status: RefreshStatus): void {
+    if (status === RefreshStatus.Drag) {
+      this.floor.begin();
+      return;
+    }
+    if (status === RefreshStatus.Refresh) {
+      if (this.floor.release()) {
+        this.enterReelsByFloor();
+      } else {
+        this.floor.reset();
+      }
+      return;
+    }
+    if (status === RefreshStatus.Inactive || status === RefreshStatus.Done) {
+      this.floor.release();
+      this.floor.reset();
+    }
+  }
+
+  private onFloorOffset(offset: number): void {
+    if (!this.floor.dragging) {
+      return;
+    }
+    this.floor.drag(offset);
+  }
+
+  private enterReelsByFloor(): void {
+    if (this.floorEntering) {
+      return;
+    }
+    this.floorEntering = true;
+    this.floorTipDismissed = true;
+    this.floorTipVisible = false;
+    TipsStore.shared.invalidate(LibraryHomeView.FLOOR_TIP, 'action_performed');
+    this.floor.reset();
+    this.refreshing = false;
+    setTimeout((): void => {
+      try {
+        this.scroller.scrollToIndex(0);
+      } catch (_error) {
+      }
+      this.openReels();
+      this.refreshing = false;
+      this.floorEntering = false;
+    }, 0);
+  }
 
   /** 片段直接播原片，蜂窝/计费网络先确认一次（一期鸿蒙只识别蜂窝） */
   private openReels(): void {
@@ -907,54 +1111,99 @@ export struct LibraryHomeView {
 
   // MARK: 布局
 
-  build() {
-    Column() {
-      Refresh({ refreshing: $$this.refreshing }) {
-        // 用 List 而不是 Scroll + Column：只有 List / Grid / Swiper / WaterFlow 这类容器
-        // 才让 LazyForEach 按可视区建组件。首页每一行分节是一个 ListItem（见 Content）。
-        List({ scroller: this.scroller }) {
-          // 内容从 y=0 铺到标题栏下面：首屏空出标题栏高度（滚动时这段跟着走）。
-          // 在此基础上再上提 24：第一行分区自带 top: 24 间距，统计行删掉后这段不能
-          // 再空两次——首行落在标题栏下约 4，与原统计文字行的呼吸一致。
-          ListItem() {
-            Column()
-              .width('100%')
-              .height(AppNavBar.contentTop - 24)
-          }
-          this.Content()
-          ListItem() {
-            this.StatsFooter()
-          }
-          ListItem() {
-            AppFooter()
-          }
-        }
-        .scrollBar(BarState.Off)
-        .width('100%')
-        .height('100%')
-        .edgeEffect(EdgeEffect.None)
-        // 可视区上下各多缓存几行，快速滑动时少建少销毁
-        // 向下滚累计到阈值：底栏收成圆形按钮（往回滑立刻放回）
-        .onDidScroll((xOffset: number, yOffset: number) => {
-          TabBarCollapse.shared().onScroll(this.scroller.currentOffset().yOffset, this.scroller.isAtEnd());
-        })
-        .cachedCount(4)
-        // 底部让位用 contentEndOffset：内容能滚到页签胶囊/手势条下面，胶囊背后不再是黑底
-        .id('app-library-list')
-        .contentEndOffset(Theme.tabBarInset)
-      }
-      .onRefreshing(() => {
-        this.reload().then((): void => {
-          this.refreshing = false;
-        });
-      })
-      .layoutWeight(1)
+  @Builder
+  EmptyFloorIndicator() {
+    Column()
       .width('100%')
+      .height(0)
+  }
+
+  @Builder
+  FloorDimOverlay() {
+    ReelsFloorDim({ floor: this.floor })
+  }
+
+  build() {
+    Stack({ alignContent: Alignment.TopStart }) {
+      Column() {
+        Refresh({
+          refreshing: $$this.refreshing,
+          builder: this.EmptyFloorIndicator()
+        }) {
+          List({ scroller: this.scroller }) {
+            ListItem() {
+              Column()
+                .width('100%')
+                .height(AppNavBar.contentTop - 24)
+            }
+            if (this.floorTipVisible) {
+              ListItem() {
+                ReelsFloorTipCard({
+                  onClose: (): void => {
+                    this.closeFloorTip();
+                  }
+                })
+                  .padding({ left: Theme.pagePadding, right: Theme.pagePadding, top: 28 })
+              }
+            }
+            this.Content()
+            ListItem() {
+              this.StatsFooter()
+            }
+            ListItem() {
+              AppFooter()
+            }
+          }
+          .scrollBar(BarState.Off)
+          .width('100%')
+          .height('100%')
+          .edgeEffect(EdgeEffect.None, { alwaysEnabled: true })
+          .onDidScroll((xOffset: number, yOffset: number) => {
+            TabBarCollapse.shared().onScroll(this.scroller.currentOffset().yOffset, this.scroller.isAtEnd());
+          })
+          .cachedCount(4)
+          .id('app-library-list')
+          .contentEndOffset(Theme.tabBarInset)
+          .overlay(this.FloorDimOverlay(), { align: Alignment.TopStart })
+        }
+        .onOffsetChange((offset: number): void => {
+          this.onFloorOffset(offset);
+        })
+        .onStateChange((status: RefreshStatus): void => {
+          this.onFloorStateChange(status);
+        })
+        .refreshOffset(REELS_FLOOR_REFRESH_AT)
+        .pullDownRatio(1)
+        .maxPullDownDistance(320)
+        .onRefreshing(() => {
+          if (this.floorEntering) {
+            this.refreshing = false;
+            return;
+          }
+          if (this.floor.armed) {
+            this.enterReelsByFloor();
+            return;
+          }
+          this.floor.reset();
+          this.reload().then((): void => {
+            this.refreshing = false;
+          });
+        })
+        .layoutWeight(1)
+        .width('100%')
+      }
+      .width('100%')
+      .height('100%')
+
+      ReelsFloorGap({
+        floor: this.floor,
+        stills: this.floorStills,
+        topInset: AppNavBar.contentTop
+      })
     }
     .width('100%')
     .height('100%')
     .backgroundColor(Theme.bg)
-    // **一个组件只能绑一个 bindSheet**（后绑的覆盖前面的），所以合成单槽位 + 内容切换
     .bindSheet($$this.showSheet, this.SheetContent(), {
       height: SheetSize.MEDIUM,
       dragBar: true,
@@ -1192,6 +1441,8 @@ export struct LibraryHomeView {
       this.UpNextRow(row)
     } else if (row.kind instanceof FavoritesKind) {
       this.FavoritesRow(row)
+    } else if (row.kind instanceof RatedKind) {
+      this.RatedRow(row)
     } else if (row.kind instanceof LibrariesKind) {
       this.LibrariesRow(row)
     } else if (row.kind instanceof LibraryRowKind) {
@@ -1295,6 +1546,13 @@ export struct LibraryHomeView {
       this.PosterRow(row.title(), `查看全部 ${this.favoritesTotal} 部`, this.favoritesItems, (): void => {
         this.navStack.pushPathByName('favorites', null);
       })
+    }
+  }
+
+  @Builder
+  RatedRow(row: HomeRow) {
+    if (this.ratedItems.length > 0) {
+      this.PosterRow(row.title(), `共 ${this.ratedTotal} 部`, this.ratedItems, null)
     }
   }
 
@@ -1514,16 +1772,16 @@ export struct LibraryHomeView {
     .alignItems(HorizontalAlign.Start)
   }
 
-  /** 横滚海报行（收藏行 / 库行 / 合集行统一形态） */
+  /** 横滚海报行（收藏行 / 高分行 / 库行 / 合集行统一形态） */
   @Builder
-  PosterRow(title: string, moreTitle: string, items: PosterRowItem[], onMore: () => void) {
+  PosterRow(title: string, moreTitle: string, items: PosterRowItem[], onMore: (() => void) | null) {
     Column({ space: 12 }) {
       LibrarySectionHeader({
         title: title,
-        trailingText: moreTitle,
-        onTrailing: (): void => {
+        trailingText: onMore !== null ? moreTitle : '',
+        onTrailing: onMore !== null ? (): void => {
           onMore();
-        }
+        } : null
       })
       Scroll() {
         Row({ space: 12 }) {
@@ -1534,12 +1792,16 @@ export struct LibraryHomeView {
                 year: item.year,
                 url: item.url ?? '',
                 imageAspect: item.aspect,
-                frameAspect: Theme.posterAspect
+                frameAspect: Theme.posterAspect,
+                goldBadge: item.goldBadge,
+                geometryId: `mc-item-${item.id}`
               })
             }
             .width(124)
             .onClick(() => {
-              this.navStack.pushPathByName('libraryItem', new ItemRouteParams(item.libraryId, item.id));
+              this.getUIContext().animateTo({ curve: curves.springMotion(0.42, 0.82) }, (): void => {
+                this.navStack.pushPathByName('libraryItem', new ItemRouteParams(item.libraryId, item.id));
+              });
             })
             .bindContextMenu(this.PosterInfoMenu(item), ResponseType.LongPress)
           }, (item: PosterRowItem) => `${item.id}`)

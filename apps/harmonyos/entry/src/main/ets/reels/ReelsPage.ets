@@ -4,7 +4,8 @@ import { BusinessError } from '@kit.BasicServicesKit';
 import { Theme } from '../theme/AppTheme';
 import { GlassButtonModifier, GlassTone } from '../common/GlassControls';
 import { ImageUrls, ImageVariant } from '../common/ImageUrls';
-import { RemoteImage } from '../common/RemoteImage';
+import { RemoteImage, RemoteImageCache } from '../common/RemoteImage';
+import { Haptics } from '../common/Haptics';
 import { ShellChrome } from '../common/ShellChrome';
 import { AppModel, ClipReturn } from '../common/AppModel';
 import { ApiError } from '../api/ApiClient';
@@ -202,6 +203,7 @@ export struct ReelsPage {
   private started: boolean = false;
   private player: media.AVPlayer | null = null;
   private surfaceController: XComponentController = new XComponentController();
+  private feedController: SwiperController = new SwiperController();
   private surfaceId: string = '';
   /** 播放器已到 initialized、XComponent surface 还没就绪：等 onLoad 回调补挂 */
   private waitSurface: boolean = false;
@@ -266,6 +268,8 @@ export struct ReelsPage {
   @Local private clips: ReelClipProgressView | null = null;
   /** 刷到底了（这一页 has_more=false）：末尾追加「没有更多了」页 */
   @Local private exhausted: boolean = false;
+  /** 片尾自动连播下一段（默认开启，可切换单段停驻） */
+  @Local private autoAdvance: boolean = true;
 
   aboutToDisappear(): void {
     PlaybackOwnership.release(this);
@@ -299,18 +303,38 @@ export struct ReelsPage {
     }
   }
 
+  private kindLabel(): string {
+    if (this.kind.length === 0) {
+      return '全部';
+    }
+    for (const entry of this.kinds) {
+      if (entry.value === this.kind) {
+        return entry.label;
+      }
+    }
+    return this.kind;
+  }
+
   @Builder
   KindMenu() {
     Menu() {
-      MenuItem({ content: '全部' })
+      MenuItem({ content: `${this.kind.length === 0 ? '✓ ' : ''}全部` })
         .onClick(() => {
+          if (this.kind.length === 0) {
+            return;
+          }
           this.kind = '';
+          this.index = 0;
           this.load();
         })
       ForEach(this.kinds, (entry: FacetValueView) => {
-        MenuItem({ content: `${entry.label} ${entry.count}` })
+        MenuItem({ content: `${this.kind === entry.value ? '✓ ' : ''}${entry.label} ${entry.count}` })
           .onClick(() => {
+            if (this.kind === entry.value) {
+              return;
+            }
             this.kind = entry.value;
+            this.index = 0;
             this.load();
           })
       }, (entry: FacetValueView) => `k-${entry.value}`)
@@ -495,6 +519,7 @@ export struct ReelsPage {
       }
       if (this.items.length > 0) {
         this.playCurrent();
+        this.prefetchAdjacentStills();
       }
     } catch (error) {
       this.failed = true;
@@ -678,12 +703,15 @@ export struct ReelsPage {
         this.timeBucket = bucket;
         this.positionMs = isClip ? time : time - startMs;
       }
-      // **到片段终点就停**——片段是「从整片里切出来的一段」，不是整片
-      // （clip 的 time 本身就是片段内位置，与「片段时长」同轴；seek 的 time 是原片位置，与 endMs 同轴）
+      // **到片段终点就停或自动连播下一段**
       const endAt: number = isClip ? endMs - startMs : endMs;
-      if (endAt > 0 && time >= endAt) {
+      if (endAt > 0 && time >= endAt && !this.paused) {
         player.pause();
         this.paused = true;
+        if (this.autoAdvance && this.index + 1 < this.items.length) {
+          Haptics.tick();
+          this.feedController.showNext();
+        }
       }
     });
   }
@@ -1088,7 +1116,7 @@ export struct ReelsPage {
   /** 整页上下滑（iOS 用的就是整页翻，不是列表） */
   @Builder
   Feed() {
-    Swiper() {
+    Swiper(this.feedController) {
       LazyForEach(this.itemsSource, (item: ReelItemView) => {
         Stack() {
           // 没出第一帧前：横版剧照模糊铺满整页垫底（同 iOS stillBackdrop）
@@ -1156,9 +1184,22 @@ export struct ReelsPage {
               // 非当前页不挂 surface（省解码器），用封面顶着
               this.Cover(item, !this.hasBackdrop(item))
             }
-            // 横带正下方一行：「全屏观看」描边胶囊（画质胶囊以后加在它左边）——
-            // 放进画面这列而不是信息层：跟着横带走，不压画面、不悬在半空
+            // 横带正下方一行：「连播开关」+「全屏观看」描边胶囊
             Row({ space: 8 }) {
+              Button() {
+                Text(this.autoAdvance ? '自动连播' : '播完停驻')
+                  .fontSize(12)
+                  .fontColor(this.autoAdvance ? Theme.accentStrong : 'rgba(255,255,255,0.75)')
+              }
+              .attributeModifier(new GlassButtonModifier(GlassTone.Dark))
+              .padding({ left: 12, right: 12, top: 7, bottom: 7 })
+              .borderRadius(16)
+              .onClick(() => {
+                this.autoAdvance = !this.autoAdvance;
+                Haptics.tick();
+              })
+              .hitTestBehavior(HitTestMode.BLOCK_HIERARCHY)
+
               Button() {
                 Text('全屏观看')
                   .fontSize(12)
@@ -1223,8 +1264,9 @@ export struct ReelsPage {
         return;
       }
       this.syncMarks();
-      // 翻页就换片段；滑到接近末尾时补一批
+      // 翻页就换片段；预热后续剧照；滑到接近末尾时补一批
       this.playCurrent();
+      this.prefetchAdjacentStills();
       if (index >= this.items.length - 2 && !this.exhausted) {
         this.loadMore();
       }
@@ -1387,9 +1429,9 @@ export struct ReelsPage {
         })
         .hitTestBehavior(HitTestMode.BLOCK_HIERARCHY)
         Blank()
-        // 右上一个玻璃胶囊「全部 ⌄」（类型筛选；没接后端筛选时也保留入口位置）
+        // 右上一个玻璃胶囊「全部 ⌄」（动态反映当前类型筛选名）
         Button() {
-          Text('全部')
+          Text(`${this.kindLabel()} ⌄`)
             .fontSize(13)
             .fontColor('#ffffff')
         }
@@ -1633,13 +1675,31 @@ export struct ReelsPage {
     return parts.join('  ·  ');
   }
 
+  /** 预热下 2 条片段剧照进内存与磁盘 LRU，翻页瞬间零黑屏 */
+  private prefetchAdjacentStills(): void {
+    const urls: string[] = [];
+    for (let offset: number = 1; offset <= 2; offset++) {
+      const targetIndex: number = this.index + offset;
+      if (targetIndex >= 0 && targetIndex < this.items.length) {
+        const u: string = this.stillUrl(this.items[targetIndex]);
+        if (u.length > 0) {
+          urls.push(u);
+        }
+      }
+    }
+    if (urls.length > 0) {
+      RemoteImageCache.shared.prefetch(urls);
+    }
+  }
+
   private async loadMore(): Promise<void> {
     const api: MovieClawApi | null = this.api();
     if (api === null) {
       return;
     }
     try {
-      const view: ReelFeedView = await api.reelsFeed(undefined, this.items.length, 8, 'seek,clip');
+      const view: ReelFeedView = await api.reelsFeed(undefined, this.items.length, 8, 'seek,clip',
+        this.kind.length > 0 ? this.kind : undefined);
       this.clips = view.clips ?? null;
       this.exhausted = !view.has_more;
       // 追加时去重（后端可能因为排名变化给出重复项）

@@ -342,6 +342,28 @@ export class AppModel {
     const probeClient: ApiClient =
       new ApiClient(address.origin, savedToken.length > 0 ? savedToken : null, 5000);
     const probeApi: MovieClawApi = new MovieClawApi(probeClient);
+    // 有已存令牌时直奔 /auth/me，省掉 healthCheck -> authBootstrapStatus 两次多余的串行 TLS 握手
+    if (savedToken.length > 0) {
+      try {
+        const session: SessionView = await probeApi.authMe();
+        this.activate(address, session, savedToken);
+        return;
+      } catch (error) {
+        if (error instanceof ApiError && error.isUnauthorized) {
+          if (username.length > 0) {
+            await TokenVault.delete(address.origin, username);
+          }
+          this.forgetCurrentToken();
+          this.launchError = null;
+          this.expiredUsername = username.length > 0 ? username : null;
+          this.phase = this.otherAccounts().length > 0 ? AppPhase.chooseAccount : AppPhase.needsLogin;
+          return;
+        }
+        this.launchError = this.messageOf(error);
+        this.phase = AppPhase.unreachable;
+        return;
+      }
+    }
     try {
       const health: HealthResponse = await probeApi.healthCheck();
       if (health.status !== 'ok') {
@@ -354,28 +376,11 @@ export class AppModel {
         this.phase = AppPhase.needsSetup;
         return;
       }
-      if (savedToken.length === 0) {
-        // 本机没有这台服务器当前账号的令牌：输一次密码
-        this.launchError = null;
-        this.expiredUsername = username.length > 0 ? username : null;
-        this.phase = AppPhase.needsLogin;
-        return;
-      }
-      const session: SessionView = await probeApi.authMe();
-      this.activate(address, session, savedToken);
+      // 本机没有这台服务器当前账号的令牌：输一次密码
+      this.launchError = null;
+      this.expiredUsername = username.length > 0 ? username : null;
+      this.phase = AppPhase.needsLogin;
     } catch (error) {
-      if (error instanceof ApiError && error.isUnauthorized) {
-        // 当前账号的令牌失效了：预填快照里它的用户名，让用户只输密码
-        if (username.length > 0) {
-          await TokenVault.delete(address.origin, username);
-        }
-        this.forgetCurrentToken();
-        this.launchError = null;
-        this.expiredUsername = username.length > 0 ? username : null;
-        this.phase = this.otherAccounts().length > 0 ? AppPhase.chooseAccount : AppPhase.needsLogin;
-        return;
-      }
-      // 服务器连不上：不当成「要重新登录」——令牌还在，恢复后点重试就能进
       this.launchError = this.messageOf(error);
       this.phase = AppPhase.unreachable;
     }

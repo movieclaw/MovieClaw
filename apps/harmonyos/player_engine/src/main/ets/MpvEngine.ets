@@ -51,6 +51,14 @@ export class MpvEngine implements PlayerEngine {
   }
   /** 本引擎 sub-add 挂上的旁挂轨 id（open 与 attachSubtitle 都记），换轨时 sub-remove。 */
   private sidecarIds: number[] = [];
+  /** ASS/SSA 字幕是否走 libass GPU 原生上屏（开启时保留特效并抑制覆盖层纯文本双绘） */
+  private nativeAss: boolean = false;
+  /** 用户手动字幕时间偏移（毫秒） */
+  private userDelayMs: number = 0;
+  /** 当前流的窗口起始时间偏移（毫秒） */
+  private baseSubtitleOffsetMs: number = 0;
+  /** 当前活跃字幕格式（'ass' | 'srt' | 'vtt' | 'sup' | ''） */
+  private activeSubtitleFormat: string = '';
   // ---- 视频冻结看门狗 ---------------------------------------------------
   // 按需 HLS 流里服务端产不出的分片会 404，mpv 跳段后 per-segment-moov 的视频
   // 流 demux 死亡（video 0 包），音频却照常整集入队：time-pos 持续走、画面永久
@@ -125,7 +133,9 @@ export class MpvEngine implements PlayerEngine {
       // 位图（PGS）与未知 .sub 保持原生渲染（sub-text 恒空，覆盖层无事可做）。
       // 每次打开都显式重设，避免上一次播放的设置残留到本次默认轨。
       const format = source.subtitleFormat ?? '';
-      const textSub = format === 'ass' || format === 'srt' || format === 'vtt';
+      this.activeSubtitleFormat = format;
+      this.baseSubtitleOffsetMs = source.subtitleOffsetMs ?? 0;
+      const textSub = (format === 'srt' || format === 'vtt') || (format === 'ass' && !this.nativeAss);
       await this.set('sub-visibility', textSub ? 'no' : 'yes');
       // 旁挂轨表基线（P2-3）：严格查询，失败立即放弃本次挂载——吞掉失败会让差集
       // 基线为空，sub-add 后把内封轨也记成旁挂，后续换轨 sub-remove 误删内封轨。
@@ -153,7 +163,8 @@ export class MpvEngine implements PlayerEngine {
           const event = new EngineEvent(); event.type = 'diagnostic'; event.text = 'MPV 外挂字幕加载失败，继续播放'; this.onEvent(event);
         }
       }
-      await this.set('sub-delay', -(source.subtitleOffsetMs ?? 0) / 1000);
+      const openNetDelayMs: number = this.userDelayMs - this.baseSubtitleOffsetMs;
+      await this.set('sub-delay', openNetDelayMs === 0 ? 0 : openNetDelayMs / 1000);
       await this.startWatchdog(source);
     } catch (error) {
       if (error instanceof EngineFailure) { throw error; }
@@ -210,13 +221,20 @@ export class MpvEngine implements PlayerEngine {
     try {
       const list: NativeTrack[] = JSON.parse(await tracks(this.handle)) as NativeTrack[];
       const chosen = list.find((track: NativeTrack): boolean => track.type === 'sub' && track.selected === true);
-      await this.set('sub-visibility',
-        chosen !== undefined && isTextualSubtitleCodec(chosen.codec ?? '') ? 'no' : 'yes');
+      const codec: string = chosen?.codec ?? '';
+      const isAss: boolean = codec === 'ass' || codec === 'ssa';
+      this.activeSubtitleFormat = chosen === undefined ? '' : (isAss ? 'ass' : (isTextualSubtitleCodec(codec) ? 'srt' : 'sup'));
+      const hideNative: boolean = chosen !== undefined && isTextualSubtitleCodec(codec) && !(isAss && this.nativeAss);
+      await this.set('sub-visibility', hideNative ? 'no' : 'yes');
     } catch (error) {
       hilog.warn(0x0000, 'MCSub', '内封字幕轨 sub-visibility 重判失败: %{public}s', `${error}`);
     }
   }
   async setSubtitleStyle(style: SubtitleStyle): Promise<void> {
+    const prevAss: boolean = this.nativeAss;
+    const prevDelay: number = this.userDelayMs;
+    this.nativeAss = style.nativeAss === true;
+    this.userDelayMs = Math.round(style.delayMs ?? 0);
     // sub-font-size 的量纲是 720 高的画布：ass_mp.c 的换算是
     // libass_font_size = FontSize × window_height / PlayResY（scale 以 720 折算），
     // 即 N 渲染为 N/720 的视频高、与分辨率无关。这里取 fontScale% 视频高，
@@ -225,6 +243,16 @@ export class MpvEngine implements PlayerEngine {
     await this.set('sub-font-size', fontSize).catch((): void => {});
     await this.set('sub-pos', 100 - style.bottomPercent).catch((): void => {});
     await this.set('sub-border-style', style.background ? 'background-box' : 'outline-and-shadow').catch((): void => {});
+    if (this.nativeAss !== prevAss) {
+      await this.set('sub-ass-override', this.nativeAss ? 'no' : 'force').catch((): void => {});
+      if (this.activeSubtitleFormat === 'ass') {
+        await this.set('sub-visibility', this.nativeAss ? 'yes' : 'no').catch((): void => {});
+      }
+    }
+    if (this.userDelayMs !== prevDelay) {
+      const netDelayMs: number = this.userDelayMs - this.baseSubtitleOffsetMs;
+      await this.set('sub-delay', netDelayMs === 0 ? 0 : netDelayMs / 1000).catch((): void => {});
+    }
   }
   /**
    * 在播时就地换旁挂字幕，不重开流。轨表/当前选择/渲染态读取失败立即中止
@@ -252,7 +280,7 @@ export class MpvEngine implements PlayerEngine {
       return;
     }
     const format = source.subtitleFormat ?? '';
-    const textSub = format === 'ass' || format === 'srt' || format === 'vtt';
+    const textSub = (format === 'srt' || format === 'vtt') || (format === 'ass' && !this.nativeAss);
     // 前置基线：回滚要用旧选择/渲染态，差集要用旧轨表——任一读不到就不动手。
     const baseIds = await this.subTrackIdsStrict();
     const selectedBefore = await this.readStringStrict('sid');
@@ -267,7 +295,10 @@ export class MpvEngine implements PlayerEngine {
         throw new EngineFailure('source', 0, '字幕轨挂载后未出现在轨表');
       }
       await this.set('sub-visibility', textSub ? 'no' : 'yes');
-      await this.set('sub-delay', -(source.subtitleOffsetMs ?? 0) / 1000);
+      const liveNetDelayMs: number = this.userDelayMs - (source.subtitleOffsetMs ?? 0);
+      await this.set('sub-delay', liveNetDelayMs === 0 ? 0 : liveNetDelayMs / 1000);
+      this.activeSubtitleFormat = format;
+      this.baseSubtitleOffsetMs = source.subtitleOffsetMs ?? 0;
     } catch (error) {
       // 回滚（P2-3）：sub-add 已执行，后续任一步失败都退回旧轨。差集查询本身
       // 失败时轨表已 opaque，尽力再认一次新轨；认不出就保留已入表轨道（旧选择
@@ -597,11 +628,10 @@ export class MpvEngine implements PlayerEngine {
         event.text = native.text.length > 0 ? `MPV 硬解已启用: ${native.text}` : 'MPV 软件解码中';
         this.emitDecode();
       } else if (native.name === 'sub-text') {
-        // sub-text 与 sub-visibility 无关（mpv 手册：current subtitle text regardless
-        // of sub visibility, formatting stripped）。文字轨由 open()/selectTrack 设
-        // sub-visibility=no 关掉原生上屏后，本事件是覆盖层的唯一数据源；位图轨
-        // （PGS）sub-text 恒空，走 mpv 原生渲染。
-        event.type = 'subtitle'; event.text = native.text;
+        // ASS 原生特效渲染开启时 mpv 已在 Vulkan 画布上通过 libass 绘制完整花字，
+        // 上报空串避免 ArkUI 纯文本叠层二次覆盖。
+        event.type = 'subtitle';
+        event.text = (this.nativeAss && this.activeSubtitleFormat === 'ass') ? '' : native.text;
       } else { return; }
     } else if (native.type === 'playbackRestart') {
       // MPV_EVENT_PLAYBACK_RESTART：seek 落定/起播恢复的确认。清除在途标记，

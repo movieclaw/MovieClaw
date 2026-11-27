@@ -11,6 +11,22 @@
     {
       "name": "EntryAbility_label",
       "value": "MovieClaw"
+    },
+    {
+      "name": "EntryFormAbility_desc",
+      "value": "MovieClaw 继续观看桌面卡片"
+    },
+    {
+      "name": "EntryFormAbility_label",
+      "value": "继续观看"
+    },
+    {
+      "name": "widget_continue_name",
+      "value": "继续观看"
+    },
+    {
+      "name": "widget_continue_desc",
+      "value": "桌面一键续播最近观看的电影或剧集"
     }
   ]
 }

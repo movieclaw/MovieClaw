@@ -273,6 +273,10 @@ export struct LibraryPosterCell {
   working: string | null = null;
   /** 海报左上角的角标（例如收藏层级、季集摘要） */
   cornerLabel: string | null = null;
+  /** 左下角金色个人评分/杜比视界角标（如「★ 4.5」） */
+  goldBadge: string | null = null;
+  /** 共享元素一镜到底转场 ID（空串不挂 geometryTransition） */
+  geometryId: string = '';
   /** 只压暗海报图、不压暗片名（合集里库中还没有的那几部） */
   artworkOpacity: number = 1;
   /** 无图时的占位符号（按条目类型区分，例如剧集/影片） */
@@ -299,6 +303,7 @@ export struct LibraryPosterCell {
           .border({ width: 1, color: Theme.line, radius: Theme.posterRadius })
           .saturate(this.dead ? 0 : 1)
           .opacity(this.dead ? 0.5 : this.artworkOpacity)
+          .geometryTransition(this.geometryId.length > 0 ? this.geometryId : undefined)
 
         Row({ space: 4 }) {
           if (this.played) {
@@ -335,6 +340,25 @@ export struct LibraryPosterCell {
             .backgroundColor('rgba(0, 0, 0, 0.6)')
             .borderRadius(10)
             .alignSelf(ItemAlign.Start)
+        }
+
+        if (this.goldBadge !== null && (this.goldBadge as string).length > 0 && this.working === null) {
+          Column() {
+            Text(this.goldBadge ?? '')
+              .fontSize(10)
+              .fontWeight(700)
+              .fontColor('#FDE68A')
+              .padding({ left: 6, right: 6, top: 2, bottom: 2 })
+              .backgroundColor('rgba(18, 14, 6, 0.78)')
+              .borderRadius(8)
+              .border({ width: 0.5, color: 'rgba(251, 191, 36, 0.42)' })
+          }
+          .width('100%')
+          .height('100%')
+          .justifyContent(FlexAlign.End)
+          .alignItems(HorizontalAlign.Start)
+          .padding(6)
+          .hitTestBehavior(HitTestMode.None)
         }
 
         if (this.working !== null) {

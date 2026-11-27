@@ -123,6 +123,9 @@ export class PlayerPrefs {
         if (parsed.background !== undefined) {
           style.background = parsed.background === true;
         }
+        if (parsed.nativeAss !== undefined) {
+          style.nativeAss = parsed.nativeAss === true;
+        }
       }
     } catch (error) {
       // 坏数据当默认值
@@ -142,7 +145,8 @@ export class PlayerPrefs {
         const raw: SubStyleRaw = {
           fontScale: style.fontScale,
           bottomPercent: style.bottomPercent,
-          background: style.background
+          background: style.background,
+          nativeAss: style.nativeAss
         };
         await store.put('subtitle.style', JSON.stringify(raw));
         await store.flush();
@@ -161,6 +165,10 @@ export class SubStyle implements SubtitleStyle {
   bottomPercent: number = 8;
   /** 要不要黑底胶囊 */
   background: boolean = true;
+  /** ASS/SSA 字幕启用 libass GPU 原生特效渲染（默认开启：碾压纯文本降级） */
+  nativeAss: boolean = false;
+  /** 单次会话内的字幕同步微调（毫秒，不落盘以免污染下一部片） */
+  delayMs: number = 0;
 }
 
 /** 落盘的 JSON 形状（ArkTS 不允许对象字面量直接当类型，用接口声明） */
@@ -168,4 +176,5 @@ interface SubStyleRaw {
   fontScale: number;
   bottomPercent: number;
   background: boolean;
+  nativeAss?: boolean;
 }

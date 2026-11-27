@@ -113,6 +113,8 @@ export class FavoritesKind extends HomeRowKind {
     this.reversed = reversed;
   }
 }
+export class RatedKind extends HomeRowKind {
+}
 export class LibrariesKind extends HomeRowKind {
 }
 
@@ -205,6 +207,9 @@ export class HomeRow {
   title(): string {
     if (this.kind instanceof FavoritesKind) {
       return '我的收藏';
+    }
+    if (this.kind instanceof RatedKind) {
+      return '我的高分作品';
     }
     if (this.kind instanceof LibraryRowKind) {
       return this.kind.name.length === 0
@@ -389,6 +394,7 @@ export class HomeRows {
     const rows: HomeRow[] = [
       new HomeRow('up-next', false, new UpNextKind()),
       new HomeRow('favorites', false, new FavoritesKind('unwatched_first', false)),
+      new HomeRow('rated', false, new RatedKind()),
       new HomeRow('libraries', false, new LibrariesKind())
     ];
     const groups: Map<string, LibraryView[]> = HomeRows.mediaKindGroups(libraries);
@@ -463,7 +469,7 @@ export class HomeRows {
     }
     // 没存过的内置行追加在末尾（版本升级新增的入口不能消失）
     for (const row of defaults) {
-      if (row.kind instanceof LibraryRowKind || row.kind instanceof GenresKind) {
+      if (row.kind instanceof LibraryRowKind || row.kind instanceof GenresKind || row.kind instanceof RatedKind) {
         continue;
       }
       if (seen.has(row.id)) {
@@ -471,6 +477,21 @@ export class HomeRows {
       }
       seen.add(row.id);
       rows.push(row);
+    }
+    // 没存过的「我的高分作品」行（版本升级新增）紧跟在「我的收藏」之后，与出厂布局同一位置
+    if (!seen.has('rated')) {
+      const ratedDefault: HomeRow | undefined = defaults.find((row: HomeRow): boolean => row.id === 'rated');
+      if (ratedDefault !== undefined) {
+        seen.add('rated');
+        let at: number = rows.length;
+        for (let i = 0; i < rows.length; i++) {
+          if (rows[i].kind instanceof FavoritesKind) {
+            at = i + 1;
+            break;
+          }
+        }
+        rows.splice(at, 0, ratedDefault);
+      }
     }
     // 没存过的类型色块行（版本升级新增）插在「我的媒体库」之后，与出厂布局同一位置
     // ——追加到队尾会落在一长串库行、合集行后面，老用户几乎看不到（同 iOS）
@@ -530,6 +551,9 @@ export class HomeRows {
     const hidden: boolean = pref.hidden === true;
     if (pref.id === 'up-next') {
       return new HomeRow('up-next', hidden, new UpNextKind());
+    }
+    if (pref.id === 'rated') {
+      return new HomeRow('rated', hidden, new RatedKind());
     }
     if (pref.id === 'libraries') {
       return new HomeRow('libraries', hidden, new LibrariesKind());

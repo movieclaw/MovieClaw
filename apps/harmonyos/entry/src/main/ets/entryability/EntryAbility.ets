@@ -1,7 +1,9 @@
 import { PlaybackTestProbe } from '../playback/PlaybackTestProbe';
 import { AbilityConstant, ConfigurationConstant, UIAbility, Want } from '@kit.AbilityKit';
 import { hilog } from '@kit.PerformanceAnalysisKit';
+import { formBindingData, formProvider } from '@kit.FormKit';
 import { window } from '@kit.ArkUI';
+import { webview } from '@kit.ArkWeb';
 import { deviceInfo } from '@kit.BasicServicesKit';
 import { AppModel } from '../common/AppModel';
 import { TokenVault } from '../common/TokenVault';
@@ -21,13 +23,32 @@ import { NotifyPrefs } from '../notify/NotifyPrefs';
 import { NotifyCenter } from '../notify/NotifyCenter';
 import { NotifyRouter } from '../notify/NotifyRouter';
 import { AgentAIConsent } from '../agent/AgentAIConsent';
+import { ContinuationBridge } from '../common/ContinuationBridge';
+import { WidgetSync } from '../common/WidgetSync';
 import { DevConfig } from '../common/DevConfig';
+import { RemoteImageCache } from '../common/RemoteImage';
+import { DiscoverStore } from '../discover/DiscoverStore';
+import { LibraryHomeStore } from '../library/LibraryHomeStore';
 import { Theme } from '../theme/AppTheme';
 
 const DOMAIN = 0x0000;
 
+/** 插件网页用的自定义 scheme（必须在任何 Web 组件创建前注册） */
+class PluginWebSchemeConfig implements webview.WebCustomScheme {
+  schemeName: string = 'mclawplugin';
+  isSupportCORS: boolean = true;
+  isSupportFetch: boolean = true;
+  isStandard: boolean = true;
+  isSecure: boolean = true;
+}
+
 export default class EntryAbility extends UIAbility {
   onCreate(want: Want, launchParam: AbilityConstant.LaunchParam): void {
+    try {
+      webview.WebviewController.customizeSchemes([new PluginWebSchemeConfig()]);
+    } catch (error) {
+      hilog.warn(DOMAIN, 'MovieClaw', '注册插件网页协议失败：%{public}s', `${error}`);
+    }
     // App 全局深色（对应 iOS/Web 的暗色基调），不跟随系统外观
     this.context.getApplicationContext().setColorMode(ConfigurationConstant.ColorMode.COLOR_MODE_DARK);
     // 会话偏好存储尽早初始化；异步加载不阻塞首帧
@@ -56,6 +77,17 @@ export default class EntryAbility extends UIAbility {
     // 离线下载的存档根目录与下载器（长时任务申请要 UIAbilityContext）
     OfflineDisk.init(this.context);
     OfflineDownloader.shared.activate(this.context);
+    // 首屏秒开三件套：媒体库首页快照、发现页快照、海报/剧照磁盘 LRU 缓存必须在 onCreate 注入沙箱路径
+    LibraryHomeStore.shared.init(this.context);
+    DiscoverStore.shared.init(this.context);
+    RemoteImageCache.shared.init(this.context);
+    WidgetSync.shared.init(this.context, (formIds: string[], payload: Record<string, Object>): void => {
+      const binding: formBindingData.FormBindingData = formBindingData.createFormBindingData(payload);
+      for (const id of formIds) {
+        formProvider.updateForm(id, binding).catch((): void => {
+        });
+      }
+    });
     // 系统通知（M1 本机差分）：偏好先就位（点按参数、WorkExtension 进程都要读它），
     // NotifyCenter 记下包名（wantAgent 拉回本 Ability 用）；开关开着就幂等重注册后台兜底任务
     NotifyPrefs.init(this.context);
@@ -63,15 +95,24 @@ export default class EntryAbility extends UIAbility {
     NotifyCenter.shared().rearmBackgroundIfNeeded();
     this.captureShareLink(want);
     this.captureNotifyTap(want);
+    ContinuationBridge.shared().captureFromWant(want);
     PlaybackTestProbe.handle(want);
     hilog.info(DOMAIN, 'MovieClaw', '%{public}s', 'Ability onCreate');
   }
 
-  /** App 已在跑时又点了一条分享链接（深链 / 二维码） */
+  /** App 已在跑时又点了一条分享链接 / 深链 / 分布式流转 */
   onNewWant(want: Want, launchParam: AbilityConstant.LaunchParam): void {
     this.captureShareLink(want);
     this.captureNotifyTap(want);
+    ContinuationBridge.shared().captureFromWant(want);
     PlaybackTestProbe.handle(want);
+  }
+
+  /** 鸿蒙分布式跨端接续（手机 ↔ 平板 ↔ 折叠屏 ↔ 智慧屏任务中心/靠近流转）：打包当前播放进度或详情落点 */
+  onContinue(wantParam: Record<string, Object>): AbilityConstant.OnContinueResult {
+    const filled: boolean = ContinuationBridge.shared().fillContinueWant(wantParam);
+    hilog.info(DOMAIN, 'MovieClaw', '分布式接续 onContinue filled=%{public}s', `${filled}`);
+    return AbilityConstant.OnContinueResult.AGREE;
   }
 
   /**

@@ -19,7 +19,8 @@ import {
   FavoritesView,
   LibraryFacetsView,
   LibraryIndexEntryView,
-  LibraryItemView
+  LibraryItemView,
+  RatedItemsView
 } from '../../api/Models';
 import { AppModel } from '../../common/AppModel';
 import { ImageUrls } from '../../common/ImageUrls';
@@ -1246,6 +1247,10 @@ export struct TvLibraryWall {
         ? undefined : (direction.orderParam(reversed) ?? undefined);
       return api.playbackFavorites(limit, offset, unwatchedFirst, actualSort, order)
         .then((view: FavoritesView): TvWallPage => this.pageOf(view.items, view.total));
+    }
+    if (parts[0] === 'rated') {
+      return api.playbackRated(limit, offset)
+        .then((view: RatedItemsView): TvWallPage => this.pageOf(view.items, view.total));
     }
     if (parts[0] === 'genre' && parts.length >= 3) {
       const kind: string = parts[1];

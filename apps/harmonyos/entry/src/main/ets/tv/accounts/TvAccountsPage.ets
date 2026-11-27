@@ -388,8 +388,7 @@ export struct TvAccountsPage {
               .width('100%')
               .alignItems(HorizontalAlign.Start)
             }, (component: TvOssComponent) => component.name)
-            Text('鸿蒙端是纯 ArkTS 实现，只用系统 Kit 与设计套件，没有随包分发的第三方库。'
-              + '播放交给系统 AVPlayer，解码能力以设备为准。')
+            Text('鸿蒙端采用原生 ArkTS 与 AVPlayer + libmpv 双引擎统一播放架构，支持 HDR Vivid、Audio Vivid 与原生 ASS/PGS 字幕渲染。')
               .fontSize(13)
               .fontColor(TvColors.textFaint)
               .lineHeight(20)
@@ -587,13 +586,19 @@ export struct TvAccountsPage {
     return this.buildNo.length > 0 ? `${this.version}（${this.buildNo}）` : this.version;
   }
 
-  /** 开源组件清单（同手机端 AboutPage：如实列本平台依赖，不照抄 Apple 端那份） */
+  /** 开源组件清单（同手机端 AboutPage：如实列本平台依赖与内置解码库） */
   private ossComponents(): TvOssComponent[] {
     return [
       new TvOssComponent('OpenHarmony / HarmonyOS SDK', 'Apache-2.0',
-        '系统能力与 ArkUI 框架，随设备系统提供'),
-      new TvOssComponent('HarmonyOS Design 组件', '随 HarmonyOS SDK',
-        '原生设计套件控件'),
+        '系统能力、AVPlayer 与 ArkUI 框架，随设备系统提供'),
+      new TvOssComponent('libmpv', 'ISC / LGPL-2.1+',
+        '第二播放内核，支持多轨直出、HDR 色调映射与复杂封装重解复用'),
+      new TvOssComponent('FFmpeg', 'LGPL-2.1+',
+        '音视频解复用与软硬协同解码管线'),
+      new TvOssComponent('dav1d', 'BSD-2-Clause',
+        '高性能 AV1 视频解码器'),
+      new TvOssComponent('libass · FreeType · HarfBuzz', 'ISC / FTL / MIT',
+        'ASS/SSA 特效字幕与 PGS 图形字幕排版光栅化渲染'),
       new TvOssComponent('思源黑体（HarmonyOS Sans 回退）', 'SIL Open Font License 1.1',
         '随系统提供，App 不分发字体文件')
     ];

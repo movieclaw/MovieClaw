@@ -4,20 +4,15 @@
 # For more details, see
 #   https://developer.huawei.com/consumer/cn/doc/harmonyos-guides/source-obfuscation
 
-# Obfuscation options:
-# -disable-obfuscation: disable all obfuscations
-# -enable-property-obfuscation: obfuscate the property names
-# -enable-toplevel-obfuscation: obfuscate the names in the global scope
-# -compact: remove unnecessary blank spaces and all line feeds
-# -remove-log: remove all console.* statements
-# -print-namecache: print the name cache that contains the mapping from the old names to new names
-# -apply-namecache: reuse the given cache file
-
-# Keep options:
-# -keep-property-name: specifies property names that you want to keep
-# -keep-global-name: specifies names that you want to keep in the global scope
-
 -enable-property-obfuscation
 -enable-toplevel-obfuscation
 -enable-filename-obfuscation
 -enable-export-obfuscation
+
+# 小艺意图框架与桌面服务卡片入口不可混淆（防止拉起即闪退）
+-keep
+./src/main/ets/insight/XiaoyiIntentExecutor.ets
+./src/main/ets/entryformability/EntryFormAbility.ets
+./src/main/ets/widget/pages/ContinueWatchingCard.ets
+./src/main/ets/common/ContinuationBridge.ets
+./src/main/ets/common/WidgetSync.ets

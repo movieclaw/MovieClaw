@@ -30,6 +30,7 @@ import { AppMaintenanceSection } from './AppMaintenanceSection';
 import { McpSection } from './McpSection';
 import { ScrapeSection } from './ScrapeSection';
 import { PlaybackSection } from './PlaybackSection';
+import { PluginsSection } from '../plugins/PluginsSection';
 import { DeviceApprovalDialog } from './DeviceApprovalDialog';
 import { DetailParams, DeviceGroupDef, GroupListParams } from './DeviceGroupPages';
 import { SettingsSegmentChip, SettingsSwitchRow, SettingsTwoStateSegment } from '../common/SettingsControls';
@@ -224,6 +225,17 @@ export struct SettingsSectionPage {
           AiDefaultsSection({ scroller: this.scroller })
         } else if (this.sectionId === 'members') {
           MembersSection({ scroller: this.scroller })
+        } else if (this.sectionId === 'plugins') {
+          Scroll(this.scroller) {
+            Column() {
+              PluginsSection({ navStack: this.navStack })
+            }
+            .width('100%')
+            .padding({ left: 16, right: 16, top: 8, bottom: Theme.tabBarInset + 16 })
+          }
+          .layoutWeight(1)
+          .width('100%')
+          .scrollBar(BarState.Off)
         } else if (this.sectionId === 'logs') {
           // 日志查看器自成一屏（工具栏 + 窗口 + 说明），不需要外面再包一层滚动
           LogsSection()

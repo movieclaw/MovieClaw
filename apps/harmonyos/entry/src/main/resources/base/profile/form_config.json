@@ -1,0 +1,26 @@
+{
+  "forms": [
+    {
+      "name": "ContinueWatching",
+      "displayName": "$string:widget_continue_name",
+      "description": "$string:widget_continue_desc",
+      "src": "./ets/widget/pages/ContinueWatchingCard.ets",
+      "uiSyntax": "arkts",
+      "window": {
+        "designWidth": 720,
+        "autoDesignWidth": true
+      },
+      "colorMode": "dark",
+      "isDynamic": true,
+      "isDefault": true,
+      "updateEnabled": true,
+      "scheduledUpdateTime": "21:00",
+      "updateDuration": 2,
+      "defaultDimension": "2*4",
+      "supportDimensions": [
+        "2*2",
+        "2*4"
+      ]
+    }
+  ]
+}

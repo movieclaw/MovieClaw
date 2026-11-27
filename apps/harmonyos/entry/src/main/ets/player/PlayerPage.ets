@@ -1,14 +1,20 @@
-import { audio } from '@kit.AudioKit';
+import { audio, AVVolumePanel } from '@kit.AudioKit';
+import { AVCastPicker, AVCastPickerStyle } from '@kit.AVSessionKit';
 
 import { Theme } from '../theme/AppTheme';
 
 import { RemoteImage } from '../common/RemoteImage';
 
 import { FoldState } from '../common/FoldState';
+import { Haptics } from '../common/Haptics';
+import { HarmonyShareBridge } from '../common/HarmonyShareBridge';
 
-import { PlaybackSessionView, AudioTrackView, SubtitlePlanView, PlaybackSegmentView, EpisodeView } from '../api/Models';
+import { PlaybackSessionView, AudioTrackView, SubtitlePlanView, PlaybackSegmentView, PlaybackChapterMarkView, EpisodeView } from '../api/Models';
 
 import { PlayerParams } from '../player/PlayerParams';
+import { Chapters } from './Chapters';
+import { PlayerDiagnosticsPage } from './PlayerDiagnosticsPage';
+import { PlayerTabletopDeck } from './PlayerTabletopDeck';
 
 import { PhonePlaybackHost, PlayerPhase, QualityOption } from '../playback/PhonePlaybackHost';
 
@@ -170,6 +176,9 @@ export struct PlayerPage {
   }
 
   private stageVideoDy(): number {
+    if (!this.episodesStageActive() && this.host.tabletopActive()) {
+      return this.host.tabletopSplitY() / 2 - this.host.layerHeight / 2;
+    }
     const card = this.stageVideoCard();
     if (!this.episodesStageActive() || card === null) {
       return 0;
@@ -207,12 +216,28 @@ export struct PlayerPage {
        * ZStack 层次：视频 → 点击层 → 控制条浮层（含上下渐变）。
        */
       Stack({ alignContent: Alignment.Center }) {
+        // 屏外挂载官方 AVVolumePanel：让右半屏上下滑动能免系统级权限平滑驱动媒体音量
+        AVVolumePanel({
+          volumeLevel: this.host.volumeLevel,
+          volumeParameter: { position: { x: -200, y: -200 } }
+        })
+          .width(1)
+          .height(1)
+          .opacity(0)
+          .hitTestBehavior(HitTestMode.None)
+
         // 画面让位后四周垫当前集剧照的氛围底色（iOS DeckAmbience）
         if (this.episodesStageActive() && this.stageYields() && this.host.layerWidth > 0) {
           this.StageAmbience()
         }
         this.VideoSurface()
-        if (this.host.chromeVisible && !this.host.controlsLocked && !this.episodesStageActive()) {
+        if (this.host.tabletopActive() && !this.episodesStageActive()) {
+          PlayerTabletopDeck({
+            host: this.host,
+            topVp: this.host.tabletopDeckTop(),
+            heightVp: this.host.tabletopDeckHeight()
+          })
+        } else if (this.host.chromeVisible && !this.host.controlsLocked && !this.episodesStageActive()) {
           this.Controls()
           if (this.host.phase === PlayerPhase.ready && !this.host.engineOpening && !this.host.menuCoversCenter()) {
             Row({ space: 36 }) {
@@ -225,7 +250,8 @@ export struct PlayerPage {
             .hitTestBehavior(HitTestMode.Transparent)
           }
         }
-        if (this.host.isLandscape() && (this.host.chromeVisible || this.host.controlsLocked)
+        if (this.host.isLandscape() && !this.host.tabletopActive()
+          && (this.host.chromeVisible || this.host.controlsLocked)
           && !this.episodesStageActive()) {
           Row() {
             this.LockAction()
@@ -247,6 +273,15 @@ export struct PlayerPage {
               .fontSize(22)
               .fontWeight(600)
               .fontColor('#ffffff')
+            if (this.host.scrubChapterTitle().length > 0) {
+              Text(this.host.scrubChapterTitle())
+                .fontSize(12)
+                .fontWeight(500)
+                .fontColor('#F5C451')
+                .maxLines(1)
+                .textOverflow({ overflow: TextOverflow.Ellipsis })
+                .constraintSize({ maxWidth: 200 })
+            }
             Text(this.host.scrubDeltaText())
               .fontSize(12)
               .fontColor('rgba(255,255,255,0.7)')
@@ -312,6 +347,21 @@ export struct PlayerPage {
     .onTouch((event: TouchEvent) => {
       this.host.onGesture(event);
     })
+    .gesture(
+      PinchGesture({ fingers: 2, distance: 6 })
+        .onActionEnd((event: GestureEvent): void => {
+          if (this.host.controlsLocked || this.host.showSheet) { return; }
+          if (event.scale > 1.12 && this.host.displayMode !== 'fill') {
+            Haptics.tick();
+            this.host.selectDisplay('fill');
+            this.host.toast('等比例铺满');
+          } else if (event.scale < 0.88 && this.host.displayMode !== 'fit') {
+            Haptics.tick();
+            this.host.selectDisplay('fit');
+            this.host.toast('完整显示');
+          }
+        })
+    )
     .onReady((ctx: NavDestinationContext) => {
       this.host.navStack = ctx.pathStack;
       // 整屏页：收起底部标签栏（iOS 同款行为）
@@ -334,8 +384,21 @@ export struct PlayerPage {
         this.host.negotiate();
       }
     })
-    .onShown((): void => { this.host.detached = false; this.host.claimPlayback(); })
+    .onShown((): void => {
+      this.host.detached = false;
+      this.host.claimPlayback();
+      if (this.host.mediaItemId > 0 && this.host.shareSlug.length === 0) {
+        const deepUri: string = `movieclaw://play?mediaItemId=${this.host.mediaItemId}`
+          + `&season=${this.host.seasonNumber}&episode=${this.host.episodeNumber}&positionMs=${this.host.positionMs}`;
+        HarmonyShareBridge.shared().armKnockShare(
+          this.host.title.length > 0 ? this.host.title : '正在观看影片',
+          this.host.episodeNumber > 0 ? `第 ${this.host.seasonNumber} 季 · 第 ${this.host.episodeNumber} 集 · 鸿蒙一碰接续播放` : '鸿蒙碰一碰跨端接续观影',
+          deepUri
+        );
+      }
+    })
     .onWillDisappear((): void => {
+      HarmonyShareBridge.shared().disarmKnockShare();
       // 退出前把片段进度写回（得赶在底下的刷片页重新显示之前）
       this.host.publishClipReturn();
     })
@@ -361,7 +424,7 @@ export struct PlayerPage {
           })
             .hitTestBehavior(HitTestMode.Transparent)
             .id('player-surface')
-            .hdrBrightness(0.0)
+            .hdrBrightness(this.host.isHdrActive() ? 1.0 : 0.0)
             /*
              * **按视频比例摆放**：surface 是个画布，播放器会把画面铺满它——
              * 给全屏尺寸就会把 16:9 的片子拉成竖屏（实测过：测试图的圆变成了竖椭圆）。
@@ -619,15 +682,41 @@ export struct PlayerPage {
     Column() {
       Row({ space: 12 }) {
         this.IconAction($r('app.media.player_back'), this.host.isLandscape() ? '退出横屏' : '退出播放', 'player-close', (): void => { this.host.back(); })
-        Column({ space: 2 }) {
+        Column({ space: 3 }) {
           Text(this.host.title.length > 0 ? this.host.title : '播放')
             .fontSize(17).fontWeight(600).fontColor('#ffffff').maxLines(1)
             .textOverflow({ overflow: TextOverflow.Ellipsis })
-          if (this.host.episodeNumber > 0) {
-            Text(`第 ${this.host.seasonNumber} 季 · 第 ${this.host.episodeNumber} 集`)
-              .fontSize(12).fontColor('rgba(255,255,255,0.65)').maxLines(1)
+          Row({ space: 6 }) {
+            if (this.host.episodeNumber > 0) {
+              Text(`第 ${this.host.seasonNumber} 季 · 第 ${this.host.episodeNumber} 集`)
+                .fontSize(12).fontColor('rgba(255,255,255,0.65)').maxLines(1)
+            }
+            ForEach(this.host.vividBadges(), (badge: string) => {
+              Text(badge)
+                .fontSize(10)
+                .fontWeight(600)
+                .fontColor('#1A1405')
+                .padding({ left: 6, right: 6, top: 1, bottom: 1 })
+                .backgroundColor('#F5C451')
+                .borderRadius(5)
+            }, (badge: string) => badge)
           }
         }.layoutWeight(1).alignItems(HorizontalAlign.Start)
+        if (!this.host.isClip()) {
+          Stack({ alignContent: Alignment.Center }) {
+            AVCastPicker({ normalColor: '#ffffff', pickerStyle: AVCastPickerStyle.STYLE_PANEL })
+              .width(24)
+              .height(24)
+          }
+          .id('player-cast')
+          .width(44)
+          .height(44)
+          .backgroundColor('rgba(45,45,48,0.65)')
+          .backgroundBlurStyle(BlurStyle.Thin, { colorMode: ThemeColorMode.DARK })
+          .borderRadius(22)
+          .border({ width: 0.5, color: 'rgba(255,255,255,0.16)' })
+          .onTouch((event: TouchEvent): void => { event.stopPropagation(); })
+        }
         this.IconAction($r('app.media.player_pip'), this.host.pipActive ? '退出画中画' : '画中画', 'player-pip', (): void => { this.host.togglePip(); })
       }
       .width('100%')
@@ -816,30 +905,29 @@ export struct PlayerPage {
       } else if (this.host.adjustSide.length > 0) {
         Row({ space: 10 }) {
           SymbolGlyph(this.host.adjustSide === 'brightness'
-            ? $r('sys.symbol.sun_max_fill') : $r('sys.symbol.speaker_slash_fill'))
+            ? $r('sys.symbol.sun_max_fill')
+            : (this.host.adjustValue <= 0.01 ? $r('sys.symbol.speaker_slash_fill') : $r('sys.symbol.speaker_wave_2_fill')))
             .fontSize(16)
             .fontColor(['#ffffff'])
-          if (this.host.adjustSide === 'brightness') {
-            Row() {
-              Column()
-                .width(`${Math.round(this.host.adjustValue * 100)}%`)
-                .height(4)
-                .backgroundColor('#ffffff')
-                .borderRadius(2)
-            }
-            .width(96)
-            .height(4)
-            .backgroundColor('rgba(255,255,255,0.28)')
-            .borderRadius(2)
-          } else {
-            // 鸿蒙改不了系统音量：与 iOS 音量不可调时同款降级文案
-            Text('音量由系统侧键控制')
-              .fontSize(13)
-              .fontColor('#ffffff')
+          Row() {
+            Column()
+              .width(`${Math.round(this.host.adjustValue * 100)}%`)
+              .height(4)
+              .backgroundColor('#ffffff')
+              .borderRadius(2)
           }
+          .width(96)
+          .height(4)
+          .backgroundColor('rgba(255,255,255,0.28)')
+          .borderRadius(2)
+          Text(`${Math.round(this.host.adjustValue * 100)}%`)
+            .fontSize(11)
+            .fontColor('rgba(255,255,255,0.75)')
+            .width(30)
+            .textAlign(TextAlign.End)
         }
         .height(40)
-        .padding({ left: 18, right: 18 })
+        .padding({ left: 18, right: 16 })
         .backgroundColor('rgba(20,20,22,0.72)')
         .borderRadius(20)
       }
@@ -1080,41 +1168,81 @@ export struct PlayerPage {
       ForEach(this.host.session?.decision.subtitles ?? [], (plan: SubtitlePlanView, index: number) => {
         this.MenuRow({ title: this.host.subtitleLabel(plan, index), selected: this.host.subtitleIndex === index, id: `player-subtitle-${index}`, action: (): void => { this.host.pickSubtitle(index); } })
       }, (plan: SubtitlePlanView): string => plan.track_ref)
-      if (this.host.localSpec !== null) {
-        Row() {
-          Text('字号').fontColor('#ffffff').layoutWeight(1)
-          this.StyleStepButton('−', (): void => { this.host.adjustSubtitleStyle(-0.4, 0); })
-          Text(`${Math.round(this.host.subFontScale * 10) / 10}`).fontColor('#ffffff').width(40).textAlign(TextAlign.Center)
-          this.StyleStepButton('+', (): void => { this.host.adjustSubtitleStyle(0.4, 0); })
-        }.padding(16)
-        Row() {
-          Text('距底部').fontColor('#ffffff').layoutWeight(1)
-          this.StyleStepButton('−', (): void => { this.host.adjustSubtitleStyle(0, -2); })
-          Text(`${this.host.subBottom}%`).fontColor('#ffffff').width(40).textAlign(TextAlign.Center)
-          this.StyleStepButton('+', (): void => { this.host.adjustSubtitleStyle(0, 2); })
-        }.padding(16)
-        this.MenuRow({ title: '字幕背景', selected: this.host.subBackground, id: 'player-subtitle-background', action: (): void => { this.host.toggleSubtitleBackground(); } })
-      }
+      Divider().color('rgba(255,255,255,0.12)').strokeWidth(0.5).margin({ left: 10, right: 10, top: 6, bottom: 4 })
+      Row() {
+        Text('字号').fontColor('#ffffff').fontSize(14).layoutWeight(1)
+        this.StyleStepButton('−', (): void => { this.host.adjustSubtitleStyle(-0.4, 0); })
+        Text(`${Math.round(this.host.subFontScale * 10) / 10}`).fontColor('#ffffff').fontSize(13).width(42).textAlign(TextAlign.Center)
+        this.StyleStepButton('+', (): void => { this.host.adjustSubtitleStyle(0.4, 0); })
+      }.padding({ left: 12, right: 12, top: 8, bottom: 8 })
+      Row() {
+        Text('距底部').fontColor('#ffffff').fontSize(14).layoutWeight(1)
+        this.StyleStepButton('−', (): void => { this.host.adjustSubtitleStyle(0, -2); })
+        Text(`${this.host.subBottom}%`).fontColor('#ffffff').fontSize(13).width(42).textAlign(TextAlign.Center)
+        this.StyleStepButton('+', (): void => { this.host.adjustSubtitleStyle(0, 2); })
+      }.padding({ left: 12, right: 12, top: 8, bottom: 8 })
+      Row({ space: 6 }) {
+        Text('同步偏移').fontColor('#ffffff').fontSize(14).layoutWeight(1)
+        this.StyleStepButton('−', (): void => { Haptics.tick(); this.host.adjustSubtitleDelay(-100); })
+        Text(this.host.subDelayLabel())
+          .fontColor(this.host.subDelayMs !== 0 ? '#F5C451' : '#ffffff')
+          .fontSize(13)
+          .width(52)
+          .textAlign(TextAlign.Center)
+          .onClick((): void => { Haptics.tick(); this.host.resetSubtitleDelay(); })
+        this.StyleStepButton('+', (): void => { Haptics.tick(); this.host.adjustSubtitleDelay(100); })
+      }.padding({ left: 12, right: 12, top: 8, bottom: 8 })
+      this.MenuRow({ title: '字幕背景胶囊', selected: this.host.subBackground, id: 'player-subtitle-background', action: (): void => { this.host.toggleSubtitleBackground(); } })
+      this.MenuRow({ title: 'ASS 原生特效渲染', selected: this.host.subNativeAss, id: 'player-subtitle-native-ass', hint: '启用 libass GPU 渲染保留双语定位与花字', action: (): void => { this.host.toggleNativeAss(); } })
     } else if (this.host.sheetKind === 'settings') {
       if (this.host.shareSlug.length === 0) {
         this.MenuRow({ title: '画质', selected: false, id: 'player-quality', icon: $r('app.media.player_quality'), action: (): void => { this.host.sheetKind = 'quality'; }, hint: this.host.maxHeight > 0 ? `${this.host.maxHeight}p` : '原画' })
+      }
+      if (Chapters.available(this.host.chapters())) {
+        this.MenuRow({ title: '章节', selected: false, id: 'player-chapters', action: (): void => { this.host.sheetKind = 'chapters'; }, hint: this.host.currentChapter() ?? `共 ${this.host.chapters().length} 章` })
       }
       this.MenuRow({ title: '画面', selected: false, id: 'player-display', icon: $r('app.media.player_display'), action: (): void => { this.host.sheetKind = 'display'; }, hint: this.host.displayLabel() })
       this.MenuRow({ title: '倍速', selected: false, id: 'player-speed', icon: $r('app.media.player_speed'), action: (): void => { this.host.sheetKind = 'speed'; }, hint: `${this.host.playbackRate}×` })
       Divider().color('rgba(0,0,0,0.3)').strokeWidth(6).margin({ top: 4, bottom: 4 })
       this.MenuRow({ title: '播放诊断', selected: false, id: 'player-diagnostics', icon: $r('app.media.player_diagnostics'), action: (): void => { this.host.sheetKind = 'stats'; } })
+    } else if (this.host.sheetKind === 'chapters') {
+      ForEach(this.host.chapters(), (mark: PlaybackChapterMarkView, index: number) => {
+        this.MenuRow({
+          title: Chapters.label(mark, this.host.clockText(mark.start_ms)),
+          selected: Chapters.indexAt(this.host.chapters(), this.host.positionMs) === index,
+          id: `player-chapter-${index}`,
+          hint: this.host.clockText(mark.start_ms),
+          action: (): void => {
+            Haptics.tick();
+            this.host.seekTo(mark.start_ms);
+            this.host.closeMenu();
+          }
+        })
+      }, (mark: PlaybackChapterMarkView, index: number): string => `chap-${index}-${mark.start_ms}`)
     } else if (this.host.sheetKind === 'quality') {
       ForEach(this.host.qualityOptions(), (option: QualityOption) => {
         this.MenuRow({ title: option.label, selected: this.host.maxHeight === option.maxHeight, id: `player-quality-${option.maxHeight}`, action: (): void => { this.host.pickQuality(option.maxHeight); } })
       }, (option: QualityOption): string => `${option.maxHeight}`)
     } else if (this.host.sheetKind === 'speed') {
-      ForEach([0.5, 0.75, 1, 1.25, 1.5, 2], (rate: number) => {
+      ForEach([0.5, 0.75, 1, 1.25, 1.5, 2, 2.5, 3], (rate: number) => {
         this.MenuRow({ title: rate === 1 ? '正常' : `${rate}×`, selected: this.host.playbackRate === rate, id: `player-speed-${rate}`, action: (): void => { this.host.selectRate(rate); } })
       }, (rate: number): string => `${rate}`)
     } else if (this.host.sheetKind === 'display') {
       this.MenuRow({ title: '完整显示', selected: this.host.displayMode === 'fit', id: 'player-display-fit', action: (): void => { this.host.selectDisplay('fit'); }, hint: '保持比例，显示完整画面' })
-      this.MenuRow({ title: '等比例铺满', selected: this.host.displayMode === 'fill', id: 'player-display-fill', action: (): void => { this.host.selectDisplay('fill'); }, hint: '保持比例，裁去超出屏幕的部分' })
+      this.MenuRow({ title: '等比例铺满', selected: this.host.displayMode === 'fill', id: 'player-display-fill', action: (): void => { this.host.selectDisplay('fill'); }, hint: '保持比例，裁去超出屏幕的部分（支持双指缩放）' })
+      this.MenuRow({ title: '21:9 影院宽银幕', selected: this.host.displayMode === 'cinema219', id: 'player-display-cinema219', action: (): void => { this.host.selectDisplay('cinema219'); }, hint: '按 2.35:1 银幕比例裁切上下黑边' })
       this.MenuRow({ title: '拉伸铺满', selected: this.host.displayMode === 'stretch', id: 'player-display-stretch', action: (): void => { this.host.selectDisplay('stretch'); }, hint: '填满屏幕，改变画面比例' })
+      Divider().color('rgba(255,255,255,0.12)').strokeWidth(0.5).margin({ left: 10, right: 10, top: 4, bottom: 4 })
+      this.MenuRow({
+        title: '折叠悬停操控台',
+        selected: this.host.tabletopActive(),
+        id: 'player-display-tabletop',
+        hint: '折叠屏半折时自动分屏为上半观影 + 下半空间操控台',
+        action: (): void => {
+          this.host.tabletopForce = this.host.tabletopActive() ? -1 : 1;
+          this.host.closeMenu();
+        }
+      })
     } else if (this.host.sheetKind === 'episodes') {
       this.EpisodesPanel()
     }
@@ -1729,6 +1857,7 @@ export struct PlayerPage {
             .borderRadius(Theme.cardRadius)
             .border({ width: 1, color: Theme.line })
           }
+          PlayerDiagnosticsPage({ host: this.host })
         }
         .width('100%')
         .alignItems(HorizontalAlign.Start)

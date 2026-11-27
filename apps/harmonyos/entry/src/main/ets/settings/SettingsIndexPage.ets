@@ -76,7 +76,9 @@ export class SettingsCatalog {
         new SettingsSection('mcp', 'MCP 服务',
           '把 MovieClaw 的能力开放给 Claude Code、Cursor 等 AI 客户端', 'sys.symbol.externaldrive'),
         new SettingsSection('ai', 'AI 设定',
-          '智能体与字幕处理使用的默认模型', 'sys.symbol.wand_and_stars')
+          '智能体与字幕处理使用的默认模型', 'sys.symbol.wand_and_stars'),
+        new SettingsSection('plugins', '插件与市场',
+          '官方与第三方插件包、权限审批、插件网页与签名市场（iOS 未开放）', 'sys.symbol.square_grid_2x2')
       ]),
       new SettingsGroup('系统', [
         new SettingsSection('app', '更新与维护',
@@ -420,6 +422,9 @@ export struct SettingsIndexPage {
     }
     if (symbol === 'sys.symbol.wand_and_stars') {
       return $r('sys.symbol.wand_and_stars');
+    }
+    if (symbol === 'sys.symbol.square_grid_2x2') {
+      return $r('sys.symbol.square_grid_2x2');
     }
     return $r('sys.symbol.gearshape');
   }

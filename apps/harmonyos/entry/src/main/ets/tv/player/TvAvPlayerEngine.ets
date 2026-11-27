@@ -1,11 +1,12 @@
 /**
- * TV 播放引擎：TV / 车机共用的 `common/AvPlayerEngine` 的类型别名。
- * TV 页只保留界面层，播放决策/会话/上报全部走共用引擎。
+ * TV 播放引擎兼容导出：统一路由到双内核（AVPlayer + libmpv）的 `TvPlaybackHost`。
+ * 车机端仍走 `common/AvPlayerEngine` 保持独立，互不干扰。
  */
 export {
-  AvPlayerEngine as TvAvPlayerEngine,
-  PlayPhase as TvPlayPhase,
-  SkipSegments as TvSkipSegments,
-  Playback as TvPlayback,
+  TvPlaybackHost as TvAvPlayerEngine,
+  TvPlaybackHost,
+  TvPlayPhase,
+  TvSkipSegments,
+  TvPlayback,
   PlayRequest
-} from '../../common/AvPlayerEngine';
+} from '../playback/TvPlaybackHost';

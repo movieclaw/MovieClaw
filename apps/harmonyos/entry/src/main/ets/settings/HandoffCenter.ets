@@ -1,5 +1,7 @@
 import { Theme } from '../theme/AppTheme';
 import { AppModel } from '../common/AppModel';
+import { NavStacks } from '../common/ShareLinks';
+import { ChatParams } from '../agent/ChatParams';
 import { ApiError } from '../api/ApiClient';
 import { MovieClawApi } from '../api/Endpoints';
 import {
@@ -76,6 +78,21 @@ export async function runHandoff(api: MovieClawApi, kind: string, ref: string): 
   const payload: SessionStartPayload = { content: ticket.prompt };
   const accepted: SessionMessageAcceptedView = await api.sessionStart(payload);
   return new HandoffResult(ticket.title, ticket.prompt, accepted.session_id);
+}
+
+/** 执行交接并直接推入当前（或传入的）导航栈打开 AI 会话页 */
+export async function runHandoffAndOpenChat(
+  api: MovieClawApi,
+  kind: string,
+  ref: string,
+  navStack?: NavPathStack
+): Promise<HandoffResult> {
+  const result: HandoffResult = await runHandoff(api, kind, ref);
+  const targetStack: NavPathStack | null = navStack !== undefined ? navStack : NavStacks.of(NavStacks.currentKey);
+  if (targetStack !== null && result.sessionId.length > 0) {
+    targetStack.pushPathByName('chat', new ChatParams(result.sessionId));
+  }
+  return result;
 }
 
 /** 交接失败的统一文案（把后端的话透出来，别自己编） */
