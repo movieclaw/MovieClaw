@@ -1,15 +1,16 @@
 import SwiftUI
 
-/// 任务区块（Web `TaskCenterView` 的三块内容），活动总览与二级页按需各取一块：
-/// - `.attention`：需要处理的完整卡片（下载组卡 / 作业卡）——每种故障的补救动作不同（换种、重试、交给 AI、删除、忽略），
-///   总览上保留完整卡片而不压成一行；
+/// 任务区块（Web `TaskCenterView` 的二级页内容），活动二级页按需各取一块：
 /// - `.active`：「进行中」二级页的时间线（下载过程行 + 后台作业，可取消 / 删种 / 换种）；
 /// - `.history`：「已结束」二级页，按天分组全部展开（可撤销忽略 / 重新执行）。
+///
+/// 「需要处理」的完整卡片（下载组卡 / 作业卡）直接在 `ActivityView` 的分组列表里一卡一行渲染，
+/// 避免把几十张变高卡片塞进单个列表行的 `VStack` 里导致多行摘要被压扁、单元格上下居中留白。
 ///
 /// Job 状态来自 MovieClaw 数据库（SSE 实时推送），下载状态来自下载器实时快照（10 秒轮询），
 /// 订阅关系仅按 infohash 投影；各自的取消、重试和入库生命周期仍由原领域负责。
 struct TaskCenterPanel: View {
-    enum Mode { case attention, active, history }
+    enum Mode { case active, history }
 
     let store: TaskActivityStore
     let mode: Mode
@@ -21,22 +22,6 @@ struct TaskCenterPanel: View {
     var body: some View {
         let activity = store.activity
         switch mode {
-        case .attention:
-            VStack(spacing: 10) {
-                ForEach(activity.attentionDownloadGroups) { group in
-                    DownloadTaskGroupCard(
-                        group: group, ingestJobsByHash: activity.ingestJobsByHash,
-                        replacingTaskId: actions.replacingTaskId,
-                        onDelete: { actions.pendingDelete = $0 },
-                        onReplace: { actions.replace($0, api: api, feedback: feedback, store: store) }
-                    )
-                }
-                ForEach(activity.standaloneAttentionJobs, id: \.id) { job in
-                    JobCard(job: job, store: store)
-                }
-            }
-            .accessibilityElement(children: .contain)
-            .accessibilityIdentifier("attention-section")
         case .active:
             if activity.activeTotal > 0 {
                 activeTimeline(activity)

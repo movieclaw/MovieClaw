@@ -61,6 +61,7 @@ struct JobCard: View {
             .font(compact ? .caption : .footnote)
             .foregroundStyle(attention ? Theme.danger : compact ? Theme.textFaint : Theme.textMuted)
             .lineLimit(compact ? 1 : 3)
+            .fixedSize(horizontal: false, vertical: true)
             .textSelection(.enabled)
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(attention ? 11 : 0)
