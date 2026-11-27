@@ -20,7 +20,7 @@ from datetime import datetime, timedelta
 from types import ModuleType
 from typing import TYPE_CHECKING, Any
 
-from sqlalchemy import delete, func, or_, update
+from sqlalchemy import delete, exists, func, or_, update
 from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
@@ -606,6 +606,7 @@ async def _dismiss_superseded_failed_jobs(
     *,
     now: datetime,
     dismissed_by: str,
+    respect_manual_history: bool = False,
 ) -> list[Job]:
     """同任务类型、同 dedupe_key 后来成功时，让更早且尚未忽略的失败退出「需要处理」。
 
@@ -613,26 +614,33 @@ async def _dismiss_superseded_failed_jobs(
     使用 ``system:`` 前缀的 ``dismissed_by`` 与 ``superseded`` 事件（附带本次
     成功任务 id），不冒充用户手动忽略，也不覆盖已被用户手动忽略的记录；同时
     不刷新旧失败的 ``updated_at``，避免将其排到本次成功任务之后。
+
+    ``respect_manual_history=True`` 用于启动存量对账：若旧失败曾被用户手动
+    撤销忽略（存在 ``undismissed`` 事件）或已被系统收尾过，则不再重复收尾，
+    避免重启覆盖用户决定。
     """
     if not job.dedupe_key:
         return []
-    rows = list(
-        (
-            await session.execute(
-                select(Job).where(
-                    Job.id != job.id,
-                    Job.job_type == job.job_type,
-                    Job.dedupe_key == job.dedupe_key,
-                    Job.status == JobStatus.FAILED.value,
-                    Job.dismissed_at.is_(None),
-                    Job.created_at <= job.created_at,
-                    or_(Job.finished_at.is_(None), Job.finished_at <= now),
+    finished_cutoff = job.finished_at or now
+    conditions = [
+        Job.id != job.id,
+        Job.job_type == job.job_type,
+        Job.dedupe_key == job.dedupe_key,
+        Job.status == JobStatus.FAILED.value,
+        Job.dismissed_at.is_(None),
+        Job.created_at <= job.created_at,
+        or_(Job.finished_at.is_(None), Job.finished_at <= finished_cutoff),
+    ]
+    if respect_manual_history:
+        conditions.append(
+            ~exists(
+                select(1).where(
+                    JobEvent.job_id == Job.id,
+                    JobEvent.event_type.in_(("undismissed", "superseded")),
                 )
             )
         )
-        .scalars()
-        .unique()
-    )
+    rows = list((await session.execute(select(Job).where(*conditions))).scalars().unique())
     for stale in rows:
         stale.dismissed_at = now
         stale.dismissed_by = dismissed_by
@@ -646,6 +654,89 @@ async def _dismiss_superseded_failed_jobs(
             touch_updated_at=False,
         )
     return rows
+
+
+async def reconcile_superseded_failed_jobs() -> int:
+    """升级后启动对账：按相同规则幂等收尾有明确后续成功证据的存量旧失败（#1331）。
+
+    只依据台账中仍在保留期内的同类型、同 ``dedupe_key`` 成功任务收尾更早且未忽略的
+    失败任务；不猜测已过期/已清理的成功，不覆盖用户手动忽略或手动撤销决定，完整保留
+    失败历史与原因。失败只记日志，不阻塞启动。
+    """
+    closed = 0
+    try:
+        db = get_database()
+        async with db.session() as session:
+            now = utcnow()
+            eligible_types = tuple(_SUPERSEDED_FAILED_DISMISSED_BY)
+            failed_keys = list(
+                (
+                    await session.execute(
+                        select(Job.job_type, Job.dedupe_key)
+                        .where(
+                            Job.job_type.in_(eligible_types),
+                            Job.status == JobStatus.FAILED.value,
+                            Job.dismissed_at.is_(None),
+                            Job.dedupe_key.is_not(None),
+                        )
+                        .distinct()
+                    )
+                ).all()
+            )
+            if not failed_keys:
+                return 0
+
+            keys_by_type: dict[str, list[str]] = {}
+            for job_type, dedupe_key in failed_keys:
+                if dedupe_key:
+                    keys_by_type.setdefault(job_type, []).append(dedupe_key)
+
+            latest_succeeded: dict[tuple[str, str], Job] = {}
+            for job_type, keys in keys_by_type.items():
+                for start in range(0, len(keys), 200):
+                    chunk = keys[start : start + 200]
+                    rows = (
+                        await session.execute(
+                            select(Job)
+                            .where(
+                                Job.job_type == job_type,
+                                Job.status == JobStatus.SUCCEEDED.value,
+                                Job.dedupe_key.in_(chunk),
+                                or_(Job.retention_until.is_(None), Job.retention_until >= now),
+                            )
+                            .order_by(
+                                Job.created_at.desc(),
+                                Job.finished_at.desc(),
+                                Job.id.desc(),
+                            )
+                        )
+                    ).scalars()
+                    for row in rows:
+                        if row.dedupe_key is None:
+                            continue
+                        pair = (row.job_type, row.dedupe_key)
+                        if pair not in latest_succeeded:
+                            latest_succeeded[pair] = row
+
+            for (job_type, _dedupe_key), succeeded_job in latest_succeeded.items():
+                dismissed = await _dismiss_superseded_failed_jobs(
+                    session,
+                    succeeded_job,
+                    now=now,
+                    dismissed_by=_SUPERSEDED_FAILED_DISMISSED_BY[job_type],
+                    respect_manual_history=True,
+                )
+                closed += len(dismissed)
+
+            if closed:
+                await session.commit()
+    except Exception:  # noqa: BLE001 -- 启动存量对账失败不能拖垮应用启动
+        logger.warning("存量旧失败字幕任务对账失败（不影响启动，下次将重试）", exc_info=True)
+        return 0
+    if closed:
+        await notify_job_change()
+        logger.info("启动对账已收口 %d 条已被后续成功取代的旧失败字幕任务", closed)
+    return closed
 
 
 async def _lock_job(session: AsyncSession, job_id: str) -> Job | None:
@@ -1167,6 +1258,7 @@ class JobDispatcher:
         except OperationalError:
             logger.warning("启动时回收过期任务失败（数据库忙），交给调度循环重试", exc_info=True)
             done = float("-inf")
+        await reconcile_superseded_failed_jobs()
         self._last_cleanup = done
         self._last_recovery = done
         self._loop_task = asyncio.create_task(self._run_loop(), name="job-dispatcher")

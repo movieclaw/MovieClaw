@@ -1253,3 +1253,393 @@ async def test_subtitle_cancel_before_finish_does_not_supersede_earlier_failures
         assert old is not None
         assert old.status == JobStatus.FAILED
         assert old.dismissed_at is None
+
+
+async def test_startup_reconcile_backfills_legacy_superseded_subtitle_failures_idempotently(
+    job_db, job_client: AsyncClient
+) -> None:
+    """Issue #1331 存量回填：在隔离库模拟旧版升级启动、重复执行、手动忽略/撤销与各类边界。"""
+    from movieclaw_db.models import JobEvent
+
+    now = utcnow()
+    t0 = now - timedelta(days=5)
+
+    def _legacy_job(
+        job_id: str,
+        *,
+        job_type: str = "subtitle.generate",
+        dedupe_key: str | None,
+        status: JobStatus,
+        created_offset_min: int,
+        finished_offset_min: int,
+        error: dict | None = None,
+        dismissed_at=None,
+        dismissed_by: str | None = None,
+        retention_days: int | None = None,
+    ) -> Job:
+        created_at = t0 + timedelta(minutes=created_offset_min)
+        finished_at = t0 + timedelta(minutes=finished_offset_min)
+        retention_until = (
+            now + timedelta(days=retention_days) if retention_days is not None else None
+        )
+        return Job(
+            id=job_id,
+            job_type=job_type,
+            subject=f"{job_id}.mkv",
+            status=status,
+            dedupe_key=dedupe_key,
+            input_data={"file_id": 5056},
+            error=error,
+            dismissed_at=dismissed_at,
+            dismissed_by=dismissed_by,
+            created_at=created_at,
+            updated_at=finished_at,
+            finished_at=finished_at,
+            retention_until=retention_until,
+            revision=2,
+        )
+
+    manual_dismissed_at = t0 + timedelta(minutes=25)
+    legacy_err = {"code": "JOB_RETRY_EXHAUSTED", "message": "supplier connection timeout"}
+
+    async with job_db.session() as session:
+        session.add_all(
+            [
+                # 文件 5056 双语：2 条待回填旧失败 + 1 条已手动忽略 + 1 条升级前手动撤销
+                # + 1 条未过期成功 + 1 条成功后新失败
+                _legacy_job(
+                    "job_legacy_fail_1",
+                    dedupe_key="subtitle.generate:5056:chs-eng",
+                    status=JobStatus.FAILED,
+                    created_offset_min=1,
+                    finished_offset_min=2,
+                    error=dict(legacy_err),
+                    retention_days=85,
+                ),
+                _legacy_job(
+                    "job_legacy_fail_2",
+                    dedupe_key="subtitle.generate:5056:chs-eng",
+                    status=JobStatus.FAILED,
+                    created_offset_min=5,
+                    finished_offset_min=6,
+                    error=dict(legacy_err),
+                    retention_days=85,
+                ),
+                _legacy_job(
+                    "job_manual_dismissed",
+                    dedupe_key="subtitle.generate:5056:chs-eng",
+                    status=JobStatus.FAILED,
+                    created_offset_min=7,
+                    finished_offset_min=8,
+                    error=dict(legacy_err),
+                    dismissed_at=manual_dismissed_at,
+                    dismissed_by="admin:alice",
+                    retention_days=85,
+                ),
+                _legacy_job(
+                    "job_pre_upgrade_undismissed",
+                    dedupe_key="subtitle.generate:5056:chs-eng",
+                    status=JobStatus.FAILED,
+                    created_offset_min=9,
+                    finished_offset_min=10,
+                    error=dict(legacy_err),
+                    retention_days=85,
+                ),
+                _legacy_job(
+                    "job_ok_5056_bi",
+                    dedupe_key="subtitle.generate:5056:chs-eng",
+                    status=JobStatus.SUCCEEDED,
+                    created_offset_min=20,
+                    finished_offset_min=22,
+                    retention_days=25,
+                ),
+                _legacy_job(
+                    "job_fail_after_ok",
+                    dedupe_key="subtitle.generate:5056:chs-eng",
+                    status=JobStatus.FAILED,
+                    created_offset_min=30,
+                    finished_offset_min=31,
+                    error=dict(legacy_err),
+                    retention_days=85,
+                ),
+                # 对照组：同文件不同输出目标、不同文件同目标、已过期成功证据、无成功记录、非字幕任务
+                _legacy_job(
+                    "job_other_target",
+                    dedupe_key="subtitle.generate:5056:chs",
+                    status=JobStatus.FAILED,
+                    created_offset_min=3,
+                    finished_offset_min=4,
+                    error=dict(legacy_err),
+                    retention_days=85,
+                ),
+                _legacy_job(
+                    "job_other_file",
+                    dedupe_key="subtitle.generate:5074:chs-eng",
+                    status=JobStatus.FAILED,
+                    created_offset_min=3,
+                    finished_offset_min=4,
+                    error=dict(legacy_err),
+                    retention_days=85,
+                ),
+                _legacy_job(
+                    "job_expired_evidence_fail",
+                    dedupe_key="subtitle.generate:5082:chs-eng",
+                    status=JobStatus.FAILED,
+                    created_offset_min=1,
+                    finished_offset_min=2,
+                    error=dict(legacy_err),
+                    retention_days=40,
+                ),
+                _legacy_job(
+                    "job_expired_evidence_ok",
+                    dedupe_key="subtitle.generate:5082:chs-eng",
+                    status=JobStatus.SUCCEEDED,
+                    created_offset_min=10,
+                    finished_offset_min=11,
+                    retention_days=-1,  # 已过期，启动清理会删掉且回填绝不采信
+                ),
+                _legacy_job(
+                    "job_no_evidence_fail",
+                    dedupe_key="subtitle.generate:5083:chs-eng",
+                    status=JobStatus.FAILED,
+                    created_offset_min=1,
+                    finished_offset_min=2,
+                    error=dict(legacy_err),
+                    retention_days=40,
+                ),
+                _legacy_job(
+                    "job_scan_fail",
+                    job_type="library.scan",
+                    dedupe_key="library.scan:1",
+                    status=JobStatus.FAILED,
+                    created_offset_min=1,
+                    finished_offset_min=2,
+                    error={"code": "SCAN_FAILED", "message": "boom"},
+                    retention_days=85,
+                ),
+                _legacy_job(
+                    "job_scan_ok",
+                    job_type="library.scan",
+                    dedupe_key="library.scan:1",
+                    status=JobStatus.SUCCEEDED,
+                    created_offset_min=10,
+                    finished_offset_min=11,
+                    retention_days=25,
+                ),
+            ]
+        )
+        session.add_all(
+            [
+                JobEvent(
+                    job_id="job_legacy_fail_1",
+                    revision=2,
+                    event_type="failed",
+                    payload=dict(legacy_err),
+                ),
+                JobEvent(
+                    job_id="job_legacy_fail_2",
+                    revision=2,
+                    event_type="failed",
+                    payload=dict(legacy_err),
+                ),
+                JobEvent(
+                    job_id="job_manual_dismissed",
+                    revision=2,
+                    event_type="dismissed",
+                    payload={"dismissed_by": "admin:alice"},
+                ),
+                JobEvent(
+                    job_id="job_pre_upgrade_undismissed",
+                    revision=2,
+                    event_type="undismissed",
+                    payload={},
+                ),
+            ]
+        )
+        await session.commit()
+
+    # 1) 模拟升级后首次启动 JobDispatcher：自动触发存量回填
+    await jobs.init_job_dispatcher(max_parallel=1)
+
+    for closed_id, orig_finished_min in (("job_legacy_fail_1", 2), ("job_legacy_fail_2", 6)):
+        view = (await job_client.get(f"/jobs/{closed_id}")).json()["data"]
+        assert view["status"] == "failed"
+        assert view["error"] == legacy_err
+        assert view["dismissed_at"] is not None
+        assert view["dismissed_by"] == "system:subtitle-succeeded"
+        events = (await job_client.get(f"/jobs/{closed_id}/events")).json()["data"]["items"]
+        assert [ev["event_type"] for ev in events] == ["failed", "superseded"]
+        assert events[-1]["payload"] == {
+            "dismissed_by": "system:subtitle-succeeded",
+            "superseded_by_job_id": "job_ok_5056_bi",
+        }
+        async with job_db.session() as session:
+            row = await jobs.get_job(session, closed_id)
+            assert row is not None
+            assert row.updated_at == t0 + timedelta(minutes=orig_finished_min)
+
+    # 手动忽略记录保持原样，不覆写操作者与时间，不追加 superseded 事件
+    async with job_db.session() as session:
+        manual = await jobs.get_job(session, "job_manual_dismissed")
+        assert manual is not None
+        assert manual.dismissed_by == "admin:alice"
+        assert manual.dismissed_at == manual_dismissed_at
+        manual_events = await jobs.job_events(session, "job_manual_dismissed")
+        assert [ev.event_type for ev in manual_events] == ["dismissed"]
+
+    # 所有对照组均保持待处理（dismissed_at is None）
+    for still_pending in (
+        "job_pre_upgrade_undismissed",
+        "job_fail_after_ok",
+        "job_other_target",
+        "job_other_file",
+        "job_expired_evidence_fail",
+        "job_no_evidence_fail",
+        "job_scan_fail",
+    ):
+        async with job_db.session() as session:
+            row = await jobs.get_job(session, still_pending)
+            assert row is not None, still_pending
+            assert row.status == JobStatus.FAILED
+            assert row.dismissed_at is None, still_pending
+
+    # 2) 重复执行回填与重启完全幂等：返回 0，不新增事件
+    assert await jobs.reconcile_superseded_failed_jobs() == 0
+    await jobs.close_job_dispatcher()
+    await jobs.init_job_dispatcher(max_parallel=1)
+    events_after_restart = (await job_client.get("/jobs/job_legacy_fail_1/events")).json()["data"][
+        "items"
+    ]
+    assert [ev["event_type"] for ev in events_after_restart] == ["failed", "superseded"]
+
+    # 3) 用户对回填收尾的旧失败点「撤销忽略」，后续重复执行与重启不得覆盖手动撤销决定
+    undismiss_resp = await job_client.post("/jobs/job_legacy_fail_2/undismiss")
+    assert undismiss_resp.status_code == 200
+    assert undismiss_resp.json()["data"]["job"]["dismissed_at"] is None
+
+    assert await jobs.reconcile_superseded_failed_jobs() == 0
+    await jobs.close_job_dispatcher()
+    await jobs.init_job_dispatcher(max_parallel=1)
+
+    restored_view = (await job_client.get("/jobs/job_legacy_fail_2")).json()["data"]
+    assert restored_view["status"] == "failed"
+    assert restored_view["dismissed_at"] is None
+    assert restored_view["dismissed_by"] is None
+    restored_events = (await job_client.get("/jobs/job_legacy_fail_2/events")).json()["data"][
+        "items"
+    ]
+    assert [ev["event_type"] for ev in restored_events] == ["failed", "superseded", "undismissed"]
+
+    # 4) 回填收尾后的旧失败仍保留手动重试入口
+    retry_resp = await job_client.post("/jobs/job_legacy_fail_1/retry")
+    assert retry_resp.status_code == 200
+    assert retry_resp.json()["data"]["job"]["retry_of_job_id"] == "job_legacy_fail_1"
+
+
+async def test_reconcile_superseded_ignores_unpurged_expired_success_and_tolerates_errors(
+    job_db, monkeypatch
+) -> None:
+    """回填单独调用时不采信尚未被清理的过期成功、多轮成功按最新证据收尾，且异常不阻塞启动。"""
+    now = utcnow()
+    t0 = now - timedelta(days=3)
+
+    async with job_db.session() as session:
+        session.add_all(
+            [
+                # 已过期但尚未被 purge 的成功记录，绝不作为收尾依据
+                Job(
+                    id="job_exp_fail",
+                    job_type="subtitle.generate",
+                    status=JobStatus.FAILED,
+                    dedupe_key="subtitle.generate:9001:chs",
+                    created_at=t0,
+                    updated_at=t0 + timedelta(minutes=1),
+                    finished_at=t0 + timedelta(minutes=1),
+                    retention_until=now + timedelta(days=30),
+                ),
+                Job(
+                    id="job_exp_ok",
+                    job_type="subtitle.generate",
+                    status=JobStatus.SUCCEEDED,
+                    dedupe_key="subtitle.generate:9001:chs",
+                    created_at=t0 + timedelta(minutes=5),
+                    updated_at=t0 + timedelta(minutes=6),
+                    finished_at=t0 + timedelta(minutes=6),
+                    retention_until=now - timedelta(seconds=10),
+                ),
+                # 同目标多轮成败：fail_a -> ok_1 -> fail_b -> ok_2 -> fail_c
+                Job(
+                    id="job_multi_fail_a",
+                    job_type="subtitle.generate",
+                    status=JobStatus.FAILED,
+                    dedupe_key="subtitle.generate:9002:chs",
+                    created_at=t0,
+                    updated_at=t0 + timedelta(minutes=1),
+                    finished_at=t0 + timedelta(minutes=1),
+                ),
+                Job(
+                    id="job_multi_ok_1",
+                    job_type="subtitle.generate",
+                    status=JobStatus.SUCCEEDED,
+                    dedupe_key="subtitle.generate:9002:chs",
+                    created_at=t0 + timedelta(minutes=5),
+                    updated_at=t0 + timedelta(minutes=6),
+                    finished_at=t0 + timedelta(minutes=6),
+                    retention_until=now + timedelta(days=20),
+                ),
+                Job(
+                    id="job_multi_fail_b",
+                    job_type="subtitle.generate",
+                    status=JobStatus.FAILED,
+                    dedupe_key="subtitle.generate:9002:chs",
+                    created_at=t0 + timedelta(minutes=10),
+                    updated_at=t0 + timedelta(minutes=11),
+                    finished_at=t0 + timedelta(minutes=11),
+                ),
+                Job(
+                    id="job_multi_ok_2",
+                    job_type="subtitle.generate",
+                    status=JobStatus.SUCCEEDED,
+                    dedupe_key="subtitle.generate:9002:chs",
+                    created_at=t0 + timedelta(minutes=15),
+                    updated_at=t0 + timedelta(minutes=16),
+                    finished_at=t0 + timedelta(minutes=16),
+                    retention_until=now + timedelta(days=25),
+                ),
+                Job(
+                    id="job_multi_fail_c",
+                    job_type="subtitle.generate",
+                    status=JobStatus.FAILED,
+                    dedupe_key="subtitle.generate:9002:chs",
+                    created_at=t0 + timedelta(minutes=20),
+                    updated_at=t0 + timedelta(minutes=21),
+                    finished_at=t0 + timedelta(minutes=21),
+                ),
+            ]
+        )
+        await session.commit()
+
+    # 直接调用回填（不先跑 purge_expired_jobs）：仅收尾 9002 的 fail_a 与 fail_b
+    assert await jobs.reconcile_superseded_failed_jobs() == 2
+    assert await jobs.reconcile_superseded_failed_jobs() == 0
+
+    async with job_db.session() as session:
+        exp_fail = await jobs.get_job(session, "job_exp_fail")
+        assert exp_fail is not None and exp_fail.dismissed_at is None
+
+        for jid in ("job_multi_fail_a", "job_multi_fail_b"):
+            row = await jobs.get_job(session, jid)
+            assert row is not None and row.dismissed_by == "system:subtitle-succeeded"
+            evs = await jobs.job_events(session, jid)
+            assert evs[-1].event_type == "superseded"
+            assert evs[-1].payload["superseded_by_job_id"] == "job_multi_ok_2"
+
+        fail_c = await jobs.get_job(session, "job_multi_fail_c")
+        assert fail_c is not None and fail_c.dismissed_at is None
+
+    # 对账遇到异常时只记警告并返回 0，不阻塞执行器启动
+    def broken_db():
+        raise RuntimeError("temporary db error")
+
+    monkeypatch.setattr(jobs, "get_database", broken_db)
+    assert await jobs.reconcile_superseded_failed_jobs() == 0
