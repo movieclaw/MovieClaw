@@ -122,10 +122,12 @@ class _StrictRateLimitProxy:
                         marker = "翻译下列对白："
                         items = json.loads(user[user.index(marker) + len(marker) :].strip())
                         film_tag = system.splitlines()[0]
+                        bilingual_mode = "双语" in system
                         translated = []
                         for item in items:
                             idx = int(item["i"])
-                            translated.append({"i": idx, "t": f"译文{idx}号"})
+                            text = f"译文{idx}号\nLine {idx}" if bilingual_mode else f"译文{idx}号"
+                            translated.append({"i": idx, "t": text})
                             with proxy._lock:
                                 proxy.delivered_per_film[(film_tag, idx)] += 1
                         with proxy._lock:
@@ -480,6 +482,128 @@ async def test_sustained_quota_window_enters_retry_wait_and_resumes_from_checkpo
         duplicates = {k: v for k, v in proxy.delivered_per_film.items() if v > 1}
         assert not duplicates, f"断点续译重复翻译了已完成块：{duplicates}"
         assert sum(proxy.delivered_per_film.values()) == 150
+    finally:
+        proxy.close()
+        await _teardown_env()
+
+
+async def test_subtitle_resubmit_success_clears_earlier_same_target_failures_e2e(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """Issue #1331 端到端回归：真实字幕生成路由独立重发成功后，仅同文件同目标更早失败退出待处理。"""
+    monkeypatch.setattr(translate, "_RATE_LIMIT_MIN_DELAY", 0.01)
+    monkeypatch.setattr(translate, "_RATE_LIMIT_MAX_DELAY", 0.05)
+    monkeypatch.setattr(translate, "_PACING_MIN_INTERVAL", 0.01)
+    monkeypatch.setattr(translate, "_PACING_MAX_INTERVAL", 0.05)
+    monkeypatch.setattr(tasks, "_RATE_LIMIT_RETRY_BASE_SECONDS", 1)
+    monkeypatch.setattr(tasks, "_RATE_LIMIT_RETRY_MAX_SECONDS", 1)
+
+    # 让上游失败任务用 1 次尝试即耗尽重试，快速模拟 #1331 中的 JOB_RETRY_EXHAUSTED
+    orig_create_job = jobs.create_job
+
+    async def single_attempt_create_job(*args, **kwargs):
+        if kwargs.get("job_type") == "subtitle.generate":
+            kwargs["max_attempts"] = 1
+        return await orig_create_job(*args, **kwargs)
+
+    monkeypatch.setattr(jobs, "create_job", single_attempt_create_job)
+
+    proxy = _StrictRateLimitProxy(max_in_flight=4, min_spacing=0.0)
+    proxy.latency = 0.0
+    proxy.force_429 = True
+    proxy_url = proxy.start()
+
+    async def wait_terminal(client: AsyncClient, job_id: str, timeout: float = 15.0) -> dict:
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            data = (await client.get(f"/api/v1/jobs/{job_id}")).json()["data"]
+            if data["status"] in {"succeeded", "failed", "cancelled", "blocked"}:
+                return data
+            await asyncio.sleep(0.05)
+        raise AssertionError(f"任务 {job_id} 超时未进入终态")
+
+    try:
+        app, file_ids, videos, expected_timings = await _setup_env(
+            tmp_path, monkeypatch, proxy_url, episodes=2, cues=150
+        )
+        await jobs.init_job_dispatcher(max_parallel=jobs.DEFAULT_MAX_PARALLEL)
+        async with AsyncClient(
+            transport=ASGITransport(app=app),
+            base_url="http://testserver",
+            headers={"Accept-Language": "zh-Hans"},
+        ) as client:
+            # 1) 供应商持续 429：file 0 双语失败 2 次，file 0 单语失败 1 次，file 1 双语失败 1 次
+            bilingual = {"target_language": "chs", "secondary_language": "eng"}
+            monolingual = {"target_language": "chs"}
+
+            r1 = await client.post(
+                f"/api/v1/libraries/files/{file_ids[0]}/subtitles/generations", json=bilingual
+            )
+            assert r1.status_code == 202, r1.text
+            fail_f0_bi_1 = await wait_terminal(client, r1.json()["data"]["id"])
+            assert fail_f0_bi_1["status"] == "failed"
+
+            r2 = await client.post(
+                f"/api/v1/libraries/files/{file_ids[0]}/subtitles/generations", json=bilingual
+            )
+            assert r2.status_code == 202, r2.text
+            fail_f0_bi_2 = await wait_terminal(client, r2.json()["data"]["id"])
+            assert fail_f0_bi_2["status"] == "failed"
+
+            r3 = await client.post(
+                f"/api/v1/libraries/files/{file_ids[0]}/subtitles/generations", json=monolingual
+            )
+            assert r3.status_code == 202, r3.text
+            fail_f0_mono = await wait_terminal(client, r3.json()["data"]["id"])
+            assert fail_f0_mono["status"] == "failed"
+
+            r4 = await client.post(
+                f"/api/v1/libraries/files/{file_ids[1]}/subtitles/generations", json=bilingual
+            )
+            assert r4.status_code == 202, r4.text
+            fail_f1_bi = await wait_terminal(client, r4.json()["data"]["id"])
+            assert fail_f1_bi["status"] == "failed"
+
+            # 2) 供应商恢复：独立重新发起 file 0 双语（retry_of_job_id=None）并成功落盘
+            proxy.force_429 = False
+            await asyncio.sleep(0.02)
+            r_ok = await client.post(
+                f"/api/v1/libraries/files/{file_ids[0]}/subtitles/generations", json=bilingual
+            )
+            assert r_ok.status_code == 202, r_ok.text
+            ok_f0_bi = await wait_terminal(client, r_ok.json()["data"]["id"])
+            assert ok_f0_bi["status"] == "succeeded", ok_f0_bi
+            assert ok_f0_bi["retry_of_job_id"] is None
+
+            out = videos[0].with_name(f"{videos[0].stem}.ai-bilingual-chs-eng.chi.srt")
+            assert out.is_file()
+            assert len(_read_srt_timings_and_texts(out)) == len(expected_timings[0])
+
+            # 3) 检查待处理清单：file 0 双语 2 条旧失败已退出；单语与 file 1 双语仍在待处理
+            for old_view in (fail_f0_bi_1, fail_f0_bi_2):
+                cur = (await client.get(f"/api/v1/jobs/{old_view['id']}")).json()["data"]
+                assert cur["status"] == "failed"
+                assert cur["error"]["code"] == old_view["error"]["code"]
+                assert cur["dismissed_at"] is not None
+                assert cur["dismissed_by"] == "system:subtitle-succeeded"
+                assert cur["updated_at"] == old_view["updated_at"]
+                assert cur["updated_at"] <= ok_f0_bi["updated_at"]
+
+            cur_mono = (await client.get(f"/api/v1/jobs/{fail_f0_mono['id']}")).json()["data"]
+            assert cur_mono["status"] == "failed" and cur_mono["dismissed_at"] is None
+            cur_f1 = (await client.get(f"/api/v1/jobs/{fail_f1_bi['id']}")).json()["data"]
+            assert cur_f1["status"] == "failed" and cur_f1["dismissed_at"] is None
+
+            # 4) 供应商再次 429：成功之后对 file 0 双语新发起并失败，仍应留在「需要处理」
+            proxy.force_429 = True
+            await asyncio.sleep(0.02)
+            r_after = await client.post(
+                f"/api/v1/libraries/files/{file_ids[0]}/subtitles/generations", json=bilingual
+            )
+            assert r_after.status_code == 202, r_after.text
+            fail_after = await wait_terminal(client, r_after.json()["data"]["id"])
+            assert fail_after["status"] == "failed"
+            assert fail_after["dismissed_at"] is None
     finally:
         proxy.close()
         await _teardown_env()

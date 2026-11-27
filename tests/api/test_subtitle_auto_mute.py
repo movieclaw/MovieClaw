@@ -211,3 +211,34 @@ async def test_deleting_the_file_takes_its_mute_with_it(mute_db) -> None:
     async with mute_db.session() as session:
         rows = list((await session.execute(select(SubtitleAutoMute))).scalars())
     assert rows == []
+
+
+async def test_undismiss_system_superseded_job_preserves_manual_auto_mute(mute_db) -> None:
+    """系统自动收尾的旧失败被撤销忽略时，不得误删用户此前手动建立的静音台账。"""
+    from httpx import ASGITransport, AsyncClient
+
+    from movieclaw_api.api.deps import require_admin
+    from movieclaw_api.app import create_app
+    from movieclaw_api.services.auth import Principal
+
+    file_id = await _library_file(mute_db)
+    manual_job = await _failed_subtitle_job(mute_db, file_id, target="chs")
+    superseded_job = await _failed_subtitle_job(mute_db, file_id, target="chs")
+
+    async with mute_db.session() as session:
+        await jobs.dismiss_job(session, manual_job.id, dismissed_by="admin:tester")
+        await auto.mute_from_job(session, manual_job, muted_by="admin:tester")
+        await jobs.dismiss_job(session, superseded_job.id, dismissed_by="system:subtitle-succeeded")
+
+    app = create_app()
+    app.dependency_overrides[require_admin] = lambda: Principal(kind="admin", name="tester")
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://testserver/api/v1"
+    ) as client:
+        resp_sys = await client.post(f"/jobs/{superseded_job.id}/undismiss")
+        assert resp_sys.status_code == 200
+        assert file_id in await auto._muted_file_ids("chs")
+
+        resp_user = await client.post(f"/jobs/{manual_job.id}/undismiss")
+        assert resp_user.status_code == 200
+        assert file_id not in await auto._muted_file_ids("chs")

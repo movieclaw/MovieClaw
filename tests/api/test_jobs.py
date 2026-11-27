@@ -967,3 +967,289 @@ async def test_handler_max_parallel_limits_type_without_starving_other_jobs(
     for jid in heavy_ids:
         await _wait_status(jid, JobStatus.SUCCEEDED, timeout=5)
     assert peak_heavy == 2
+
+
+async def test_subtitle_success_supersedes_only_earlier_same_target_failures(
+    job_db, job_client: AsyncClient, monkeypatch
+) -> None:
+    """Issue #1331：同文件同输出目标后来生成成功，只让较早的未忽略失败退出「需要处理」。
+
+    覆盖：
+    - 独立重发（retry_of_job_id=None）与显式重试成功后，同目标更早失败退出待处理；
+    - 保留 failed 状态、错误原因、既有时间线与手动重试路径，且 updated_at 不反超成功任务；
+    - dismissed_by 使用 system:subtitle-succeeded 且记录 superseded 事件，不冒充用户手动忽略；
+    - 已由用户手动忽略的旧失败不被覆写；
+    - 同文件不同输出目标、不同文件同目标、其他任务类型及成功之后的新失败均不受影响。
+    """
+    mode_by_tag: dict[str, str] = {}
+
+    async def fake_subtitle(context, data):
+        if mode_by_tag.get(data.get("tag", "")) == "fail":
+            raise jobs.JobRetry(
+                "provider timeout",
+                delay_seconds=0,
+                code="SUBTITLE_MODEL_TEMPORARILY_UNAVAILABLE",
+            )
+        return {"ok": True, "message": "已生成字幕"}
+
+    async def fake_scan(context, data):
+        if mode_by_tag.get(data.get("tag", "")) == "fail":
+            raise jobs.JobFailed("scan failed", code="SCAN_FAILED")
+        return {"ok": True}
+
+    monkeypatch.setitem(
+        jobs._handlers,
+        "subtitle.generate",
+        jobs.RegisteredJobHandler(fake_subtitle, frozenset({1})),
+    )
+    monkeypatch.setitem(
+        jobs._handlers,
+        "library.scan",
+        jobs.RegisteredJobHandler(fake_scan, frozenset({1})),
+    )
+    await jobs.init_job_dispatcher(max_parallel=2)
+
+    async def run_job(
+        *,
+        job_type: str,
+        file_id: int,
+        dedupe_key: str,
+        tag: str,
+        mode: str,
+        expected: JobStatus,
+    ) -> Job:
+        mode_by_tag[tag] = mode
+        async with job_db.session() as session:
+            created = await jobs.create_job(
+                session,
+                job_type=job_type,
+                subject=f"file-{file_id}.mkv",
+                input_data={"file_id": file_id, "tag": tag},
+                resources=[jobs.ResourceRef("library_file", file_id)],
+                dedupe_key=dedupe_key,
+                max_attempts=1,
+                origin="cli",
+            )
+        return await _wait_status(created.job.id, expected, timeout=3)
+
+    # 1) 构造同目标 2 条未忽略旧失败 + 1 条已手动忽略旧失败
+    fail_1 = await run_job(
+        job_type="subtitle.generate",
+        file_id=5056,
+        dedupe_key="subtitle.generate:5056:chs-eng",
+        tag="f1",
+        mode="fail",
+        expected=JobStatus.FAILED,
+    )
+    fail_2 = await run_job(
+        job_type="subtitle.generate",
+        file_id=5056,
+        dedupe_key="subtitle.generate:5056:chs-eng",
+        tag="f2",
+        mode="fail",
+        expected=JobStatus.FAILED,
+    )
+    manual_dismissed = await run_job(
+        job_type="subtitle.generate",
+        file_id=5056,
+        dedupe_key="subtitle.generate:5056:chs-eng",
+        tag="manual",
+        mode="fail",
+        expected=JobStatus.FAILED,
+    )
+    async with job_db.session() as session:
+        manual_row, changed = await jobs.dismiss_job(
+            session, manual_dismissed.id, dismissed_by="admin:alice"
+        )
+        assert changed is True and manual_row is not None
+        manual_dismissed_at = manual_row.dismissed_at
+
+    # 2) 构造不应受影响的对照任务：同文件另一目标、另一文件同目标、非字幕任务
+    other_target = await run_job(
+        job_type="subtitle.generate",
+        file_id=5056,
+        dedupe_key="subtitle.generate:5056:chs",
+        tag="other_target",
+        mode="fail",
+        expected=JobStatus.FAILED,
+    )
+    other_file = await run_job(
+        job_type="subtitle.generate",
+        file_id=5074,
+        dedupe_key="subtitle.generate:5074:chs-eng",
+        tag="other_file",
+        mode="fail",
+        expected=JobStatus.FAILED,
+    )
+    other_type_fail = await run_job(
+        job_type="library.scan",
+        file_id=5056,
+        dedupe_key="library.scan:1",
+        tag="scan_fail",
+        mode="fail",
+        expected=JobStatus.FAILED,
+    )
+
+    fail_1_updated_before = fail_1.updated_at
+    fail_2_updated_before = fail_2.updated_at
+    await asyncio.sleep(0.02)
+
+    # 3) 独立重新发起（retry_of_job_id=None）同文件同目标并成功
+    ok_job = await run_job(
+        job_type="subtitle.generate",
+        file_id=5056,
+        dedupe_key="subtitle.generate:5056:chs-eng",
+        tag="ok",
+        mode="succeed",
+        expected=JobStatus.SUCCEEDED,
+    )
+    assert ok_job.retry_of_job_id is None
+
+    # 4) 验证同目标较早未忽略失败已退出「需要处理」且保留全部历史与原因
+    for old_id, orig_updated in (
+        (fail_1.id, fail_1_updated_before),
+        (fail_2.id, fail_2_updated_before),
+    ):
+        resp = await job_client.get(f"/jobs/{old_id}")
+        assert resp.status_code == 200
+        view = resp.json()["data"]
+        assert view["status"] == "failed"
+        assert view["error"]["code"] == "JOB_RETRY_EXHAUSTED"
+        assert view["dismissed_at"] is not None
+        assert view["dismissed_by"] == "system:subtitle-succeeded"
+        events_resp = await job_client.get(f"/jobs/{old_id}/events")
+        events = events_resp.json()["data"]["items"]
+        assert events[-1]["event_type"] == "superseded"
+        assert events[-1]["payload"] == {
+            "dismissed_by": "system:subtitle-succeeded",
+            "superseded_by_job_id": ok_job.id,
+        }
+        async with job_db.session() as session:
+            row = await jobs.get_job(session, old_id)
+            assert row is not None
+            assert row.updated_at == orig_updated
+            assert row.updated_at <= ok_job.updated_at
+
+    # 详情页按 updated_at 取最新任务时仍命中成功任务，不被旧失败倒挂
+    list_5056 = (
+        await job_client.get(
+            "/jobs",
+            params={
+                "job_type": "subtitle.generate",
+                "resource_type": "library_file",
+                "resource_id": "5056",
+                "limit": 10,
+            },
+        )
+    ).json()["data"]["items"]
+    same_target_views = [
+        item for item in list_5056 if item["id"] in {fail_1.id, fail_2.id, ok_job.id}
+    ]
+    assert max(same_target_views, key=lambda item: item["updated_at"])["id"] == ok_job.id
+
+    # 已手动忽略的旧失败保持用户原样，不被覆写
+    async with job_db.session() as session:
+        manual_after = await jobs.get_job(session, manual_dismissed.id)
+        assert manual_after is not None
+        assert manual_after.dismissed_by == "admin:alice"
+        assert manual_after.dismissed_at == manual_dismissed_at
+        manual_events = await jobs.job_events(session, manual_dismissed.id)
+        assert [ev.event_type for ev in manual_events][-1] == "dismissed"
+
+    # 对照组全部不受影响
+    for untouched_id in (other_target.id, other_file.id, other_type_fail.id):
+        async with job_db.session() as session:
+            row = await jobs.get_job(session, untouched_id)
+            assert row is not None
+            assert row.status == JobStatus.FAILED
+            assert row.dismissed_at is None
+
+    # 非字幕任务同 dedupe_key 后来成功，不应自动收尾其旧失败
+    await run_job(
+        job_type="library.scan",
+        file_id=5056,
+        dedupe_key="library.scan:1",
+        tag="scan_ok",
+        mode="succeed",
+        expected=JobStatus.SUCCEEDED,
+    )
+    async with job_db.session() as session:
+        scan_old = await jobs.get_job(session, other_type_fail.id)
+        assert scan_old is not None and scan_old.dismissed_at is None
+
+    # 5) 成功之后同文件同目标的新失败必须留在「需要处理」
+    await asyncio.sleep(0.02)
+    fail_after = await run_job(
+        job_type="subtitle.generate",
+        file_id=5056,
+        dedupe_key="subtitle.generate:5056:chs-eng",
+        tag="fail_after",
+        mode="fail",
+        expected=JobStatus.FAILED,
+    )
+    assert fail_after.dismissed_at is None
+
+    # 6) 用户手动重试旧失败的路径照旧可用；重试成功后可收尾最新待处理失败
+    mode_by_tag["f1"] = "succeed"
+    retry_resp = await job_client.post(f"/jobs/{fail_1.id}/retry")
+    assert retry_resp.status_code == 200
+    retried_id = retry_resp.json()["data"]["job"]["id"]
+    assert retry_resp.json()["data"]["job"]["retry_of_job_id"] == fail_1.id
+    await _wait_status(retried_id, JobStatus.SUCCEEDED, timeout=3)
+    async with job_db.session() as session:
+        fail_after_now = await jobs.get_job(session, fail_after.id)
+        assert fail_after_now is not None
+        assert fail_after_now.dismissed_at is not None
+        assert fail_after_now.dismissed_by == "system:subtitle-succeeded"
+
+
+async def test_subtitle_cancel_before_finish_does_not_supersede_earlier_failures(
+    job_db, monkeypatch
+) -> None:
+    """新任务在收尾前被取消（最终为 cancelled 而非 succeeded）时，不得收尾旧失败。"""
+    started = asyncio.Event()
+    release = asyncio.Event()
+
+    async def handler(context, data):
+        if data.get("fail"):
+            raise jobs.JobFailed("failed once", code="SUBTITLE_GENERATION_FAILED")
+        started.set()
+        await release.wait()
+        return {"ok": True}
+
+    monkeypatch.setitem(
+        jobs._handlers,
+        "subtitle.generate",
+        jobs.RegisteredJobHandler(handler, frozenset({1})),
+    )
+    await jobs.init_job_dispatcher(max_parallel=1)
+
+    async with job_db.session() as session:
+        failed_ref = await jobs.create_job(
+            session,
+            job_type="subtitle.generate",
+            input_data={"file_id": 88, "fail": True},
+            dedupe_key="subtitle.generate:88:chs",
+            max_attempts=1,
+        )
+    await _wait_status(failed_ref.job.id, JobStatus.FAILED, timeout=3)
+
+    async with job_db.session() as session:
+        second_ref = await jobs.create_job(
+            session,
+            job_type="subtitle.generate",
+            input_data={"file_id": 88, "fail": False},
+            dedupe_key="subtitle.generate:88:chs",
+            max_attempts=1,
+        )
+    await asyncio.wait_for(started.wait(), timeout=3)
+    async with job_db.session() as session:
+        await jobs.request_cancel(session, second_ref.job.id, requested_by="admin:tester")
+    release.set()
+    await _wait_status(second_ref.job.id, JobStatus.CANCELLED, timeout=3)
+
+    async with job_db.session() as session:
+        old = await jobs.get_job(session, failed_ref.job.id)
+        assert old is not None
+        assert old.status == JobStatus.FAILED
+        assert old.dismissed_at is None
