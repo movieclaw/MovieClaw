@@ -26,13 +26,13 @@ final class OfflinePostDownloadSubtitleUITests: XCTestCase {
     override func setUpWithError() throws {
         continueAfterFailure = false
         try XCTSkipUnless(controlAvailable(), "未检测到 #1336 合成素材实验台（\(control)），跳过端到端用例")
-        try controlPOST("/mode", body: ["mode": "pass", "delay_paths": [:], "fail_paths": [:]])
+        try controlPOST("/mode", body: ["mode": "pass", "delay_paths": [:], "fail_paths": [:], "degrade_manifest": false])
         try controlPOST("/reset_subtitles", body: [:])
         try controlPOST("/clear_log", body: [:])
     }
 
     override func tearDown() {
-        try? controlPOST("/mode", body: ["mode": "pass", "delay_paths": [:], "fail_paths": [:]])
+        try? controlPOST("/mode", body: ["mode": "pass", "delay_paths": [:], "fail_paths": [:], "degrade_manifest": false])
     }
 
     /// 独立验收 A（详情旧列表刷新修复）：本地 detail.json 秒开 → 服务端延迟返回且 fileCount 不变 → 详情与下拉刷新展示最新字幕。
@@ -72,11 +72,12 @@ final class OfflinePostDownloadSubtitleUITests: XCTestCase {
         try controlPOST("/mode", body: ["mode": "pass", "delay_paths": [:], "fail_paths": [:]])
         try controlPOST("/add_extra_subtitle", body: [:])
         try controlPOST("/clear_log", body: [:])
-        let scroll = online.scrollViews.firstMatch
-        if scroll.exists { scroll.swipeDown() } else { online.swipeDown() }
-        XCTAssertTrue(waitUntil(timeout: 10) {
+        let startCoord = online.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.35))
+        let endCoord = online.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.88))
+        startCoord.press(forDuration: 0.05, thenDragTo: endCoord)
+        XCTAssertTrue(waitUntil(timeout: 12) {
             self.proxyLog().contains { $0.contains("GET /api/v1/libraries/1/items/1 -> 200") }
-        }, "下拉刷新应重新拉取详情")
+        }, "下拉刷新应重新拉取详情：\(proxyLog())")
         onlineAiChip.tap()
         let jpnHeader = online.staticTexts.matching(NSPredicate(format: "label == '日语'")).firstMatch
         XCTAssertTrue(jpnHeader.waitForExistence(timeout: 8),
@@ -181,6 +182,84 @@ final class OfflinePostDownloadSubtitleUITests: XCTestCase {
         assertEmbeddedTracksAndDefault(offlinePreserved, phaseLabel: "失败后断网实播")
         XCTAssertEqual(externalSubtitleRows(offlinePreserved).count, 2,
                        "同步失败后必须保留上次成功同步的 2 条外挂字幕，不能清空也不能写入半截第 3 条\n\(offlinePreserved.debugDescription)")
+        offlinePreserved.terminate()
+
+        // Phase 7 (回归): 降级 HTTP 200 空清单（audio_tracks/default_audio/subtitles 全空）不得清掉本机已有字幕
+        try controlPOST("/mode", body: [
+            "mode": "pass",
+            "delay_paths": [:],
+            "fail_paths": [:],
+            "degrade_manifest": true,
+        ])
+        try controlPOST("/clear_log", body: [:])
+        let onlineDegraded = launch(reset: false, route: "/library/1/item/1")
+        XCTAssertTrue(onlineDegraded.staticTexts["item-title"].waitForExistence(timeout: 20))
+        XCTAssertTrue(waitUntil(timeout: 20) {
+            self.proxyLog().contains { $0.contains("GET /api/v1/offline/manifest?file_id=1 -> 200 [DEGRADED_EMPTY]") }
+        }, "应实际命中降级 HTTP 200 空清单：\(proxyLog())")
+        assertNoVideoRedownloadOrPlaybackSession(in: proxyLog(), phaseLabel: "降级 HTTP 200 空清单")
+        Thread.sleep(forTimeInterval: 0.8)
+        onlineDegraded.terminate()
+
+        try controlPOST("/mode", body: ["mode": "refuse"])
+        let offlineAfterDegraded = launch(reset: false)
+        openOfflineItemDetail(offlineAfterDegraded)
+        openOfflinePlayerSubtitleMenu(offlineAfterDegraded, phaseLabel: "降级空清单后断网实播")
+        assertEmbeddedTracksAndDefault(offlineAfterDegraded, phaseLabel: "降级空清单后断网实播")
+        XCTAssertEqual(externalSubtitleRows(offlineAfterDegraded).count, 2,
+                       "降级 HTTP 200 空清单绝对不能清掉上次成功同步的 2 条外挂字幕\n\(offlineAfterDegraded.debugDescription)")
+    }
+
+    /// 独立验收 C（慢网回归）：manifest 延迟 6 秒时，在线点播本机副本必须在 2 秒超时窗口内起播（不得阻塞满 6 秒），
+    /// 且后台同步在 6 秒后继续收尾，之后断网实播能看到补齐的字幕且默认选轨不变。
+    @MainActor
+    func testSlowManifestPlaybackDoesNotBlockOnTwoSecondTimeoutAndFinishesInBackground() throws {
+        let app = downloadInitialOriginalEpisode()
+
+        // 服务端在下载完成后生成 2 条 AI 外挂字幕，不对当前详情页做刷新，直接注入 6 秒 manifest 延迟并点播本机副本
+        try controlPOST("/add_ai_subtitles", body: [:])
+        try assertServerHasTwoAISubtitles()
+        try controlPOST("/mode", body: [
+            "mode": "pass",
+            "delay_paths": ["/api/v1/offline/manifest": 6.0],
+            "fail_paths": [:],
+            "degrade_manifest": false,
+        ])
+        try controlPOST("/clear_log", body: [:])
+
+        let play = app.buttons["item-play"]
+        XCTAssertTrue(play.waitForExistence(timeout: 15), "慢网起播回归：应有播放键")
+        let tapAt = Date()
+        play.tap()
+        // player-video 只有在 startLocal() 结束 2 秒等待并装载引擎后才出现，能真实反映是否被 6 秒 manifest 阻塞
+        let video = app.descendants(matching: .any)["player-video"]
+        XCTAssertTrue(video.waitForExistence(timeout: 5), "慢网 manifest 延迟 6 秒时，本机起播应在 2 秒超时窗口内完成引擎装载")
+        let elapsed = Date().timeIntervalSince(tapAt)
+        XCTAssertLessThan(elapsed, 4.5, "慢网 manifest 延迟 6 秒时，2 秒起播等待不得阻塞满 6 秒（实测 \(String(format: "%.2f", elapsed)) 秒）")
+        // 确认此时 6 秒延迟的 manifest 确实还没返回（证明不是靠提前返回才快）
+        XCTAssertFalse(proxyLog().contains { $0.contains("GET /api/v1/offline/manifest?file_id=1 -> 200") },
+                       "本机视频已开播时 6 秒延迟的 manifest 应尚未返回，说明确实按 2 秒超时放行了本机起播")
+        XCTAssertFalse(app.descendants(matching: .any)["player-error"].exists, "超时放行本机起播不应报错")
+
+        // 后台同步未被取消：6 秒后 manifest 与 2 条外挂字幕均应拉完落盘，且无视频重传
+        XCTAssertTrue(waitUntil(timeout: 15) {
+            let log = self.proxyLog()
+            let hasManifest = log.contains { $0.contains("GET /api/v1/offline/manifest?file_id=1 -> 200") }
+            let subFetches = log.filter { $0.contains("GET /api/v1/playback/files/1/subtitles") && $0.hasSuffix("-> 200") }
+            return hasManifest && subFetches.count >= 2
+        }, "超时后后台同步不应被取消，应在 6 秒后补齐 2 条外挂字幕：\(proxyLog())")
+        assertNoVideoRedownloadOrPlaybackSession(in: proxyLog(), phaseLabel: "慢网后台补齐字幕")
+        Thread.sleep(forTimeInterval: 0.8)
+        app.terminate()
+
+        // 彻底断网冷启动实播 → 核实后台收尾补齐的 2 条外挂字幕已生效，默认选轨仍为 embedded:3
+        try controlPOST("/mode", body: ["mode": "refuse"])
+        let offline = launch(reset: false)
+        openOfflineItemDetail(offline)
+        openOfflinePlayerSubtitleMenu(offline, phaseLabel: "慢网后台补齐后断网实播")
+        assertEmbeddedTracksAndDefault(offline, phaseLabel: "慢网后台补齐后断网实播")
+        XCTAssertEqual(externalSubtitleRows(offline).count, 2,
+                       "慢网超时后后台补齐完成的 2 条外挂字幕应在断网实播时可用\n\(offline.debugDescription)")
     }
 
     // MARK: - Helpers
