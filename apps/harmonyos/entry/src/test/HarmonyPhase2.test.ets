@@ -22,7 +22,28 @@ import { LocaleEn } from '../main/ets/locales/LocaleEn';
 import { LocaleZhHans } from '../main/ets/locales/LocaleZhHans';
 import { LocaleZhHant } from '../main/ets/locales/LocaleZhHant';
 import { DeviceCapability } from '../main/ets/playback/DeviceCapability';
-import { OfflineProfileView, SubtitlePlanView } from '../main/ets/api/Models';
+import {
+  OfflineSubtitleSyncPlan,
+  OfflineUnitStamp,
+  buildOfflineSubtitleSyncPlan,
+  externalSubtitleRefs,
+  isDegradedOfflineManifest,
+  needsOfflineSubtitleSync
+} from '../main/ets/offline/OfflineSubtitleSyncModel';
+import {
+  OfflinePlaybackSpec,
+  OfflineSubtitleSpec,
+  OfflineUnit,
+  OfflineUnitState
+} from '../main/ets/offline/OfflineModels';
+import {
+  LibraryFileView,
+  OfflineManifestView,
+  OfflineProfileView,
+  OfflineSubtitleView,
+  SubtitlePlanView,
+  SubtitleStreamView
+} from '../main/ets/api/Models';
 
 function makeProfile(name: string, bytes: number): OfflineProfileView {
   return { profile: name, label: name, expected_bytes: bytes };
@@ -30,6 +51,41 @@ function makeProfile(name: string, bytes: number): OfflineProfileView {
 
 function makeSub(ref: string, kind: string): SubtitlePlanView {
   return { track_ref: ref, kind: kind, is_default: false, is_ai: false };
+}
+
+class FakeManifestItem {
+  id: number = 1;
+  library_id: number = 1;
+  kind: string = 'movie';
+  title: string = 'Test';
+  files: LibraryFileView[] = [];
+}
+
+class FakeManifestLibrary {
+  id: number = 1;
+  name: string = 'Movies';
+  kind: string = 'movie';
+}
+
+class FakeManifest {
+  file_id: number = 10;
+  media_item_id: number = 1;
+  library_id: number = 1;
+  season_number: number = 0;
+  episode_number: number = 0;
+  item: FakeManifestItem = new FakeManifestItem();
+  library: FakeManifestLibrary = new FakeManifestLibrary();
+  profiles: OfflineProfileView[] = [];
+  audio_tracks: Object[] = [];
+  default_audio: string | null = null;
+  subtitles: OfflineSubtitleView[] = [];
+  chapters: Object[] = [];
+  segments: Object[] = [];
+  unavailable_reason: string | null = null;
+
+  constructor(reason: string | null) {
+    this.unavailable_reason = reason;
+  }
 }
 
 export default function harmonyPhase2Test(): void {
@@ -131,6 +187,82 @@ export default function harmonyPhase2Test(): void {
       expect(lookupString(LanguageCode.en, 'tabs.library')).assertEqual('Library');
       expect(lookupString(LanguageCode.zhHant, 'tv.tab.reels')).assertEqual('放映廳');
       expect(lookupString(LanguageCode.en, 'offline.smart_title')).assertEqual('Smart Binge Cache');
+    });
+
+    it('detects_new_external_text_subtitles_and_ignores_bitmap_or_embedded', 0, () => {
+      const streams: SubtitleStreamView[] = [
+        { codec: 'ass', language: 'zho', title: '内封', forced: false, default: true, external: false, file_name: null },
+        { codec: 'pgs', language: 'eng', title: 'PGS', forced: false, default: false, external: true, file_name: 'movie.sup' },
+        { codec: 'srt', language: 'zho', title: 'AI中字', forced: false, default: false, external: true, file_name: 'movie.ai.chs.srt' }
+      ];
+      const serverFile: LibraryFileView = {
+        id: 10, file_path: '/m.mkv', file_name: 'm.mkv', size_bytes: 1000,
+        media_source_manual: false, source: 'scanned', season_number: 0, episode_number: 0,
+        missing: false, state: 'in_place', origin: { kind: 'local' },
+        subtitle_streams: streams, added_at: '2026-11-27T00:00:00Z'
+      };
+      const refs: Set<string> = externalSubtitleRefs(serverFile);
+      expect(refs.size).assertEqual(1);
+      expect(refs.has('external:movie.ai.chs.srt')).assertTrue();
+
+      const localSpec: OfflinePlaybackSpec = new OfflinePlaybackSpec(
+        1000, '[]', '[]', '[{"ref":"a0"}]', 'a0',
+        [new OfflineSubtitleSpec('external:0-zho.ass', '0-zho.ass', 'ass', 'zho', '内封', true, false, false, 'embedded:0')],
+        [], '1080p', 'h264', 'mp4'
+      );
+      expect(needsOfflineSubtitleSync(localSpec, serverFile)).assertTrue();
+      localSpec.subtitles.push(new OfflineSubtitleSpec(
+        'external:sync-1.srt', 'sync-1.srt', 'vtt', 'zho', 'AI中字', false, false, true, 'external:movie.ai.chs.srt'));
+      expect(needsOfflineSubtitleSync(localSpec, serverFile)).assertFalse();
+    });
+
+    it('guards_degraded_empty_manifests_from_wiping_local_subtitles', 0, () => {
+      const existingSpec: OfflinePlaybackSpec = new OfflinePlaybackSpec(
+        1000, '[]', '[]', '[{"ref":"a0"}]', 'a0',
+        [new OfflineSubtitleSpec('external:old.srt', 'old.srt', 'vtt', 'zho', '中字', false, false, true, 'external:old.srt')],
+        [], '1080p', 'h264', 'mp4'
+      );
+      const degraded: OfflineManifestView = new FakeManifest('文件暂不可达') as Object as OfflineManifestView;
+      expect(isDegradedOfflineManifest(degraded, existingSpec)).assertTrue();
+
+      const emptyAudioManifest: OfflineManifestView = new FakeManifest(null) as Object as OfflineManifestView;
+      expect(isDegradedOfflineManifest(emptyAudioManifest, existingSpec)).assertTrue();
+    });
+
+    it('plans_subtitle_sync_preserving_embedded_reusing_existing_and_cleaning_obsolete', 0, () => {
+      const existing: OfflineSubtitleSpec[] = [
+        new OfflineSubtitleSpec('external:0-emb.ass', '0-emb.ass', 'ass', 'jpn', '内封', true, false, false, 'embedded:0'),
+        new OfflineSubtitleSpec('external:1-keep.srt', '1-keep.srt', 'vtt', 'eng', 'OldTitle', false, false, false, 'external:keep.srt'),
+        new OfflineSubtitleSpec('external:2-gone.srt', '2-gone.srt', 'vtt', 'fra', 'Deleted', false, false, false, 'external:gone.srt')
+      ];
+      const remote: OfflineSubtitleView[] = [
+        { track_ref: 'embedded:0', format: 'ass', language: 'jpn', title: '内封', is_default: true, is_forced: false, is_ai: false, embedded: true, url: '/emb' },
+        { track_ref: 'external:keep.srt', format: 'srt', language: 'eng', title: 'NewTitle', is_default: false, is_forced: false, is_ai: false, embedded: false, url: '/keep' },
+        { track_ref: 'external:new.ai.chs.srt', format: 'srt', language: 'zho', title: 'AI 简中', is_default: true, is_forced: false, is_ai: true, embedded: false, url: '/ai' }
+      ];
+      const plan: OfflineSubtitleSyncPlan = buildOfflineSubtitleSyncPlan(
+        existing, remote, (name: string): boolean => name === '1-keep.srt');
+      expect(plan.changed).assertTrue();
+      expect(plan.subtitles.length).assertEqual(3);
+      expect(plan.subtitles[0].sourceRef).assertEqual('embedded:0');
+      expect(plan.subtitles[1].fileName).assertEqual('1-keep.srt');
+      expect(plan.subtitles[1].title).assertEqual('NewTitle');
+      expect(plan.downloads.length).assertEqual(1);
+      expect(plan.downloads[0].url).assertEqual('/ai');
+      expect(plan.obsoleteFiles.length).assertEqual(1);
+      expect(plan.obsoleteFiles[0]).assertEqual('2-gone.srt');
+    });
+
+    it('rejects_unit_stamp_mismatch_on_same_profile_redownload', 0, () => {
+      const unitA: OfflineUnit = new OfflineUnit(10, 1, 0, 0, '1080p', '1080p', OfflineUnitState.done, 1000, 'mp4', 1000);
+      unitA.completedAt = 2000;
+      const specA: OfflinePlaybackSpec = new OfflinePlaybackSpec(1000, '[]', '[]', '[]', null, [], [], '1080p', 'h264', 'mp4');
+      const stamp: OfflineUnitStamp = new OfflineUnitStamp(unitA, specA);
+      expect(stamp.matches(unitA, specA)).assertTrue();
+
+      const unitRedownloaded: OfflineUnit = new OfflineUnit(10, 1, 0, 0, '1080p', '1080p', OfflineUnitState.done, 1000, 'mp4', 3000);
+      unitRedownloaded.completedAt = 4000;
+      expect(stamp.matches(unitRedownloaded, specA)).assertFalse();
     });
   });
 }

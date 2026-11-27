@@ -67,6 +67,7 @@ import { DiscoverDetailParams } from '../discover/DiscoverDetailPage';
 import { SubscribeCenter } from '../subscriptions/SubscribeCenter';
 import { SubscriptionParams } from '../subscriptions/SubscriptionDetailPage';
 import { OfflineStore } from '../offline/OfflineStore';
+import { OfflineSubtitleSync } from '../offline/OfflineSubtitleSync';
 import { OfflineProgress, OfflineUnit } from '../offline/OfflineModels';
 import {
   OfflineDownloadChoices,
@@ -635,6 +636,7 @@ export struct LibraryItemDetailPage {
       this.localOnly = false;
       this.pickInitialEpisode(detail);
       this.syncContinuationAndKnock(detail);
+      OfflineSubtitleSync.shared.syncForDetail(detail, api);
       this.loadEpisodes();
       this.loadResume();
       this.loadRelated();

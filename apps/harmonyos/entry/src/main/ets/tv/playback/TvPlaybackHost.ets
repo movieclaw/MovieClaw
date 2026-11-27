@@ -63,6 +63,7 @@ import { TvCarPlaybackSession } from '../../playback/TvCarPlaybackSession';
 import { OfflineDisk } from '../../offline/OfflineDisk';
 import { OfflinePlaybackSpec, OfflineProgress, OfflineUnit } from '../../offline/OfflineModels';
 import { OfflineStore } from '../../offline/OfflineStore';
+import { OfflineSubtitleSync } from '../../offline/OfflineSubtitleSync';
 import { OfflineViewingRecorder } from '../../offline/OfflineViewings';
 
 export { PlayRequest };
@@ -1447,12 +1448,18 @@ export class TvPlaybackHost {
     if (mediaPath === null || OfflineDisk.fileSize(mediaPath) <= 0) {
       return false;
     }
-    const spec: OfflinePlaybackSpec | null = store.spec(unit);
-    if (spec === null) {
+    const ownerKey: string | null = store.key();
+    const syncJob: Promise<void> = ownerKey !== null
+      ? OfflineSubtitleSync.shared.syncWaiting(unit, ownerKey, this.api(), 2000)
+      : Promise.resolve();
+    const resumeJob: Promise<number> = this.localResumeMs(store, unit);
+    await syncJob;
+    const resumeMs: number = await resumeJob;
+    if (epoch !== this.sessionEpoch || this.released) {
       return false;
     }
-    const resumeMs: number = await this.localResumeMs(store, unit);
-    if (epoch !== this.sessionEpoch || this.released) {
+    const spec: OfflinePlaybackSpec | null = store.spec(unit);
+    if (spec === null) {
       return false;
     }
     this.localMediaPath = mediaPath;

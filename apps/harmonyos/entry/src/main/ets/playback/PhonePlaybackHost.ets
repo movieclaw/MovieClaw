@@ -31,6 +31,7 @@ import { MovieClawApi } from '../api/Endpoints';
 import { OfflineDisk } from '../offline/OfflineDisk';
 import { OfflineStore } from '../offline/OfflineStore';
 import { OfflineSmartCache } from '../offline/OfflineSmartCache';
+import { OfflineSubtitleSync } from '../offline/OfflineSubtitleSync';
 import { OfflineViewingRecorder } from '../offline/OfflineViewings';
 import { OfflinePlaybackSpec, OfflineProgress, OfflineUnit } from '../offline/OfflineModels';
 import { ClientCapabilityIn, PlaybackSessionRequest, PlaybackSessionView, PlaybackDecisionView, PlaybackStateView, AudioTrackView, EpisodeView, LibraryItemDetailView, PlaybackChapterMarkView, PlaybackItemView, SeasonEpisodesView, SubtitlePlanView, TrickplayView, PlaybackSegmentView, PlaybackDiagnosticsView, PlaybackPolicyView, PlaybackArtifactUploadView } from '../api/Models';
@@ -709,13 +710,19 @@ export class PhonePlaybackHost implements PlaybackTestHost {
     if (media === null || OfflineDisk.fileSize(media) <= 0) {
       return false;
     }
+    // 联网起播本机副本前与续播点并发补齐后来生成的外挂/AI 字幕（最多等 2 秒，超时不阻塞开播）
+    const ownerKey: string | null = store.key();
+    const syncJob: Promise<void> = ownerKey !== null
+      ? OfflineSubtitleSync.shared.syncWaiting(unit, ownerKey, this.api(), 2000)
+      : Promise.resolve();
+    const resumeJob: Promise<number> = this.localResumeMs(store, unit);
+    await syncJob;
+    const resumeMs: number = await resumeJob;
+    if (epoch !== this.sessionEpoch || this.disposed) { return false; }
     const spec: OfflinePlaybackSpec | null = store.spec(unit);
     if (spec === null) {
       return false;
     }
-    // 续播点：能连上服务端就以它为准（一家人共用一份观看记录），2 秒拿不到用本机的
-    const resumeMs: number = await this.localResumeMs(store, unit);
-    if (epoch !== this.sessionEpoch || this.disposed) { return false; }
     this.localMediaPath = media;
     this.localUnit = unit;
     this.localSpec = spec;
