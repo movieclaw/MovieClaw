@@ -16,11 +16,11 @@ import time
 import uuid
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
-from datetime import timedelta
+from datetime import datetime, timedelta
 from types import ModuleType
 from typing import TYPE_CHECKING, Any
 
-from sqlalchemy import delete, func, update
+from sqlalchemy import delete, func, or_, update
 from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
@@ -58,6 +58,11 @@ JOB_LEASE_SECONDS = 45
 JOB_HEARTBEAT_SECONDS = 15
 JOB_RECOVERY_SECONDS = 15
 DEFAULT_MAX_PARALLEL = 4
+# 同一文件、同一输出目标的字幕生成成功后，自动让较早的未忽略失败退出「需要处理」（#1331）。
+# 仅纳入“同 dedupe_key 严格等价覆盖同一产物”的任务类型，不对其他任务类型一刀切。
+_SUPERSEDED_FAILED_DISMISSED_BY: dict[str, str] = {
+    "subtitle.generate": "system:subtitle-succeeded",
+}
 ACTIVE_STATUS_VALUES = tuple(status.value for status in ACTIVE_JOB_STATUSES)
 _current_execution: contextvars.ContextVar[tuple[str, asyncio.Task[None]] | None] = (
     contextvars.ContextVar("movieclaw_job_execution", default=None)
@@ -575,8 +580,8 @@ async def _record_transition(
 ) -> None:
     # 取消请求、执行进度和心跳可能来自不同 session。revision 必须由数据库原子
     # 自增，不能依赖各 session 里可能过期的 ORM 值，否则会撞唯一事件序号。
-    # 忽略/撤销忽略只改用户处置元数据（dismissed_at），不改执行时间线，
-    # 不得推进 updated_at（否则旧失败会反超其后成功的任务，见 #1337）。
+    # 忽略/撤销忽略（#1337）及后续成功自动收尾（#1331）只改待处理元数据
+    # （dismissed_at），不改执行时间线，不得推进 updated_at。
     values: dict[str, Any] = {"revision": Job.revision + 1}
     refresh_attrs = ["revision"]
     if touch_updated_at:
@@ -593,6 +598,54 @@ async def _record_transition(
     session.add(
         JobEvent(job_id=job.id, revision=job.revision, event_type=event_type, payload=payload)
     )
+
+
+async def _dismiss_superseded_failed_jobs(
+    session: AsyncSession,
+    job: Job,
+    *,
+    now: datetime,
+    dismissed_by: str,
+) -> list[Job]:
+    """同任务类型、同 dedupe_key 后来成功时，让更早且尚未忽略的失败退出「需要处理」。
+
+    只改变待处理可见性：status 保持 failed，错误、进度与原有时间线完整保留；
+    使用 ``system:`` 前缀的 ``dismissed_by`` 与 ``superseded`` 事件（附带本次
+    成功任务 id），不冒充用户手动忽略，也不覆盖已被用户手动忽略的记录；同时
+    不刷新旧失败的 ``updated_at``，避免将其排到本次成功任务之后。
+    """
+    if not job.dedupe_key:
+        return []
+    rows = list(
+        (
+            await session.execute(
+                select(Job).where(
+                    Job.id != job.id,
+                    Job.job_type == job.job_type,
+                    Job.dedupe_key == job.dedupe_key,
+                    Job.status == JobStatus.FAILED.value,
+                    Job.dismissed_at.is_(None),
+                    Job.created_at <= job.created_at,
+                    or_(Job.finished_at.is_(None), Job.finished_at <= now),
+                )
+            )
+        )
+        .scalars()
+        .unique()
+    )
+    for stale in rows:
+        stale.dismissed_at = now
+        stale.dismissed_by = dismissed_by
+        if stale.retention_until is None:
+            stale.retention_until = now + timedelta(days=90)
+        await _record_transition(
+            session,
+            stale,
+            "superseded",
+            {"dismissed_by": dismissed_by, "superseded_by_job_id": job.id},
+            touch_updated_at=False,
+        )
+    return rows
 
 
 async def _lock_job(session: AsyncSession, job_id: str) -> Job | None:
@@ -1547,6 +1600,10 @@ class JobDispatcher:
                     "percent": 100.0,
                 }
                 await _record_transition(session, job, "succeeded", result)
+                if dismissed_by := _SUPERSEDED_FAILED_DISMISSED_BY.get(job.job_type):
+                    await _dismiss_superseded_failed_jobs(
+                        session, job, now=now, dismissed_by=dismissed_by
+                    )
             job.lease_owner = None
             job.lease_expires_at = None
             await self._release_locks(session, job_id)

@@ -469,10 +469,14 @@ async def undismiss_job_row(
     session: AsyncSession = Depends(get_session),
 ) -> ApiResponse[JobDismissView]:
     """撤销忽略。连带解除自动来源静音——否则"撤销"只撤了一半。"""
+    existing = await jobs.get_job(session, job_id)
+    was_system_dismissed = bool(
+        existing and existing.dismissed_by and existing.dismissed_by.startswith("system:")
+    )
     row, restored = await jobs.undismiss_job(session, job_id)
     if row is None:
         raise NotFoundException(message_key="errors.jobs.missing")
-    if restored:
+    if restored and not was_system_dismissed:
         await subtitle_auto.unmute_from_job(session, row)
     return ApiResponse(
         data=JobDismissView(dismissed=False, muted=False, job=await job_view(session, row)),
