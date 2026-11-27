@@ -424,6 +424,12 @@ export struct DiscoverCollectionPage {
             this.loadNextPage();
           }
         })
+        // 近底预取：倒数第 3 行就开拉下一页，滚到底时数据多半已就位；onReachEnd 仍是兜底
+        .onScrollIndex((first: number, last: number) => {
+          if (!this.filteringActive() && last >= this.rowsSource.totalCount() - 3) {
+            this.loadNextPage();
+          }
+        })
         .contentEndOffset(Theme.tabBarInset)
       }
       .width('100%')

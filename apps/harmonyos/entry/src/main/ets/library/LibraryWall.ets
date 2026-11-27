@@ -937,6 +937,12 @@ const EMPTY_ITEM: LibraryItemView = {
  * 库存条目 → 海报格（Web InventoryCell）：缺失提示、死条目置灰、后台处理中点亮、
  * 副行按需带评分；长按看库存概况与评分。
  */
+/*
+ * @Reusable：墙滚动时同尺寸格子组件进池复用，配合格内 LibraryPosterCell /
+ * LibraryArtwork / RemoteImage 的池化，整条复用链路无整树重建。
+ * 成员全是普通变量（item 每次整体换新），复用时框架按新参数重设。
+ */
+@Reusable
 @Component
 export struct LibraryInventoryCell {
   item: LibraryItemView = EMPTY_ITEM;
