@@ -6,6 +6,8 @@ import { Theme } from '../theme/AppTheme';
 import { AppNavBar } from '../common/AppNavBar';
 import { AppFooter } from '../common/AppFooter';
 import { AppIconStore, appLogoResource } from '../common/AppIcon';
+import { PerfTelemetry } from '../common/PerfTelemetry';
+import { RemoteImageStats, remoteImageStats } from '../common/RemoteImage';
 
 /** 一条开源组件 */
 class OssComponent {
@@ -45,8 +47,17 @@ export struct AboutPage {
   @Local private buildNo: string = '';
   /** 设置 → 图标 里选的应用内图标（-1 = 默认） */
   @Local private logoIndex: number = -1;
+  /** 性能打点最近值（进页时快照；详见 common/PerfTelemetry） */
+  @Local private coldStartMs: number = -1;
+  @Local private sessionReadyMs: number = -1;
+  @Local private playbackOpenMs: number = -1;
+  @Local private imageStats: RemoteImageStats | null = null;
 
   aboutToAppear(): void {
+    this.coldStartMs = PerfTelemetry.lastValueOf('cold_start');
+    this.sessionReadyMs = PerfTelemetry.lastValueOf('session_ready');
+    this.playbackOpenMs = PerfTelemetry.lastValueOf('playback_open');
+    this.imageStats = remoteImageStats();
     AppIconStore.load().then((): void => {
       this.logoIndex = AppIconStore.selected;
     });
@@ -103,6 +114,7 @@ export struct AboutPage {
             this.BasicSection()
             this.OssSection()
             this.DataSourceSection()
+            this.PerfSection()
             AppFooter()
           }
           .width('100%')
@@ -264,6 +276,53 @@ export struct AboutPage {
     }
     .width('100%')
     .padding({ left: 16, right: 16, top: 13, bottom: 13 })
+  }
+
+  /** 性能诊断：关键链路最近耗时 + 图片管线命中计数（进页快照，见 common/PerfTelemetry） */
+  @Builder
+  PerfSection() {
+    Column({ space: 0 }) {
+      Text('性能')
+        .fontSize(13)
+        .fontColor(Theme.textMuted)
+        .width('100%')
+        .padding({ left: 4, bottom: 6 })
+      Column({ space: 0 }) {
+        this.Line('冷启动', this.msLine(this.coldStartMs))
+        Divider().color(Theme.line).margin({ left: 16, right: 16 })
+        this.Line('会话就绪', this.msLine(this.sessionReadyMs))
+        Divider().color(Theme.line).margin({ left: 16, right: 16 })
+        this.Line('起播耗时', this.msLine(this.playbackOpenMs))
+        Divider().color(Theme.line).margin({ left: 16, right: 16 })
+        this.Line('图片缓存', this.imageCacheLine())
+        Divider().color(Theme.line).margin({ left: 16, right: 16 })
+        Text('打点经 hiAppEvent 上报（事件域 movieclaw_perf，DeviceCompass 可查）；'
+          + '此处为本次会话的最近值，图片缓存计数为累计值。')
+          .fontSize(12)
+          .fontColor(Theme.textFaint)
+          .width('100%')
+          .padding({ left: 16, right: 16, top: 10, bottom: 12 })
+      }
+      .width('100%')
+      .backgroundColor(Theme.surface)
+      .borderRadius(Theme.cardRadius)
+      .border({ width: 1, color: Theme.line })
+    }
+    .width('100%')
+  }
+
+  /** 耗时行文案：-1（尚未记录）与正常值分开表达，不把哨兵值显示给用户 */
+  private msLine(value: number): string {
+    return value >= 0 ? `${value} ms` : '尚未记录';
+  }
+
+  /** 图片缓存行：内存 / 磁盘 / 网络三路命中计数（三级管线的直观测度） */
+  private imageCacheLine(): string {
+    const stats: RemoteImageStats | null = this.imageStats;
+    if (stats === null) {
+      return '—';
+    }
+    return `内存 ${stats.memoryHits} · 磁盘 ${stats.diskHits} · 网络 ${stats.networkFetches}`;
   }
 
   /**
