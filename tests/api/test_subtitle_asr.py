@@ -321,9 +321,9 @@ async def test_preview_resumes_an_interrupted_transcription(
 
 
 async def test_preview_explains_transcription_and_estimates_by_runtime(
-    monkeypatch, available
+    tmp_path: Path, monkeypatch, available
 ) -> None:
-    result = await _preview(monkeypatch, _row(audio=[_ENGLISH_51]), "en")
+    result = await _preview(monkeypatch, _media_row(tmp_path, monkeypatch), "en")
     assert result.blocker is None
     assert result.selected_source_key == "audio:0"
     assert result.chosen is not None and result.chosen.candidate.kind == "audio"
@@ -334,8 +334,10 @@ async def test_preview_explains_transcription_and_estimates_by_runtime(
     assert result.output_filename == "Movie.ai-chs.chi.srt"
 
 
-async def test_same_language_output_needs_no_model(monkeypatch, available) -> None:
-    result = await _preview(monkeypatch, _row(audio=[_ENGLISH_51]), "en", target="eng")
+async def test_same_language_output_needs_no_model(
+    tmp_path: Path, monkeypatch, available
+) -> None:
+    result = await _preview(monkeypatch, _media_row(tmp_path, monkeypatch), "en", target="eng")
     assert result.estimated_tokens == 0
     assert result.output_filename == "Movie.asr.eng.srt"
     assert "不调用 AI 模型" in (result.reference_notice or "")
