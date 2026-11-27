@@ -1,9 +1,16 @@
 import { display } from '@kit.ArkUI';
+import { common } from '@kit.AbilityKit';
 import { promptAction } from '@kit.ArkUI';
 import { Theme } from '../theme/AppTheme';
 import { GlassButtonModifier, GlassTone } from '../common/GlassControls';
 import { WindowInsets } from '../common/WindowInsets';
 import { Formatters } from '../common/Formatters';
+import { Haptics } from '../common/Haptics';
+import { StarRatingBar } from '../common/StarRatingBar';
+import { ExternalPlayerSheet } from '../common/ExternalPlayerSheet';
+import { ContinuationBridge } from '../common/ContinuationBridge';
+import { HarmonyShareBridge, KnockSharePayload } from '../common/HarmonyShareBridge';
+import { shareAbsoluteUrl } from '../common/ShareLinks';
 import { SharePanel, shareMessage } from './ShareSheet';
 import { ArtworkPickerSheet } from './ArtworkPickerSheet';
 import { TransferItemSheet } from './TransferItemSheet';
@@ -201,6 +208,12 @@ export struct LibraryItemDetailPage {
   @State private watched: PlaybackStateView | null = null;
   /** 收藏（null = 还没问到） */
   @State private favorite: boolean | null = null;
+  /** 我的个人十分制评分（0 = 未评分，1..10 对应半星 0.5..5.0） */
+  @State private userRating: number = 0;
+  /** 多版本当前选中的文件 ID（0 = 默认第一个在位文件） */
+  @State private selectedFileId: number = 0;
+  /** 外部播放器面板显隐 */
+  @State private showExternalPlayer: boolean = false;
   /** 标记请求在途：防连点 */
   @State private marking: boolean = false;
   /** loadResume 请求代数：选集快速变化时丢弃过期响应，上一集的进度不盖到新集上 */
@@ -283,6 +296,23 @@ export struct LibraryItemDetailPage {
       }
     }
     return out;
+  }
+
+  /** 当前播放单元实际选中的文件 ID（优先版本选择器选中项，退回首个在位文件，否则 0） */
+  private resolvedSelectedFileId(): number {
+    const inPlace: LibraryFileView[] = this.inPlaceFiles();
+    if (this.selectedFileId > 0) {
+      for (const f of inPlace) {
+        if (f.id === this.selectedFileId) {
+          return f.id;
+        }
+      }
+    }
+    if (inPlace.length > 0) {
+      return inPlace[0].id;
+    }
+    const all: LibraryFileView[] = this.currentFiles();
+    return all.length > 0 ? all[0].id : 0;
   }
 
   /** 当前播放单元的季（电影是 0，剧集是选中的那一季） */
@@ -597,12 +627,14 @@ export struct LibraryItemDetailPage {
       const detail: LibraryItemDetailView = await itemPending;
       const library: LibraryView | null = await libPending;
       this.detail = detail;
+      this.userRating = detail.user_rating ?? 0;
       if (library !== null) {
         this.library = library;
       }
       this.failed = false;
       this.localOnly = false;
       this.pickInitialEpisode(detail);
+      this.syncContinuationAndKnock(detail);
       this.loadEpisodes();
       this.loadResume();
       this.loadRelated();
@@ -630,7 +662,7 @@ export struct LibraryItemDetailPage {
     }
   }
 
-  /** 收藏态（单独一路，同 iOS 的 `.task { favorite = ... }`） */
+  /** 收藏态与个人评分（单独一路，同 iOS 的 `.task { favorite = ... }`） */
   private async loadFavorite(): Promise<void> {
     const api: MovieClawApi | null = AppModel.shared.api;
     if (api === null) {
@@ -639,9 +671,40 @@ export struct LibraryItemDetailPage {
     try {
       const marks = await api.playbackMarksGet(this.mediaItemId);
       this.favorite = marks.is_favorite;
+      if (marks.user_rating !== undefined) {
+        this.userRating = marks.user_rating ?? 0;
+      }
     } catch (error) {
       this.favorite = null;
     }
+  }
+
+  /** 注册分布式跨端流转与鸿蒙碰一碰分享上下文 */
+  private syncContinuationAndKnock(detail: LibraryItemDetailView): void {
+    const origin: string = AppModel.origin();
+    ContinuationBridge.shared().publishItem(
+      origin,
+      this.libraryId,
+      this.mediaItemId,
+      this.playUnitSeasonNumber(),
+      this.playUnitEpisodeNumber(),
+      detail.title
+    );
+    HarmonyShareBridge.armKnockShare((): KnockSharePayload | null => {
+      const currentDetail: LibraryItemDetailView | null = this.detail;
+      if (currentDetail === null) {
+        return null;
+      }
+      const shareObj: ShareView | null = this.share;
+      const url: string = shareObj !== null && shareObj.url.length > 0
+        ? shareAbsoluteUrl(shareObj.url, AppModel.origin())
+        : `movieclaw://item/${this.libraryId}/${this.mediaItemId}?origin=${encodeURIComponent(AppModel.origin())}`;
+      return new KnockSharePayload(
+        `《${currentDetail.title}》`,
+        '来自 MovieClaw 鸿蒙碰一碰分享',
+        url
+      );
+    });
   }
 
   // MARK: 相似推荐 + 作品系列（iOS ItemRelated；顺序 演职员 → 相似 → 系列，2026-10-12 用户定）
@@ -690,9 +753,21 @@ export struct LibraryItemDetailPage {
 
   // MARK: 章节（iOS ChapterStripSection；素材搬自 ShareItemView 的 ChaptersBlock）
 
-  /** 当前单元带章节的文件（取第一个有章节的；电影多版本就是选中的第一份） */
+  /** 当前单元带章节的文件（优先当前版本选择器选中的那份，否则取第一个有章节的） */
   private chapterSourceFile(): LibraryFileView | null {
     const files: LibraryFileView[] = this.currentFiles();
+    const chosenId: number = this.resolvedSelectedFileId();
+    if (chosenId > 0) {
+      for (const file of files) {
+        if (file.id === chosenId) {
+          const chapters: ChapterView[] | null | undefined = file.chapters;
+          if (chapters !== null && chapters !== undefined && chapters.length > 0) {
+            return file;
+          }
+          break;
+        }
+      }
+    }
     for (const file of files) {
       const chapters: ChapterView[] | null | undefined = file.chapters;
       if (chapters !== null && chapters !== undefined && chapters.length > 0) {
@@ -736,13 +811,13 @@ export struct LibraryItemDetailPage {
     return resume >= chapter.start_ms && (end === null || resume < end);
   }
 
-  /** 从这一章起播：带上当前的季/集（同 play，只是续播位置换成章起点） */
+  /** 从这一章起播：带上当前的季/集与选中的多版本文件（同 play，只是续播位置换成章起点） */
   private playFromChapter(chapter: ChapterView): void {
     const picked: EpisodeView | null = this.selectedEpisode;
     const season: number = !this.isMovie() && picked !== null ? this.season : 0;
     const episode: number = !this.isMovie() && picked !== null ? picked.episode_number : 0;
     this.navStack.pushPathByName('player',
-      new PlayerParams(this.mediaItemId, 0, season, episode, this.chapterStart(chapter)));
+      new PlayerParams(this.mediaItemId, this.resolvedSelectedFileId(), season, episode, this.chapterStart(chapter)));
   }
 
   private chapterUrl(chapter: ChapterView): string {
@@ -988,7 +1063,11 @@ export struct LibraryItemDetailPage {
     this.selectedEpisode = episode;
     this.episodeRangeIndex = episode === null ? null : EpisodeRanges.indexOf(episode.episode_number);
     if (previousNumber !== nextNumber) {
+      this.selectedFileId = 0;
       this.loadResume();
+      if (this.detail !== null) {
+        this.syncContinuationAndKnock(this.detail as LibraryItemDetailView);
+      }
     }
   }
 
@@ -1263,6 +1342,32 @@ export struct LibraryItemDetailPage {
     }
   }
 
+  /** 设置或清除我的个人评分（1..10，0 清除） */
+  private async setUserRating(next: number): Promise<void> {
+    const api: MovieClawApi | null = AppModel.shared.api;
+    if (api === null || this.localOnly) {
+      return;
+    }
+    const previous: number = this.userRating;
+    this.userRating = next;
+    try {
+      const body: PlaybackMarksRequest = {
+        media_item_id: this.mediaItemId,
+        rating: next
+      };
+      const marks = await api.playbackMarksSet(body);
+      this.userRating = marks.user_rating ?? next;
+      if (next > 0) {
+        Haptics.notifySuccess();
+      } else {
+        Haptics.click();
+      }
+    } catch (_error) {
+      this.userRating = previous;
+      this.toastText('保存评分失败，请重试');
+    }
+  }
+
   /** 切季：重新拉这一季的集 */
   private onSeasonPick(season: number): void {
     if (season === this.season) {
@@ -1270,6 +1375,7 @@ export struct LibraryItemDetailPage {
     }
     this.season = season;
     this.selectedEpisode = null;
+    this.selectedFileId = 0;
     this.episodeRangeIndex = null;
     this.showAirSchedule = false;
     this.loadEpisodes();
@@ -1295,7 +1401,8 @@ export struct LibraryItemDetailPage {
     const picked: EpisodeView | null = this.selectedEpisode;
     const season: number = !this.isMovie() && picked !== null ? this.season : 0;
     const episode: number = !this.isMovie() && picked !== null ? picked.episode_number : 0;
-    this.navStack.pushPathByName('player', new PlayerParams(this.mediaItemId, 0, season, episode, resume));
+    this.navStack.pushPathByName('player',
+      new PlayerParams(this.mediaItemId, this.resolvedSelectedFileId(), season, episode, resume));
   }
 
   // MARK: 视图
@@ -1327,6 +1434,9 @@ export struct LibraryItemDetailPage {
     }
     .hideTitleBar(true)
     .onShown((): void => {
+      if (this.detail !== null) {
+        this.syncContinuationAndKnock(this.detail as LibraryItemDetailView);
+      }
       // 首显时初始加载已拉过，跳过；从播放页/下级详情返回时刷新集卡角标与播放键进度
       if (!this.hasShownOnce) {
         this.hasShownOnce = true;
@@ -1334,6 +1444,9 @@ export struct LibraryItemDetailPage {
       }
       this.loadEpisodes();
       this.loadResume();
+    })
+    .onHidden((): void => {
+      HarmonyShareBridge.disarmKnockShare();
     })
     .bindSheet($$this.showShare, this.ShareSheetContent(), {
       height: SheetSize.MEDIUM,
@@ -1461,17 +1574,23 @@ export struct LibraryItemDetailPage {
   /** 电影当前可下载的文件（选中的版本在前，供顶栏按钮判断要不要出现） */
   private downloadableFileIds(): number[] {
     const out: number[] = [];
+    const chosen: number = this.resolvedSelectedFileId();
+    if (chosen > 0) {
+      out.push(chosen);
+    }
     const files: LibraryFileView[] = this.currentFiles();
     for (const file of files) {
-      out.push(file.id);
+      if (out.indexOf(file.id) < 0) {
+        out.push(file.id);
+      }
     }
     return out;
   }
 
-  /** 打开电影的下载画质面板：选中的版本在前 */
+  /** 打开电影的下载画质面板：选中的版本优先 */
   private openMovieDownload(): void {
-    const files: LibraryFileView[] = this.currentFiles();
-    this.downloadFileId = files.length > 0 ? files[0].id : -1;
+    const chosen: number = this.resolvedSelectedFileId();
+    this.downloadFileId = chosen > 0 ? chosen : -1;
     this.showDownloadSheet = true;
   }
 
@@ -1489,9 +1608,9 @@ export struct LibraryItemDetailPage {
 
   /** 选中的集要传给范围算法的文件号：选中版本的文件优先，退回这一集在库的任一文件 */
   private selectedDownloadFile(): number | null {
-    const files: LibraryFileView[] = this.currentFiles();
-    if (files.length > 0) {
-      return files[0].id;
+    const chosen: number = this.resolvedSelectedFileId();
+    if (chosen > 0) {
+      return chosen;
     }
     const picked: EpisodeView | null = this.selectedEpisode;
     if (picked !== null && picked.file_ids.length > 0) {
@@ -1749,11 +1868,38 @@ export struct LibraryItemDetailPage {
   @Builder
   ShareSheetContent() {
     Column({ space: 12 }) {
-      Text('分享')
-        .fontSize(17)
-        .fontWeight(FontWeight.Medium)
-        .fontColor(Theme.text)
-        .padding({ top: 16 })
+      Row() {
+        Text('分享')
+          .fontSize(17)
+          .fontWeight(FontWeight.Medium)
+          .fontColor(Theme.text)
+        Blank()
+        if (this.share !== null && (this.share as ShareView).url.length > 0) {
+          Button() {
+            Text('系统分享 / 碰一碰')
+              .fontSize(12)
+              .fontColor(Theme.accentStrong)
+          }
+          .attributeModifier(new GlassButtonModifier(GlassTone.Secondary))
+          .padding({ left: 12, right: 12, top: 6, bottom: 6 })
+          .borderRadius(14)
+          .onClick(() => {
+            const s: ShareView | null = this.share;
+            const d: LibraryItemDetailView | null = this.detail;
+            const host = this.getUIContext().getHostContext() as common.UIAbilityContext;
+            if (s !== null && d !== null && host !== undefined) {
+              HarmonyShareBridge.shareLink(
+                host,
+                `《${d.title}》`,
+                '点击在浏览器或 MovieClaw 中直接观看',
+                shareAbsoluteUrl(s.url, AppModel.origin())
+              );
+            }
+          })
+        }
+      }
+      .width('100%')
+      .padding({ left: 16, right: 16, top: 16 })
       SharePanel({
         share: this.share,
         busy: this.shareBusy,
@@ -1926,8 +2072,8 @@ export struct LibraryItemDetailPage {
   /** 沉浸剧照：高度 = min(屏宽 × 1.15, 屏高 × 0.62)，底部渐变融进底色（同 iOS hero） */
   @Builder
   Hero() {
-    // 与订阅轮播**共用同一份底图实现**（common/ImmersiveHero.ets），别再各写一遍
-    ImmersiveHeroBackdrop(this.posterUrl(), this.heroHeight)
+    // 共享元素一镜到底（mc-item-{id}）+ 双区影院环境流光底图（common/ImmersiveHero.ets）
+    ImmersiveHeroBackdrop(this.posterUrl(), this.heroHeight, `mc-item-${this.mediaItemId}`)
   }
 
   @Builder
@@ -1987,8 +2133,28 @@ export struct LibraryItemDetailPage {
         this.MetaLinkRow('合集', this.collectionsText(detail))
       }
       // 媒体轨道区（iOS MediaTrackSection，位于元数据行下、播放键上）：
-      // 只认在位文件（state == "in_place"，同 iOS availableFiles）
-      MediaTrackSection({ files: this.inPlaceFiles(), onChanged: (): void => { this.reload(); } })
+      // 双向绑定多版本选择（selectedFileId），切换版本即同步起播、章节、下载与外部播放器
+      MediaTrackSection({
+        files: this.inPlaceFiles(),
+        selectedFileId: this.resolvedSelectedFileId(),
+        onSelectFile: (fileId: number): void => {
+          this.selectedFileId = fileId;
+          Haptics.tick();
+        },
+        onChanged: (): void => {
+          this.reload();
+        }
+      })
+      // 个人五星半步评分条（支持点击与横向滑选 + 线性马达微振）
+      if (!this.localOnly) {
+        StarRatingBar({
+          rating: this.userRating,
+          busy: this.marking,
+          onChange: (next: number): void => {
+            this.setUserRating(next);
+          }
+        })
+      }
       // 选中集库里还没资源：整行播放/收藏/标已看直接隐藏，不给播也不能标
       if (!this.playUnitMissing()) {
         this.PlayAction(detail)
@@ -2075,6 +2241,30 @@ export struct LibraryItemDetailPage {
         .onClick(() => {
           this.toggleWatched();
         })
+        // 外部播放器图标键：签发 12h 直链拉起系统播放器 / VLC / 复制直链与外挂字幕
+        if (!this.localOnly && this.resolvedSelectedFileId() > 0) {
+          Button() {
+            SymbolGlyph($r('sys.symbol.arrow_up_right'))
+              .fontSize(19)
+              .fontColor([Theme.text])
+          }
+          .accessibilityText('外部播放器')
+          .attributeModifier(new GlassButtonModifier(GlassTone.Secondary))
+          .width(46)
+          .height(46)
+          .borderRadius(14)
+          .onClick(() => {
+            Haptics.click();
+            this.showExternalPlayer = true;
+          })
+          .bindSheet($$this.showExternalPlayer, this.ExternalPlayerSheetContent(detail), {
+            height: SheetSize.FIT_CONTENT,
+            dragBar: true,
+            showClose: false,
+            systemMaterial: SpatialMaterial.sheet(),
+            backgroundColor: Theme.bg
+          })
+        }
       }
       .width('100%')
 
@@ -2109,6 +2299,19 @@ export struct LibraryItemDetailPage {
     .width('100%')
     .alignItems(HorizontalAlign.Start)
     .margin({ top: 10 })
+  }
+
+  @Builder
+  ExternalPlayerSheetContent(_detail: LibraryItemDetailView) {
+    ExternalPlayerSheet({
+      mediaItemId: this.mediaItemId,
+      seasonNumber: this.playUnitSeasonNumber(),
+      episodeNumber: this.playUnitEpisodeNumber(),
+      fileId: this.resolvedSelectedFileId(),
+      onClose: (): void => {
+        this.showExternalPlayer = false;
+      }
+    })
   }
 
   private played(): boolean {

@@ -55,6 +55,10 @@ export interface SubtitleStyle {
   fontScale: number;
   bottomPercent: number;
   background: boolean;
+  /** ASS/SSA 字幕启用 libass GPU 原生渲染（保留双语排版、特效定位与花字） */
+  nativeAss?: boolean;
+  /** 用户手动微调的字幕时间轴偏移（毫秒，正值延后出现、负值提前出现） */
+  delayMs?: number;
 }
 
 export class EngineEvent {

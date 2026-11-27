@@ -38,8 +38,12 @@ import { NavStacks, ShareRouter } from '../common/ShareLinks';
 import { SharePageParams } from '../share/SharePage';
 import { NotifyCenter } from '../notify/NotifyCenter';
 import { NotifyOpen, NotifyRouter } from '../notify/NotifyRouter';
+import { ContinuationBridge, ContinuationTarget } from '../common/ContinuationBridge';
+import { Haptics } from '../common/Haptics';
+import { PlayerParams } from '../player/PlayerParams';
 import { ItemRouteParams } from '../library/LibraryItemDetailPage';
 import { SubscriptionParams } from '../subscriptions/SubscriptionDetailPage';
+import { SearchMode, SearchParams } from '../search/SearchResultsPage';
 import { ResumeBar, ResumeBarStore } from './ResumeAccessory';
 import { UpNextItemView } from '../api/Models';
 
@@ -79,6 +83,10 @@ export struct MainTabsPage {
   @Local private shareRouter: ShareRouter = ShareRouter.shared();
   /** 系统通知点按中转（通知带着 tab/route 参数拉起：切页签、推详情页落点） */
   @Local private notifyRouter: NotifyRouter = NotifyRouter.shared();
+  /** 鸿蒙分布式跨端接续 / 桌面卡片 / 小艺语音意图 / 碰一碰深链统一落点 */
+  @Local private continuation: ContinuationBridge = ContinuationBridge.shared();
+  /** 双击「我的」底栏秒切上一个账号的时间戳 */
+  private lastMoreTabClickAt: number = 0;
   /** 悬浮底栏上方的「接着看」条（对应 iOS `ResumeAccessory`） */
   @Local private resume: ResumeBarStore = new ResumeBarStore();
   /** 底栏样式（悬浮胶囊 / 经典贴底栏）：设置页开关改的就是这个单例，改了整条底栏跟着重建 */
@@ -105,6 +113,149 @@ export struct MainTabsPage {
   @Monitor('notifyRouter.pendingSeq')
   onPendingNotifyTap(): void {
     this.consumeNotifyTap();
+  }
+
+  /** 收到跨端接续 / 碰一碰 / 桌面卡片 / 小艺语音指令：直达播放或详情 */
+  @Monitor('continuation.pendingSeq')
+  onPendingContinuation(): void {
+    this.consumeContinuation();
+  }
+
+  private consumeContinuation(): void {
+    const target: ContinuationTarget | null = this.continuation.takePending();
+    if (target === null) {
+      return;
+    }
+    if (target.kind === 'play' && target.mediaItemId > 0) {
+      this.pushWhenStackReady(NavStacks.currentKey, (stack: NavPathStack): void => {
+        stack.pushPathByName('player', new PlayerParams(
+          target.mediaItemId, target.fileId, target.season, target.episode, target.positionMs));
+      }, 0);
+      return;
+    }
+    if (target.kind === 'play_by_title') {
+      const kw: string = target.query.trim();
+      this.pushWhenStackReady(NavStacks.currentKey, (stack: NavPathStack): void => {
+        if (kw.length > 0) {
+          stack.pushPathByName('searchResults', new SearchParams(kw, SearchMode.library));
+        } else {
+          stack.pushPathByName('search', null);
+        }
+      }, 0);
+      return;
+    }
+    if (target.kind === 'subscribe_voice') {
+      const kw: string = target.query.trim();
+      this.pushWhenStackReady(NavStacks.currentKey, (stack: NavPathStack): void => {
+        if (kw.length > 0) {
+          stack.pushPathByName('searchResults', new SearchParams(kw, SearchMode.media));
+        } else {
+          stack.pushPathByName('search', null);
+        }
+      }, 0);
+      return;
+    }
+    if (target.kind === 'open_subscriptions') {
+      const subIndex: number = MainTabsPage.indexOfTab(this.visibleTabs(), '订阅');
+      if (subIndex >= 0) {
+        this.tabsController.changeIndex(subIndex);
+      }
+      return;
+    }
+    if (target.kind === 'open_subscription_by_title') {
+      const kw: string = target.query.trim().toLowerCase();
+      const subIndex: number = MainTabsPage.indexOfTab(this.visibleTabs(), '订阅');
+      if (subIndex >= 0) {
+        this.tabsController.changeIndex(subIndex);
+      }
+      const api: MovieClawApi | null = this.model.api;
+      if (api !== null && kw.length > 0) {
+        api.subscriptionsList().then((subs): void => {
+          for (const sub of subs) {
+            if (sub.media.title.toLowerCase().includes(kw)) {
+              this.pushWhenStackReady(subIndex >= 0 ? '订阅' : NavStacks.currentKey, (stack: NavPathStack): void => {
+                stack.pushPathByName('subscriptionDetail', new SubscriptionParams(sub.id));
+              }, 0);
+              return;
+            }
+          }
+        }).catch((): void => {
+        });
+      }
+      return;
+    }
+    if (target.kind === 'continue_latest') {
+      const visible: UpNextItemView | null = this.resume.visibleItem;
+      if (visible !== null) {
+        this.pushWhenStackReady(NavStacks.currentKey, (stack: NavPathStack): void => {
+          stack.pushPathByName('player', new PlayerParams(
+            visible.media_item_id, 0, visible.season_number ?? 0, visible.episode_number ?? 0, visible.position_ms ?? 0));
+        }, 0);
+        return;
+      }
+      const api: MovieClawApi | null = this.model.api;
+      if (api !== null) {
+        api.playbackUpNext(1).then((res): void => {
+          if (res.items.length > 0) {
+            const first = res.items[0];
+            this.pushWhenStackReady(NavStacks.currentKey, (stack: NavPathStack): void => {
+              stack.pushPathByName('player', new PlayerParams(
+                first.media_item_id, 0, first.season_number ?? 0, first.episode_number ?? 0, first.position_ms ?? 0));
+            }, 0);
+          } else {
+            this.toast('暂无继续观看记录');
+          }
+        }).catch((): void => {
+          this.toast('暂无继续观看记录');
+        });
+      }
+      return;
+    }
+    if (target.kind === 'item' && target.mediaItemId > 0) {
+      const libIndex: number = MainTabsPage.indexOfTab(this.visibleTabs(), '媒体库');
+      if (libIndex >= 0) {
+        this.tabsController.changeIndex(libIndex);
+      }
+      this.pushWhenStackReady('媒体库', (stack: NavPathStack): void => {
+        stack.pushPathByName('libraryItem', new ItemRouteParams(target.libraryId, target.mediaItemId));
+      }, 0);
+      return;
+    }
+    if (target.kind === 'subscription') {
+      const subIndex: number = MainTabsPage.indexOfTab(this.visibleTabs(), '订阅');
+      if (subIndex >= 0) {
+        this.tabsController.changeIndex(subIndex);
+      }
+      if (target.subscriptionId > 0) {
+        this.pushWhenStackReady(subIndex >= 0 ? '订阅' : NavStacks.currentKey, (stack: NavPathStack): void => {
+          stack.pushPathByName('subscriptionDetail', new SubscriptionParams(target.subscriptionId));
+        }, 0);
+      }
+      return;
+    }
+    if (target.kind === 'search') {
+      const kw: string = target.query.trim();
+      this.pushWhenStackReady(NavStacks.currentKey, (stack: NavPathStack): void => {
+        if (kw.length > 0) {
+          stack.pushPathByName('searchResults', new SearchParams(kw, SearchMode.library));
+        } else {
+          stack.pushPathByName('search', null);
+        }
+      }, 0);
+    }
+  }
+
+  private pushWhenStackReady(stackTitle: string, action: (stack: NavPathStack) => void, attempt: number): void {
+    if (NavStacks.has(stackTitle) || attempt >= 10) {
+      const stack: NavPathStack | null = NavStacks.of(stackTitle) ?? NavStacks.of(NavStacks.currentKey);
+      if (stack !== null) {
+        action(stack);
+      }
+      return;
+    }
+    setTimeout((): void => {
+      this.pushWhenStackReady(stackTitle, action, attempt + 1);
+    }, 100);
   }
 
   /**
@@ -194,6 +345,10 @@ export struct MainTabsPage {
       this.subscribeUpgrade = request.upgrade;
       this.showSubscribe = true;
     });
+    // 冷启动兜底：EntryAbility.onCreate 塞入的流转 / 桌面卡片 / 小艺语音指令在主框架挂载后即刻消费
+    setTimeout((): void => {
+      this.consumeContinuation();
+    }, 80);
     // 跨页切页签（影人页兜底态「去媒体库」这类，对应 iOS router.open(.libraryHome)）
     ShellChrome.observeTabs((tab: string): void => {
       let index: number = -1;
@@ -235,6 +390,7 @@ export struct MainTabsPage {
     // 延迟取一次（同 takeNotice 的兜底节奏；takePending 有序号对账，重复消费拿不到）
     setTimeout((): void => {
       this.consumeNotifyTap();
+      this.consumeContinuation();
     }, 400);
     // 前台差分轮询：主界面挂着每 10 分钟一轮（登录态每轮自查；退后台由 workScheduler 兜底）
     NotifyCenter.shared().startForegroundTimer();
@@ -703,7 +859,26 @@ export struct MainTabsPage {
         const stack: NavPathStack | null = NavStacks.of(tabs[index].title);
         if (stack !== null && stack.size() > 0) {
           stack.clear();
+          this.lastMoreTabClickAt = 0;
+          return;
         }
+        // 已在「我的」根页时双击头像底栏 = 秒切上一个账号（碾压 iOS 的高频多账号家庭切换手感）
+        if (tabs[index].title === '我的') {
+          const now: number = Date.now();
+          if (now - this.lastMoreTabClickAt <= 340) {
+            this.lastMoreTabClickAt = 0;
+            Haptics.heavy();
+            this.model.switchToPreviousAccount().then((switched: boolean): void => {
+              if (!switched) {
+                this.toast('暂无其他已保存账号可快速切换');
+              }
+            }).catch((): void => {});
+            return;
+          }
+          this.lastMoreTabClickAt = now;
+        }
+      } else {
+        this.lastMoreTabClickAt = 0;
       }
     })
     .width('100%')

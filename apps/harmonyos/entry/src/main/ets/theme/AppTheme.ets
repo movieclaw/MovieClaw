@@ -132,7 +132,7 @@ export class Theme {
     const widthVp: number = Theme.pxToVp(d.width);
     const usable: number = widthVp - Theme.pagePadding * 2;
     const estimated: number = Math.floor((usable + 12) / 118);
-    return Math.min(4, Math.max(2, estimated));
+    return Math.min(8, Math.max(2, estimated));
   }
 
   static get tabBarInset(): number {

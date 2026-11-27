@@ -19,6 +19,7 @@ import { MovieClawApi } from '../api/Endpoints';
 import { SessionSummary, SessionTranscriptView } from '../api/Models';
 import { ChatParams } from '../agent/ChatParams';
 import { AgentSessionsSignal } from '../agent/AgentSessionsSignal';
+import { PluginsSection } from '../plugins/PluginsSection';
 import { OfflineStore } from '../offline/OfflineStore';
 import {
   OfflineCapacityCard,
@@ -44,6 +45,7 @@ import { SpatialMaterial } from '../common/SpatialMaterial';
 enum MoreSection {
   conversations,
   downloads,
+  plugins,
   server
 }
 
@@ -417,6 +419,9 @@ export struct MorePage {
     if (permissions.canDownloadVideo || this.store.items.size > 0) {
       out.push(MoreSection.downloads);
     }
+    if (permissions.isAdmin && online) {
+      out.push(MoreSection.plugins);
+    }
     if (online) {
       out.push(MoreSection.server);
     }
@@ -441,6 +446,9 @@ export struct MorePage {
     if (section === MoreSection.downloads) {
       return '下载';
     }
+    if (section === MoreSection.plugins) {
+      return '插件';
+    }
     return '服务器';
   }
 
@@ -450,6 +458,9 @@ export struct MorePage {
     }
     if (section === MoreSection.downloads) {
       return $r('sys.symbol.arrow_down_to_line');
+    }
+    if (section === MoreSection.plugins) {
+      return $r('sys.symbol.square_grid_2x2');
     }
     return $r('sys.symbol.externaldrive');
   }
@@ -626,6 +637,10 @@ export struct MorePage {
           OfflineWatchedCard()
           OfflineDownloadedSection({ navStack: this.navStack })
           OfflineOtherOwnersSection()
+        } else if (this.visibleSection() === MoreSection.plugins) {
+          ListItem() {
+            PluginsSection({ navStack: this.navStack })
+          }
         } else {
           this.ServerSectionItem()
         }

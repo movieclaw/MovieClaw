@@ -1,20 +1,15 @@
 /**
- * TV 条目详情页（US3，两截结构，对应参考端 Library/TVItemDetailView.swift）：
- *
- * 首屏：剧照原图铺满 + 左下文案块（Logo/片名、事实行、画质/HDR/音频小标签、
- * 「第 X 季第 Y 集」、简介三行）+ 按钮行（继续 第X季第Y集·mm:ss / 从头播放 /
- * 收藏 / 标为已看）+ 右下演职员两行；首屏比整页矮 60vp，露出下一截上沿提示下方有内容。
- *
- * 下半截（整页下滑）：片名 → 选季胶囊（长剧集再加分段页签）→ 分集卡横排
- * （剧照+进度+集名+首播+接着看/已看/缺集角标）→ 演职员行（人物卡可进影人路由）→
- * 相似推荐 → 作品系列「已有 n / 共 m」→ 所属合集文字按钮；页面底层垫同一张剧照的模糊版。
- *
- * 数据：libraryItemsGet（详情+演职员）、libraryItemsListEpisodes（分集，锚点听服务端）、
- * playbackResume（主按钮三态：播放/继续/重新播放）、playbackMarksGet/Set（收藏/已看）、
- * uiLibraryItemsSimilar + collectionSeriesGet（相似推荐与作品系列，同 ItemRelated 规则）。
- * 播放器关闭（playerRequest 置空）后重拉续播与分集刷新按钮（FR-015）。
+ * TV 条目详情页（US3 + 大屏增强）：
+ * - 首屏：剧照原图 + 动态主光呼吸光晕 + ClearLogo/片名 + 事实行 + HDR Vivid / Audio Vivid / 杜比视界规格小标签
+ *   + 可聚焦按确认展开全文的剧情简介 + 主次操作按钮；
+ * - 新增：多片源版本选择胶囊（Remux / 4K HDR / 1080p 指定文件起播）+ 客厅五星个人评分排；
+ * - 接入 ContinuationBridge 流转发布：详情页浏览中流转至手机/平板自动落同一部作品。
  */
 import { AppModel } from '../../common/AppModel';
+import { ContinuationBridge } from '../../common/ContinuationBridge';
+import { Formatters } from '../../common/Formatters';
+import { ImageUrls, ImageVariant } from '../../common/ImageUrls';
+import { RemoteImage } from '../../common/RemoteImage';
 import { MovieClawApi } from '../../api/Endpoints';
 import {
   AudioStreamView,
@@ -31,10 +26,12 @@ import {
   SeasonEpisodesView,
   UpNextItemView
 } from '../../api/Models';
-import { ImageUrls } from '../../common/ImageUrls';
-import { ImageVariant } from '../../common/ImageUrls';
 import { LibraryHomeStore } from '../../library/LibraryHomeStore';
-import { RemoteImage } from '../../common/RemoteImage';
+import { TvEpisodeCard, TvFormat, TvPillButton, TvStateView } from '../components/TvCards';
+import { TvFocus } from '../components/TvFocus';
+import { TvFocusable } from '../components/TvFocusable';
+import { TvShelf, TvShelfCard } from '../components/TvShelf';
+import { TvStageAction, TvStageBackdrop, TvStageBlock } from '../components/TvStage';
 import {
   TvCollectionRoute,
   TvDetailRoute,
@@ -43,23 +40,14 @@ import {
   TvUiState,
   TvWallRoute
 } from '../model/TvUiState';
-import { TvStageAction, TvStageBackdrop, TvStageBlock } from '../components/TvStage';
-import { TvEpisodeCard, TvFormat, TvStateView } from '../components/TvCards';
-import { TvShelf, TvShelfCard } from '../components/TvShelf';
-import { TvFocusable } from '../components/TvFocusable';
-import { TvPlayback } from '../player/TvAvPlayerEngine';
-import { TvColors } from '../theme/TvTheme';
-import { TvMetrics } from '../theme/TvTheme';
-import { TvType } from '../theme/TvTheme';
-import { TvArt } from '../theme/TvTheme';
+import { TvPlayback } from '../playback/TvPlaybackHost';
+import { TvArt, TvColors, TvMetrics, TvType } from '../theme/TvTheme';
 
-/** 首屏右下与演职员行共用的一位影人 */
 class TvCastPerson {
   readonly name: string;
   readonly role: string | null;
   readonly avatarUrl: string;
   readonly personId: number | null;
-  /** 演员（导演为 false）：没有影人 id 时按确认落到同库按演员筛的墙 */
   readonly isActor: boolean;
 
   constructor(name: string, role: string | null, avatarUrl: string, personId: number | null, isActor: boolean = false) {
@@ -71,7 +59,6 @@ class TvCastPerson {
   }
 }
 
-/** 长剧集分段选集的一段（每 50 集一段，docs/design/long-season-episode-ranges.md） */
 class TvEpisodeRange {
   readonly index: number;
   readonly first: number;
@@ -92,7 +79,6 @@ class TvEpisodeRange {
   }
 }
 
-/** 「2160p」「4K」「8K」→ 画面高度；解析不出返回 null */
 function resolutionHeightOf(raw: string | null | undefined): number | null {
   if (raw === null || raw === undefined) {
     return null;
@@ -111,7 +97,6 @@ function resolutionHeightOf(raw: string | null | undefined): number | null {
   return digits.length === 0 ? null : Number(digits);
 }
 
-/** 毫秒 → 「mm:ss」 */
 function clockOf(ms: number): string {
   const total: number = Math.floor(ms / 1000);
   const minutes: number = Math.floor(total / 60);
@@ -119,7 +104,6 @@ function clockOf(ms: number): string {
   return `${minutes}:${seconds < 10 ? '0' : ''}${seconds}`;
 }
 
-/** 本季接着看的那一集（客户端兜底：看了一半的 → 第一个没看过有片源的 → 第一集） */
 function anchorEpisodeOf(episodes: EpisodeView[]): EpisodeView | null {
   if (episodes.length === 0) {
     return null;
@@ -137,7 +121,6 @@ function anchorEpisodeOf(episodes: EpisodeView[]): EpisodeView | null {
   return episodes[0];
 }
 
-/** 服务端锚点优先（resume_episode），没有走客户端规则 */
 function anchorEpisodeOfResult(result: SeasonEpisodesView): EpisodeView | null {
   const resume: number | null = result.resume_episode ?? null;
   if (resume !== null) {
@@ -150,7 +133,6 @@ function anchorEpisodeOfResult(result: SeasonEpisodesView): EpisodeView | null {
   return anchorEpisodeOf(result.episodes);
 }
 
-/** 一季的段：超过 50 集才分段（界面保持原样），段名用段内实际首末集号 */
 function buildEpisodeRanges(episodes: EpisodeView[]): TvEpisodeRange[] {
   const size: number = 50;
   if (episodes.length <= size) {
@@ -174,7 +156,6 @@ function buildEpisodeRanges(episodes: EpisodeView[]): TvEpisodeRange[] {
   return out;
 }
 
-/** 详情的演职员：结构化导演在前（没有退回姓名），演员跟着（同参考端 castPeople） */
 function castPeopleOf(detail: LibraryItemDetailView, origin: string): TvCastPerson[] {
   const meta: LocalMetaView | null = detail.local_meta ?? null;
   if (meta === null) {
@@ -201,7 +182,23 @@ function castPeopleOf(detail: LibraryItemDetailView, origin: string): TvCastPers
   return out;
 }
 
-/** 小胶囊（选季 / 分段页签 / 所属合集文字按钮）：选中的垫浅底，获焦白底黑字微放大 */
+function fileVersionLabel(file: LibraryFileView): string {
+  const parts: string[] = [];
+  if (file.resolution !== null && file.resolution !== undefined && file.resolution.length > 0) {
+    parts.push(file.resolution.toUpperCase());
+  }
+  if (file.hdr !== null && file.hdr !== undefined && file.hdr.length > 0) {
+    parts.push(file.hdr);
+  }
+  if (file.video_codec !== null && file.video_codec !== undefined && file.video_codec.length > 0) {
+    parts.push(file.video_codec.toUpperCase());
+  }
+  if (file.size_bytes > 0) {
+    parts.push(Formatters.bytes(file.size_bytes));
+  }
+  return parts.length > 0 ? parts.join(' · ') : `版本 #${file.id}`;
+}
+
 @ComponentV2
 struct DetailPill {
   @Param label: string = '';
@@ -243,22 +240,20 @@ export struct TvItemDetail {
   @Param itemId: number = 0;
   @Local ui: TvUiState = TvUiState.shared;
 
-  // —— 数据 ——
   @Local detail: LibraryItemDetailView | null = null;
   @Local failed: boolean = false;
   @Local favorite: boolean | null = null;
-  /** 首屏当前单元（整部片 / 接着看的那一集）的续播态 */
+  @Local userRating: number = 0;
+  @Local selectedFileId: number | null = null;
+  @Local plotModalOpen: boolean = false;
   @Local watched: PlaybackStateView | null = null;
-  /** 首屏那一季与它的锚点集 */
   @Local season: number | null = null;
   @Local selectedEpisode: EpisodeView | null = null;
   @Local episodes: EpisodeView[] = [];
-  /** 下半截正在浏览的季（选季胶囊只切这里，首屏不变） */
   @Local browseSeason: number | null = null;
   @Local browseEpisodes: EpisodeView[] = [];
   @Local browseAnchor: number | null = null;
   @Local browseRanges: TvEpisodeRange[] = [];
-  /** 本季有人看过才亮「接着看」角标 */
   @Local browseWatched: boolean = false;
   @Local similar: LibraryItemView[] = [];
   @Local series: CollectionSeriesView | null = null;
@@ -266,16 +261,37 @@ export struct TvItemDetail {
   @Local pageHeight: number = 0;
 
   private marking: boolean = false;
-  /** 本条目在本页起播过（播放器关闭后据此重拉续播） */
   private playedHere: boolean = false;
   private episodeScroller: Scroller = new Scroller();
   private mainScroller: Scroller = new Scroller();
+  private boundRoute: TvDetailRoute | null = null;
 
   aboutToAppear(): void {
+    const routes = this.ui.routes;
+    if (routes.length > 0) {
+      const top = routes[routes.length - 1];
+      if (top instanceof TvDetailRoute && top.itemId === this.itemId) {
+        this.boundRoute = top;
+        this.ui.registerRouteBack(top, (): boolean => {
+          if (this.plotModalOpen) {
+            this.plotModalOpen = false;
+            return true;
+          }
+          return false;
+        });
+      }
+    }
     this.reload();
   }
 
-  /** 播放器开/关：关的是本条目这一次播放 → 重拉续播与分集（FR-015） */
+  aboutToDisappear(): void {
+    if (this.boundRoute !== null) {
+      this.ui.unregisterRouteBack(this.boundRoute);
+      this.boundRoute = null;
+    }
+    ContinuationBridge.shared().clearActive();
+  }
+
   @Monitor('ui.playerRequest')
   onPlayerRequestChange(): void {
     const request: TvPlayRequest | null = this.ui.playerRequest;
@@ -291,18 +307,15 @@ export struct TvItemDetail {
     }
   }
 
-  // MARK: - 加载
-
   private async reload(): Promise<void> {
     const api: MovieClawApi | null = AppModel.shared.api;
     if (api === null) {
       this.failed = true;
       return;
     }
-    this.loadFavorite(api);
+    this.loadMarks(api);
     try {
       const fresh: LibraryItemDetailView = await api.libraryItemsGet(this.libraryId, this.itemId);
-      // 相似推荐与系列并行拉（同 ItemRelated 规则）
       const related: Promise<void> = this.loadRelated(api, fresh);
       if (fresh.kind === 'tv' && fresh.seasons.length > 0) {
         const start: number | null = this.startSeasonOf(fresh);
@@ -313,11 +326,18 @@ export struct TvItemDetail {
           this.applyBrowseResult(result);
         }
       }
-      // 分集读完再出页面（先出会闪「没有可播放的分集」）
       await related;
       this.detail = fresh;
       this.castPeople = castPeopleOf(fresh, AppModel.origin());
       this.failed = false;
+      ContinuationBridge.shared().publishItem(
+        AppModel.origin(),
+        this.libraryId,
+        this.itemId,
+        this.season ?? 0,
+        this.selectedEpisode?.episode_number ?? 0,
+        fresh.title
+      );
       this.loadResume();
       const anchor: number | null = this.browseAnchor;
       if (anchor !== null) {
@@ -325,14 +345,13 @@ export struct TvItemDetail {
           this.tryScrollToEpisode(anchor, false);
         }, 120);
       }
-    } catch (error) {
+    } catch (_error) {
       if (this.detail === null) {
         this.failed = true;
       }
     }
   }
 
-  /** 相似推荐 + 作品系列（电影且有系列合集时相似推荐排除同系列；系列没出来再拉一次不排除的） */
   private async loadRelated(api: MovieClawApi, fresh: LibraryItemDetailView): Promise<void> {
     const isMovie: boolean = fresh.kind !== 'tv';
     const seriesId: number | null = isMovie ? (fresh.series_collection_id ?? null) : null;
@@ -344,14 +363,14 @@ export struct TvItemDetail {
         if (freshSeries.available && freshSeries.parts.length > 1) {
           series = freshSeries;
         }
-      } catch (error) {
+      } catch (_error) {
         series = null;
       }
     }
     let items: LibraryItemView[] = [];
     try {
       items = await similarTask;
-    } catch (error) {
+    } catch (_error) {
       items = [];
     }
     if (seriesId !== null && series === null) {
@@ -365,12 +384,11 @@ export struct TvItemDetail {
     try {
       return await api.uiLibraryItemsSimilar(this.libraryId, this.itemId,
         undefined, excludeSeries ? true : undefined);
-    } catch (error) {
+    } catch (_error) {
       return [];
     }
   }
 
-  /** 首屏打开哪一季：「接下来继续」里的那一季优先，别的开第一个有片源的季 */
   private startSeasonOf(detail: LibraryItemDetailView): number | null {
     const seasons: number[] = detail.seasons;
     if (seasons.length === 0) {
@@ -440,7 +458,6 @@ export struct TvItemDetail {
     this.browseWatched = watched;
   }
 
-  /** 下半截换一季（首屏那一季不动） */
   private async loadBrowse(seasonNumber: number): Promise<void> {
     const api: MovieClawApi | null = AppModel.shared.api;
     if (api === null) {
@@ -451,19 +468,19 @@ export struct TvItemDetail {
         await api.libraryItemsListEpisodes(this.libraryId, this.itemId, seasonNumber);
       this.applyBrowseResult(result);
       this.tryScrollToEpisode(this.browseAnchor ?? 1, false);
-    } catch (error) {
+    } catch (_error) {
     }
   }
 
-  private async loadFavorite(api: MovieClawApi): Promise<void> {
+  private async loadMarks(api: MovieClawApi): Promise<void> {
     try {
       const marks: PlaybackMarksView = await api.playbackMarksGet(this.itemId);
       this.favorite = marks.is_favorite;
-    } catch (error) {
+      this.userRating = marks.user_rating ?? 0;
+    } catch (_error) {
     }
   }
 
-  /** 首屏当前单元的续播态（主按钮三态：播放/继续 mm:ss/重新播放） */
   private async loadResume(): Promise<void> {
     const api: MovieClawApi | null = AppModel.shared.api;
     const detail: LibraryItemDetailView | null = this.detail;
@@ -485,12 +502,11 @@ export struct TvItemDetail {
     }
     try {
       this.watched = await api.playbackResume(this.itemId, unitSeason, unitEpisode);
-    } catch (error) {
+    } catch (_error) {
       this.watched = null;
     }
   }
 
-  /** 播放器关闭后：锚点可能挪了（看完了这一集），首屏与横排跟到新锚点 */
   private async refreshAfterPlayback(): Promise<void> {
     const api: MovieClawApi | null = AppModel.shared.api;
     const detail: LibraryItemDetailView | null = this.detail;
@@ -509,7 +525,7 @@ export struct TvItemDetail {
       if (this.browseSeason === seasonNumber) {
         this.applyBrowseResult(result);
       }
-    } catch (error) {
+    } catch (_error) {
       return;
     }
     if (this.browseSeason !== null && this.browseSeason !== seasonNumber) {
@@ -518,12 +534,12 @@ export struct TvItemDetail {
         const result: SeasonEpisodesView =
           await api.libraryItemsListEpisodes(this.libraryId, this.itemId, browseNumber);
         this.applyBrowseResult(result);
-      } catch (error) {
+      } catch (_error) {
       }
     }
   }
 
-  // MARK: - 写操作（收藏 / 标为已看，即时反馈）
+  // MARK: - 写操作（收藏 / 已看 / 五星评分）
 
   private async toggleFavorite(): Promise<void> {
     const api: MovieClawApi | null = AppModel.shared.api;
@@ -537,8 +553,31 @@ export struct TvItemDetail {
     try {
       const marks: PlaybackMarksView = await api.playbackMarksSet(body);
       this.favorite = marks.is_favorite;
-    } catch (error) {
+    } catch (_error) {
       this.favorite = !next;
+    } finally {
+      this.marking = false;
+    }
+  }
+
+  private async setRating(stars: number): Promise<void> {
+    const api: MovieClawApi | null = AppModel.shared.api;
+    if (api === null || this.marking) {
+      return;
+    }
+    this.marking = true;
+    const prev: number = this.userRating;
+    const target: number = stars === prev ? 0 : stars;
+    this.userRating = target;
+    const body: PlaybackMarksRequest = {
+      media_item_id: this.itemId,
+      user_rating: target > 0 ? target * 2 : 0
+    };
+    try {
+      const marks: PlaybackMarksView = await api.playbackMarksSet(body);
+      this.userRating = marks.user_rating ?? 0;
+    } catch (_error) {
+      this.userRating = prev;
     } finally {
       this.marking = false;
     }
@@ -571,18 +610,38 @@ export struct TvItemDetail {
           const result: SeasonEpisodesView =
             await api.libraryItemsListEpisodes(this.libraryId, this.itemId, seasonNumber);
           this.applySeasonResult(result, true);
-        } catch (error) {
+        } catch (_error) {
         }
       }
-    } catch (error) {
+    } catch (_error) {
     } finally {
       this.marking = false;
     }
   }
 
-  // MARK: - 起播
+  // MARK: - 多版本片源与起播
 
-  /** 首屏主按钮起播：startMs null = 续播（服务端决定），0 = 从头 */
+  private unitFiles(): LibraryFileView[] {
+    const detail: LibraryItemDetailView | null = this.detail;
+    if (detail === null) {
+      return [];
+    }
+    const out: LibraryFileView[] = [];
+    for (const file of detail.files) {
+      if (file.state !== 'in_place') {
+        continue;
+      }
+      if (detail.kind !== 'tv') {
+        out.push(file);
+      } else if (this.season !== null && this.selectedEpisode !== null
+        && file.season_number === this.season
+        && file.episode_number === this.selectedEpisode.episode_number) {
+        out.push(file);
+      }
+    }
+    return out;
+  }
+
   private play(startMs: number | null): void {
     const detail: LibraryItemDetailView | null = this.detail;
     if (detail === null) {
@@ -596,30 +655,28 @@ export struct TvItemDetail {
     if (!isMovie && (seasonNumber === null || episodeNumber === null)) {
       return;
     }
-    // playback-first：先建引擎预协商，再挂播放器视图（视图 adopt 接管）
     const request: TvPlayRequest = new TvPlayRequest(
       this.libraryId,
       this.itemId,
       seasonNumber,
       episodeNumber,
-      null,
+      this.selectedFileId,
       startMs,
       detail.title,
       isMovie ? null
         : TvFormat.episodeLine(seasonNumber ?? 0, episodeNumber ?? 0, selected === null ? null : (selected.name ?? null)),
-      !isMovie);
+      !isMovie
+    );
     TvPlayback.begin(request);
     TvUiState.shared.openPlayer(request);
   }
 
-  /** 下半截点一张分集卡起播那一集（缺集不可点） */
   private playEpisode(ep: EpisodeView): void {
     const detail: LibraryItemDetailView | null = this.detail;
     const browseSeason: number | null = this.browseSeason;
     if (!ep.owned || detail === null || browseSeason === null) {
       return;
     }
-    // playback-first：先建引擎预协商，再挂播放器视图（视图 adopt 接管）
     const request: TvPlayRequest = new TvPlayRequest(
       this.libraryId,
       this.itemId,
@@ -629,7 +686,8 @@ export struct TvItemDetail {
       null,
       detail.title,
       TvFormat.episodeLine(browseSeason, ep.episode_number, ep.name ?? null),
-      true);
+      true
+    );
     TvPlayback.begin(request);
     TvUiState.shared.openPlayer(request);
   }
@@ -658,7 +716,6 @@ export struct TvItemDetail {
     return selected !== null && selected.owned;
   }
 
-  /** 主按钮上的「第 1 季第 3 集」；特别篇写「特别篇第 2 集」 */
   private unitLabel(): string | null {
     const detail: LibraryItemDetailView | null = this.detail;
     if (detail === null || detail.kind !== 'tv') {
@@ -721,7 +778,6 @@ export struct TvItemDetail {
     return actions;
   }
 
-  /** 事实行：年份 · 类型（前两个） · 片长（电影）/ 共 X 季（剧集两季以上） */
   private stageMetaLine(): string | null {
     const detail: LibraryItemDetailView | null = this.detail;
     if (detail === null) {
@@ -774,7 +830,6 @@ export struct TvItemDetail {
     return null;
   }
 
-  /** 画质 / HDR / 音频小标签：在位文件里各挑最好的那一档 */
   private mediaBadgeTexts(): string[] {
     const detail: LibraryItemDetailView | null = this.detail;
     if (detail === null) {
@@ -801,7 +856,7 @@ export struct TvItemDetail {
     } else if (bestHeight >= 720) {
       badges.push('HD');
     }
-    const hdrPriority: string[] = ['Dolby Vision', 'HDR10+', 'HDR10', 'HLG', 'HDR'];
+    const hdrPriority: string[] = ['HDR Vivid', 'Dolby Vision', 'HDR10+', 'HDR10', 'HLG', 'HDR'];
     let hdrText: string | null = null;
     let hdrRank: number = 99;
     for (const file of sources) {
@@ -813,11 +868,14 @@ export struct TvItemDetail {
       if (rank >= 0 && rank < hdrRank) {
         hdrRank = rank;
         hdrText = raw;
+      } else if (rank < 0 && hdrText === null) {
+        hdrText = raw;
       }
     }
     if (hdrText !== null) {
       badges.push(hdrText === 'Dolby Vision' ? 'DOLBY VISION' : hdrText.toUpperCase());
     }
+    let audioVivid: boolean = false;
     let atmos: boolean = false;
     let dtsX: boolean = false;
     let maxChannels: number = -1;
@@ -826,6 +884,9 @@ export struct TvItemDetail {
       for (const stream of streams) {
         const described: string =
           `${stream.profile ?? ''} ${stream.title ?? ''} ${stream.codec ?? ''}`.toLowerCase();
+        if (described.includes('av3a') || described.includes('vivid')) {
+          audioVivid = true;
+        }
         if (described.includes('atmos')) {
           atmos = true;
         }
@@ -838,7 +899,9 @@ export struct TvItemDetail {
         }
       }
     }
-    if (atmos) {
+    if (audioVivid) {
+      badges.push('AUDIO VIVID');
+    } else if (atmos) {
       badges.push('DOLBY ATMOS');
     } else if (dtsX) {
       badges.push('DTS:X');
@@ -863,7 +926,6 @@ export struct TvItemDetail {
     return TvFormat.episodeLine(seasonNumber, selected.episode_number, selected.name ?? null);
   }
 
-  /** 简介：电影写整部，剧集写接着看的那一集（没有退整部） */
   private stageOverview(): string | null {
     const detail: LibraryItemDetailView | null = this.detail;
     if (detail === null) {
@@ -882,7 +944,6 @@ export struct TvItemDetail {
     return epOverview !== null && epOverview.length > 0 ? epOverview : plot;
   }
 
-  /** 右下演职员：导演一行、主演两位一行；没有不画 */
   private creditDirector(): string | null {
     for (const person of this.castPeople) {
       if (person.role === '导演') {
@@ -923,7 +984,7 @@ export struct TvItemDetail {
       if (this.browseEpisodes[i].episode_number === episodeNumber) {
         try {
           this.episodeScroller.scrollToIndex(i, smooth);
-        } catch (error) {
+        } catch (_error) {
         }
         return;
       }
@@ -960,7 +1021,6 @@ export struct TvItemDetail {
     return null;
   }
 
-  /** 演职员行的人物卡 */
   private castCards(): TvShelfCard[] {
     const out: TvShelfCard[] = [];
     for (let i = 0; i < this.castPeople.length; i++) {
@@ -987,8 +1047,6 @@ export struct TvItemDetail {
       TvUiState.shared.pushRoute(new TvPersonRoute(person.personId, person.name));
       return;
     }
-    // 没有 TMDB 影人 id 的演员（本地/NFO 库）：同库按演员名筛的墙（网页 CastRow 同款）；
-    // 没有 id 的导演不跳——后端按演员表筛，导演点进去是空墙
     const actor: string = person.name.trim();
     if (!person.isActor || actor === '') {
       return;
@@ -1032,7 +1090,6 @@ export struct TvItemDetail {
     return series === null ? '' : `已有 ${series.owned_count} / 共 ${series.total}`;
   }
 
-  /** 系列一行：按上映顺序排，这一部标「本片」，库里没有的标「未入库」 */
   private seriesCards(): TvShelfCard[] {
     const series: CollectionSeriesView | null = this.series;
     if (series === null) {
@@ -1042,8 +1099,7 @@ export struct TvItemDetail {
     const out: TvShelfCard[] = [];
     for (const part of series.parts) {
       const card: TvShelfCard = new TvShelfCard(`part_${part.tmdb_id}`, 'poster', part.title);
-      const resolved: string | null =
-        ImageUrls.resolve(origin, part.poster_url ?? null, null);
+      const resolved: string | null = ImageUrls.resolve(origin, part.poster_url ?? null, null);
       card.imageUrl = resolved === null ? '' : `${resolved}${resolved.includes('?') ? '&' : '?'}w=${TvArt.pxWidth(TvMetrics.posterWidth)}`;
       card.subtitle = part.release_date !== null && part.release_date !== undefined
         ? part.release_date.substring(0, 4) : null;
@@ -1075,7 +1131,6 @@ export struct TvItemDetail {
     }
   }
 
-  /** 「所属合集」里不再列系列本身：上面已经有系列一行 */
   private otherCollections(): ItemCollectionRef[] {
     const detail: LibraryItemDetailView | null = this.detail;
     if (detail === null) {
@@ -1090,8 +1145,6 @@ export struct TvItemDetail {
     }
     return detail.collections.filter((ref: ItemCollectionRef): boolean => ref.id !== seriesId);
   }
-
-  // MARK: - 布局
 
   private detailTitle(): string {
     const detail: LibraryItemDetailView | null = this.detail;
@@ -1108,7 +1161,6 @@ export struct TvItemDetail {
     return resolved === null ? '' : `${resolved}${resolved.includes('?') ? '&' : '?'}w=1920`;
   }
 
-  /** 页面底层垫的剧照模糊版（下滑后露出来） */
   private ambientUrl(): string {
     const detail: LibraryItemDetailView | null = this.detail;
     const raw: string | null = detail === null
@@ -1127,10 +1179,15 @@ export struct TvItemDetail {
     return resolved === null ? '' : `${resolved}${resolved.includes('?') ? '&' : '?'}w=1900`;
   }
 
-  /** 首屏比整页矮 60vp：底部露出下一截的上沿，提示下面还有内容 */
   private stageHeight(): number {
-    // 首屏铺满整屏（用户要求：详情就是满屏大图，不在底边露下一截）
     return this.pageHeight > 0 ? this.pageHeight : TvMetrics.screenHeight;
+  }
+
+  private starCount(): number {
+    if (this.userRating <= 0) {
+      return 0;
+    }
+    return Math.min(5, Math.max(1, Math.round(this.userRating / 2)));
   }
 
   build() {
@@ -1172,11 +1229,15 @@ export struct TvItemDetail {
         .edgeEffect(EdgeEffect.Spring)
         .fadingEdge(false)
       }
+
+      if (this.plotModalOpen && this.stageOverview() !== null) {
+        this.PlotModal(this.stageOverview() as string)
+      }
     }
     .width('100%')
     .height('100%')
     .backgroundColor(TvColors.bg)
-    .onAreaChange((oldArea: Area, newArea: Area): void => {
+    .onAreaChange((_oldArea: Area, newArea: Area): void => {
       const height = newArea.height;
       if (typeof height === 'number') {
         this.pageHeight = height;
@@ -1202,7 +1263,6 @@ export struct TvItemDetail {
     .height('100%')
   }
 
-  /** 首屏：剧照原图铺满 + 文案块贴底 + 右下演职员 */
   @Builder
   private StageSection() {
     Stack({ alignContent: Alignment.BottomEnd }) {
@@ -1215,6 +1275,12 @@ export struct TvItemDetail {
         badgeTexts: this.mediaBadgeTexts(),
         overview: this.stageOverview(),
         overviewLines: 3,
+        onOverviewActivate: (this.stageOverview() ?? '').length > 60 ? (): void => {
+          this.plotModalOpen = true;
+          setTimeout((): void => {
+            TvFocus.request(this.getUIContext(), 'tv_plot_modal_close');
+          }, 80);
+        } : null,
         actions: this.stageActions(),
         defaultFocusFirstAction: true,
         bottomInset: 14
@@ -1225,7 +1291,6 @@ export struct TvItemDetail {
     .height(this.stageHeight())
   }
 
-  /** 右下角演职员两行（导演 / 主演），下沿与按钮一排对齐 */
   @Builder
   private StageCredits() {
     Column({ space: 6 }) {
@@ -1256,10 +1321,12 @@ export struct TvItemDetail {
     .shadow({ radius: 8, color: 'rgba(0, 0, 0, 0.55)' })
   }
 
-  /** 下半截：分集（剧集）→ 演职员 → 相似推荐 → 系列 → 所属合集 */
   @Builder
   private LowerSection() {
     Column({ space: TvMetrics.rowGap }) {
+      // 多版本片源与五星个人评分控制带
+      this.VersionAndRatingBar()
+
       if (this.isTv() && this.seasonNumbers().length > 0) {
         this.EpisodeSection()
       }
@@ -1299,9 +1366,68 @@ export struct TvItemDetail {
     }
     .width('100%')
     .alignItems(HorizontalAlign.Start)
+    .padding({ top: 24 })
   }
 
-  /** 分集区：选季胶囊（长剧集再加分段页签）+ 分集卡横排 */
+  @Builder
+  private VersionAndRatingBar() {
+    Column({ space: 18 }) {
+      if (this.unitFiles().length > 1) {
+        Column({ space: 10 }) {
+          Text('片源版本选择')
+            .fontSize(TvType.footnote)
+            .fontWeight(600)
+            .fontColor(TvColors.textMuted)
+          Scroll() {
+            Row({ space: 10 }) {
+              DetailPill({
+                label: '智能优选',
+                selected: this.selectedFileId === null,
+                onActivate: (): void => {
+                  this.selectedFileId = null;
+                }
+              })
+              ForEach(this.unitFiles(), (file: LibraryFileView) => {
+                DetailPill({
+                  label: fileVersionLabel(file),
+                  selected: this.selectedFileId === file.id,
+                  onActivate: (): void => {
+                    this.selectedFileId = file.id;
+                  }
+                })
+              }, (file: LibraryFileView) => `ver_${file.id}`)
+            }
+          }
+          .scrollable(ScrollDirection.Horizontal)
+          .scrollBar(BarState.Off)
+          .width('100%')
+        }
+        .alignItems(HorizontalAlign.Start)
+      }
+
+      Row({ space: 10 }) {
+        Text('我的评分')
+          .fontSize(TvType.footnote)
+          .fontWeight(600)
+          .fontColor(TvColors.textMuted)
+          .margin({ right: 6 })
+        ForEach([1, 2, 3, 4, 5], (star: number) => {
+          DetailPill({
+            label: star <= this.starCount() ? `★ ${star * 2}分` : `☆ ${star * 2}分`,
+            selected: star === this.starCount(),
+            onActivate: (): void => {
+              this.setRating(star);
+            }
+          })
+        }, (star: number) => `star_${star}`)
+      }
+      .alignItems(VerticalAlign.Center)
+    }
+    .width('100%')
+    .alignItems(HorizontalAlign.Start)
+    .padding({ left: TvMetrics.edge, right: TvMetrics.edge })
+  }
+
   @Builder
   private EpisodeSection() {
     Column({ space: 12 }) {
@@ -1315,7 +1441,6 @@ export struct TvItemDetail {
     .alignItems(HorizontalAlign.Start)
   }
 
-  /** 选季胶囊：焦点/点击切到哪一季，下面横排就换成那一季（首屏那一季不动） */
   @Builder
   private SeasonTabs() {
     Scroll() {
@@ -1338,7 +1463,6 @@ export struct TvItemDetail {
     .width('100%')
   }
 
-  /** 分段页签（长剧集）：点哪一段，横排跳到那一段的入口集（锚点或段首） */
   @Builder
   private RangeTabs() {
     Scroll() {
@@ -1389,7 +1513,6 @@ export struct TvItemDetail {
     .padding({ left: TvMetrics.edge, right: TvMetrics.edge })
   }
 
-  /** 所属合集：一排文字按钮，按下进那个合集 */
   @Builder
   private CollectionsRow() {
     Column({ space: 12 }) {
@@ -1411,5 +1534,53 @@ export struct TvItemDetail {
     .width('100%')
     .alignItems(HorizontalAlign.Start)
     .padding({ left: TvMetrics.edge, right: TvMetrics.edge })
+  }
+
+  @Builder
+  private PlotModal(plot: string) {
+    Stack() {
+      Column()
+        .width('100%')
+        .height('100%')
+        .backgroundColor('rgba(0, 0, 0, 0.76)')
+        .onClick((): void => {
+          this.plotModalOpen = false;
+        })
+
+      Column({ space: 20 }) {
+        Text(this.detailTitle())
+          .fontSize(TvType.playerTitle)
+          .fontWeight(FontWeight.Bold)
+          .fontColor(TvColors.text)
+          .maxLines(1)
+        Scroll() {
+          Text(plot)
+            .fontSize(20)
+            .fontColor('rgba(243, 245, 249, 0.90)')
+            .lineHeight(32)
+        }
+        .constraintSize({ maxHeight: 340 })
+        .scrollBar(BarState.Off)
+
+        TvPillButton({
+          label: '关闭',
+          prominent: true,
+          focusKey: 'tv_plot_modal_close',
+          defaultFocused: true,
+          onActivate: (): void => {
+            this.plotModalOpen = false;
+          }
+        })
+      }
+      .width(760)
+      .padding({ left: 40, right: 40, top: 34, bottom: 30 })
+      .borderRadius(26)
+      .backgroundColor('rgba(16, 18, 26, 0.96)')
+      .border({ width: 1, color: TvColors.lineStrong })
+      .alignItems(HorizontalAlign.Start)
+    }
+    .width('100%')
+    .height('100%')
+    .alignContent(Alignment.Center)
   }
 }

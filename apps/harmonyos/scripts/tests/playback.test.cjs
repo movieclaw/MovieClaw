@@ -31,6 +31,7 @@ function foldDisplayMock() {
 // identifiers; the on-device runtime provides them. Inert stand-ins let
 // @ObservedV2 classes load and construct here (no observation needed — host
 // tests read plain fields and call methods).
+globalThis.Observed = (cls) => cls;
 globalThis.ObservedV2 = (cls) => cls;
 globalThis.Trace = () => {};
 globalThis.Track = () => {};
@@ -81,6 +82,10 @@ function runtime(overrides = {}, timers = globalThis) {
         assertNotNull: () => assert.notEqual(value, null),
         assertUndefined: () => assert.equal(value, undefined),
         assertNotEquals: (other) => assert.notEqual(value, other),
+        assertLarger: (other) => assert.ok(value > other),
+        assertLargerOrEqual: (other) => assert.ok(value >= other),
+        assertLess: (other) => assert.ok(value < other),
+        assertLessOrEqual: (other) => assert.ok(value <= other),
       }),
     },
     ...overrides,
@@ -113,7 +118,7 @@ function runtime(overrides = {}, timers = globalThis) {
 
 // Run the same shared suites registered by the on-device Hypium runner.
 const shared = runtime();
-for (const suite of ['PlaybackController', 'PlaybackSession', 'PlaybackGateway', 'HomeRows', 'StaleLoadGuard', 'PgsPrepareGuard', 'PlayerInteraction']) {
+for (const suite of ['PlaybackController', 'PlaybackSession', 'PlaybackGateway', 'HomeRows', 'StaleLoadGuard', 'PgsPrepareGuard', 'PlayerInteraction', 'AppLanguage', 'Chapters', 'PlayerDiagnostics', 'HarmonyUpgrades']) {
   shared(`entry/src/test/${suite}.test.ets`).default();
 }
 

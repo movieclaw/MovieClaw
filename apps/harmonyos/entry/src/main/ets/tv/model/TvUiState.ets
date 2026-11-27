@@ -13,6 +13,7 @@ import { Context } from '@kit.AbilityKit';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import { TvMotion } from '../theme/TvTheme';
 import { AvPlayerEngine, PlayRequest } from '../../common/AvPlayerEngine';
+import { TvPlaybackHost } from '../playback/TvPlaybackHost';
 
 /** 路由基类：子类用 instanceof 分派（ArkTS 无带关联值的枚举） */
 export class TvRoute {
@@ -249,6 +250,8 @@ export class TvPlayerUiState {
 /** 页签 */
 export class TvTab {
   static readonly home: string = 'home';
+  static readonly discover: string = 'discover';
+  static readonly reels: string = 'reels';
   static readonly search: string = 'search';
   static readonly accounts: string = 'accounts';
 }
@@ -300,6 +303,7 @@ export class TvUiState {
   /** 偏好存储初始化（TvIndex aboutToAppear 调一次） */
   init(context: Context): void {
     AvPlayerEngine.appContext = context;
+    TvPlaybackHost.appContext = context;
     if (this.store !== null) {
       return;
     }

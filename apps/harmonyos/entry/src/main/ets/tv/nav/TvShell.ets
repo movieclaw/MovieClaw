@@ -1,70 +1,47 @@
 /**
- * TV 主外壳（US8）：可收起胶囊侧边栏 + 三页签（谁在看 → 搜索 → 首页）+ 二级页整屏覆盖 + 播放器覆盖层槽位。
- *
- * 侧边栏交互（对齐 Apple TV sidebarAdaptable 的双输入路径）：
- * - 收起态：左上角一枚「‹ 当前页」胶囊；焦点在胶囊上按左键、点击胶囊、或在首页按返回键 → 展开；
- * - 展开态：整高玻璃栏，三页签上下排列；栏内上下移动只走焦点不切页，确认才切换（切换即收起）；
- *   在栏内按右键收起不切页；
- * - 二级页/播放器整屏覆盖时胶囊与侧边栏都不挂载（焦点不可达）。
- *
- * 焦点落点用 FocusController.requestFocus 显式管理（key 定位）：
- * 展开侧边栏 → 焦点进当前页签项；收起/切页/路由清空 → 焦点回页签内容锚点。
+ * TV 主外壳（US8 + 鸿蒙客厅专属扩展）：
+ * - 可收起胶囊侧边栏 + 五页签（谁在看 → 搜索 → 首页 → 发现 → 放映厅）+ 二级页整屏覆盖 + 播放器覆盖层；
+ * - 接入影人档案页 `TvPersonPage`（彻底消除二级路由占位页）；
+ * - 接入 `ContinuationBridge` 分布式流转消费端：手机/折叠屏/平板流转至智慧屏毫秒级直达播放或详情页。
  */
 import { KeyCode } from '@kit.InputKit';
-import { hilog } from '@kit.PerformanceAnalysisKit';
 import { SessionView } from '../../api/Models';
 import { AppModel } from '../../common/AppModel';
+import { ContinuationBridge, ContinuationTarget } from '../../common/ContinuationBridge';
 import { ServerAddress } from '../../common/ServerAddress';
 import { TvAccountsPage } from '../accounts/TvAccountsPage';
-import { TvColors } from '../theme/TvTheme';
-import { TvType } from '../theme/TvTheme';
-import { TvMetrics } from '../theme/TvTheme';
-import { TvMotion } from '../theme/TvTheme';
-import { TvFocusable } from '../components/TvFocusable';
 import { TvFocus } from '../components/TvFocus';
+import { TvDetailRoute, TvPersonRoute, TvPlayRequest, TvRoute, TvRowWallRoute, TvTab, TvUiState, TvWallRoute,
+  TvCollectionRoute } from '../model/TvUiState';
+import { TvDiscoverPage } from '../discover/TvDiscoverPage';
 import { TvHomePage } from '../home/TvHomePage';
 import { TvItemDetail } from '../detail/TvItemDetail';
 import { TvLibraryWall } from '../library/TvLibraryWall';
+import { TvPersonPage } from '../person/TvPersonPage';
+import { TvPlayback } from '../playback/TvPlaybackHost';
 import { TvPlayerPage } from '../player/TvPlayerPage';
+import { TvReelsPage } from '../reels/TvReelsPage';
 import { TvSearchPage } from '../search/TvSearchPage';
-import {
-  TvCollectionRoute,
-  TvDetailRoute,
-  TvPersonRoute,
-  TvRoute,
-  TvRowWallRoute,
-  TvTab,
-  TvUiState,
-  TvWallRoute
-} from '../model/TvUiState';
+import { TvColors, TvMetrics, TvMotion, TvType } from '../theme/TvTheme';
 
-/**
- * 账号身份一变整棵内容重建：外层只按 accountKey 挂一个 TvShellContent，
- * 换账号 = 卸旧挂新，各页签的本地缓存（首页行、搜索结果、账号页）全部重来。
- * 重建必须落在**组件**边界上——把带状态的界面直接塞进 ForEach 会让外层不再随
- * @Trace 重绘（实测：点胶囊、开播放器全无反应）。
- */
 @ComponentV2
 export struct TvShell {
   @Local model: AppModel = AppModel.shared;
 
   aboutToAppear(): void {
-    // 登录完成（或重新进入主界面）一律落首页，不继承上一次会话留下的页签/浮层
     TvUiState.shared.resetShell();
   }
 
   build() {
-    ForEach(this.shellKeys(), (key: string) => {
+    ForEach(this.shellKeys(), (_key: string) => {
       TvShellContent()
     }, (key: string) => key)
   }
 
-  /** ForEach 重建键（单元素数组：key 变 = 内容整棵重挂） */
   private shellKeys(): string[] {
     return [this.accountKey()];
   }
 
-  /** 当前账号身份：服务器 origin + 用户名 */
   private accountKey(): string {
     const server: ServerAddress | null = this.model.server;
     const session: SessionView | null = this.model.session;
@@ -79,14 +56,58 @@ export struct TvShell {
 struct TvShellContent {
   @Local ui: TvUiState = TvUiState.shared;
   @Local model: AppModel = AppModel.shared;
-  /** 页签顺序：谁在看 → 搜索 → 首页（spec US8 信息架构） */
-  private readonly railTabs: string[] = [TvTab.accounts, TvTab.search, TvTab.home];
-  /** 侧边栏内当前激活（焦点或悬浮）的页签下标；-1 = 无 */
+  @Local continuation: ContinuationBridge = ContinuationBridge.shared();
+  /** 页签顺序：谁在看 → 搜索 → 首页 → 发现 → 放映厅 */
+  private readonly railTabs: string[] = [
+    TvTab.accounts,
+    TvTab.search,
+    TvTab.home,
+    TvTab.discover,
+    TvTab.reels
+  ];
   @Local railActiveIndex: number = -1;
-  /** 胶囊激活态 */
   @Local capsuleActive: boolean = false;
 
-  /** 侧边栏展开/收起：焦点在胶囊/侧边栏项与页签内容锚点之间显式转移 */
+  aboutToAppear(): void {
+    this.consumeContinuation();
+  }
+
+  @Monitor('continuation.pendingSeq')
+  onPendingContinuation(): void {
+    this.consumeContinuation();
+  }
+
+  private consumeContinuation(): void {
+    const target: ContinuationTarget | null = this.continuation.takePending();
+    if (target === null) {
+      return;
+    }
+    if (target.kind === 'play' && target.mediaItemId > 0) {
+      const isTv: boolean = target.season > 0 && target.episode > 0;
+      const req: TvPlayRequest = new TvPlayRequest(
+        target.libraryId,
+        target.mediaItemId,
+        isTv ? target.season : null,
+        isTv ? target.episode : null,
+        target.fileId > 0 ? target.fileId : null,
+        target.positionMs > 0 ? target.positionMs : null,
+        target.title.length > 0 ? target.title : '继续播放',
+        isTv ? `第 ${target.season} 季 第 ${target.episode} 集` : null,
+        isTv
+      );
+      TvPlayback.begin(req);
+      this.ui.openPlayer(req);
+      return;
+    }
+    if (target.kind === 'item' && target.libraryId > 0 && target.mediaItemId > 0) {
+      this.ui.pushRoute(new TvDetailRoute(target.libraryId, target.mediaItemId));
+      return;
+    }
+    if (target.kind === 'search') {
+      this.ui.selectTab(TvTab.search);
+    }
+  }
+
   @Monitor('ui.railExpanded')
   onRailExpandedChange(): void {
     const expanded: boolean = this.ui.railExpanded;
@@ -99,7 +120,6 @@ struct TvShellContent {
     }, 60);
   }
 
-  /** 路由栈清空（最后一层二级页返回）：焦点回页签内容锚点 */
   @Monitor('ui.routes')
   onRoutesChange(): void {
     if (this.ui.routes.length === 0 && this.ui.playerRequest === null) {
@@ -113,12 +133,10 @@ struct TvShellContent {
     this.ShellRoot()
   }
 
-  /** 外壳内容 */
   @Builder
   private ShellRoot(): void {
     Stack({ alignContent: Alignment.TopStart }) {
       this.tabBody()
-      // 二级页/播放器整屏覆盖时胶囊与侧边栏都不挂载
       if (this.ui.routes.length === 0 && this.ui.playerRequest === null) {
         if (this.ui.railExpanded) {
           this.railPanel()
@@ -132,19 +150,17 @@ struct TvShellContent {
     .width('100%')
     .height('100%')
     .backgroundColor(TvColors.bg)
-    .onTouch((event: TouchEvent): void => {
-      hilog.info(0x0000, 'DbgTouch', 'SHELL_ROOT_TOUCH type=%{public}s x=%{public}d y=%{public}d',
-        event.type.toString(), Math.round(event.touches[0].x), Math.round(event.touches[0].y));
-    })
   }
-
-  // MARK: - 三页签内容
 
   @Builder
   private tabBody(): void {
     Stack() {
       if (this.ui.tab === TvTab.home) {
         TvHomePage()
+      } else if (this.ui.tab === TvTab.discover) {
+        TvDiscoverPage()
+      } else if (this.ui.tab === TvTab.reels) {
+        TvReelsPage()
       } else if (this.ui.tab === TvTab.search) {
         TvSearchPage()
       } else {
@@ -155,9 +171,6 @@ struct TvShellContent {
     .height('100%')
   }
 
-  // MARK: - 侧边栏（收起胶囊 / 展开栏）
-
-  /** 收起态：左上角「‹ 当前页」胶囊；焦点上按左键或点击展开 */
   @Builder
   private collapsedCapsule(): void {
     Row({ space: 8 }) {
@@ -177,7 +190,6 @@ struct TvShellContent {
     .borderRadius(999)
     .focusable(true)
     .key('tv_capsule')
-    // 与搜索框同一水平线、同一高度、同一材质（左上内容边距 = TvMetrics.edge）
     .margin({ left: TvMetrics.edge, top: 40 })
     .onFocus((): void => {
       this.animateActive((): void => {
@@ -200,15 +212,10 @@ struct TvShellContent {
       }
     })
     .onClick((): void => {
-      hilog.info(0x0000, 'DbgTap', 'CAPSULE_CLICK');
       this.ui.railExpanded = true;
     })
   }
 
-  /**
-   * 展开态：左上角弹出的玻璃方片（对齐 tvOS sidebarAdaptable 的悬浮侧边栏）。
-   * 栏内上下只走焦点不切页，确认才切换（切换即收起），右键收起不切页。
-   */
   @Builder
   private railPanel(): void {
     Column({ space: 4 }) {
@@ -261,16 +268,13 @@ struct TvShellContent {
     .padding(12)
     .margin({ left: TvMetrics.edge, top: 40 })
     .borderRadius(28)
-    // 玻璃质感：半透明底 + 系统背景模糊 + 细亮边 + 投影
-    .backgroundColor('rgba(18, 20, 27, 0.62)')
+    .backgroundColor('rgba(18, 20, 27, 0.68)')
     .backgroundBlurStyle(BlurStyle.COMPONENT_THICK, { colorMode: ThemeColorMode.DARK })
     .border({ width: 1, color: 'rgba(255, 255, 255, 0.14)' })
     .shadow({ radius: 36, color: 'rgba(0, 0, 0, 0.55)', offsetY: 14 })
     .transition(TransitionEffect.OPACITY.combine(TransitionEffect.scale({ x: 0.94, y: 0.94 })))
     .alignItems(HorizontalAlign.Start)
   }
-
-  // MARK: - 二级页整屏覆盖（按路由栈叠加，后进在上）
 
   @Builder
   private routeOverlay(): void {
@@ -298,7 +302,10 @@ struct TvShellContent {
             title: route.title
           })
         } else if (route instanceof TvPersonRoute) {
-          this.routePlaceholder(`影人 · ${route.personName}`)
+          TvPersonPage({
+            tmdbPersonId: route.tmdbPersonId,
+            personName: route.personName
+          })
         } else if (route instanceof TvCollectionRoute) {
           TvLibraryWall({
             route: route,
@@ -316,50 +323,12 @@ struct TvShellContent {
     }, (route: TvRoute): string => TvShellContent.routeKey(route))
   }
 
-  /** 二级页占位：居中标题 + 返回按钮（默认焦点）；后续故事逐个替换成真实页面 */
-  @Builder
-  private routePlaceholder(title: string): void {
-    Column({ space: 16 }) {
-      Text(title)
-        .fontSize(TvType.heroTitle)
-        .fontWeight(FontWeight.Bold)
-        .fontColor(TvColors.text)
-      Text('该页面将在对应故事接入')
-        .fontSize(TvType.footnote)
-        .fontColor(TvColors.textMuted)
-      TvFocusable({
-        focusScale: 1.04,
-        cornerRadius: 999,
-        defaultFocused: true,
-        onActivate: (): void => {
-          this.ui.popRoute();
-        }
-      }) {
-        Text('返回')
-          .fontSize(TvType.body)
-          .fontColor(TvColors.textMuted)
-          .padding({ left: 28, right: 28, top: 12, bottom: 12 })
-          .backgroundColor(TvColors.glassFill)
-          .borderRadius(999)
-          .margin({ top: 8 })
-      }
-    }
-    .width('100%')
-    .height('100%')
-    .justifyContent(FlexAlign.Center)
-    .alignItems(HorizontalAlign.Center)
-  }
-
-  // MARK: - 播放器覆盖层（playerRequest 非空整屏挂载；引擎由起播入口 playback-first 预建）
-
   @Builder
   private playerOverlay(): void {
     if (this.ui.playerRequest !== null) {
       TvPlayerPage()
     }
   }
-
-  // MARK: - 辅助
 
   private tabLabel(tab: string): string {
     if (tab === TvTab.search) {
@@ -368,16 +337,27 @@ struct TvShellContent {
     if (tab === TvTab.accounts) {
       return '谁在看';
     }
+    if (tab === TvTab.discover) {
+      return '发现';
+    }
+    if (tab === TvTab.reels) {
+      return '放映厅';
+    }
     return '首页';
   }
 
-  /** 页签图标（系统 Symbol） */
   private tabIcon(tab: string): Resource {
     if (tab === TvTab.search) {
       return $r('sys.symbol.magnifyingglass');
     }
     if (tab === TvTab.accounts) {
       return $r('sys.symbol.person_2');
+    }
+    if (tab === TvTab.discover) {
+      return $r('sys.symbol.sparkles');
+    }
+    if (tab === TvTab.reels) {
+      return $r('sys.symbol.film');
     }
     return $r('sys.symbol.house');
   }
@@ -388,7 +368,7 @@ struct TvShellContent {
         return index;
       }
     }
-    return this.railTabs.length - 1;
+    return 2;
   }
 
   private setRailActive(index: number, active: boolean): void {
@@ -397,20 +377,17 @@ struct TvShellContent {
     });
   }
 
-  /** 统一的短过渡（焦点高亮等） */
   private animateActive(action: () => void): void {
     this.getUIContext().animateTo(
       { duration: TvMotion.focusMs, curve: Curve.EaseOut },
       action);
   }
 
-  /** 路由 → 稳定 key（ForEach 去重与复用） */
   private static routeKey(route: TvRoute): string {
     if (route instanceof TvDetailRoute) {
       return `detail_${route.libraryId}_${route.itemId}`;
     }
     if (route instanceof TvWallRoute) {
-      // 演员墙与同库的整库墙可能同时在栈里（墙 → 详情 → 演员墙），key 要分开
       return `wall_${route.libraryId}_${route.kindSource ?? ''}_${route.actor ?? ''}`;
     }
     if (route instanceof TvRowWallRoute) {

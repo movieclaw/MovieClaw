@@ -208,6 +208,10 @@ import {
   PlaybackClientLogPayload,
   PlaybackDecideRequest,
   PlaybackDecisionView,
+  PlaybackExternalLinkRequest,
+  PlaybackExternalLinkView,
+  RatedItemView,
+  RatedItemsView,
   PlaybackDiagnosticsView,
   PlaybackDiscListingView,
   PlaybackFontsView,
@@ -1887,7 +1891,7 @@ export class MovieClawApi {
 
   /** 库内媒体条目的库存聚合（单库海报墙数据源） */
   /** `GET /libraries/{library_id}/items` */
-  libraryItemsList(libraryId: number, sort?: string, order?: string, limit?: number, offset?: number, identity?: string, g?: string, c?: string, d?: string, w?: string, ratingGte?: number, rt?: string, lang?: string, res?: string, hdr?: boolean, stock?: string, seriesKeys?: string, actor?: string): Promise<LibraryItemView[]> {
+  libraryItemsList(libraryId: number, sort?: string, order?: string, limit?: number, offset?: number, identity?: string, g?: string, c?: string, d?: string, w?: string, ratingGte?: number, rt?: string, lang?: string, res?: string, hdr?: boolean, stock?: string, seriesKeys?: string, actor?: string, myRatingGte?: number, badges?: string): Promise<LibraryItemView[]> {
     const pairs: QueryPair[] = [];
     if (sort !== undefined && sort !== null) { pairs.push({ key: 'sort', value: sort }); }
     if (order !== undefined && order !== null) { pairs.push({ key: 'order', value: order }); }
@@ -1906,6 +1910,8 @@ export class MovieClawApi {
     if (stock !== undefined && stock !== null) { pairs.push({ key: 'stock', value: stock }); }
     if (seriesKeys !== undefined && seriesKeys !== null) { pairs.push({ key: 'series_keys', value: seriesKeys }); }
     if (actor !== undefined && actor !== null) { pairs.push({ key: 'actor', value: actor }); }
+    if (myRatingGte !== undefined && myRatingGte !== null) { pairs.push({ key: 'my_rating_gte', value: myRatingGte }); }
+    if (badges !== undefined && badges !== null) { pairs.push({ key: 'badges', value: badges }); }
     return this.client.get<LibraryItemView[]>(`/libraries/${libraryId}/items` + ApiQuery.build(pairs));
   }
 
@@ -3579,5 +3585,25 @@ export class MovieClawApi {
   /** `POST /webhook/endpoints/{endpoint_id}/test` */
   webhookTest(endpointId: string): Promise<DeliveryView> {
     return this.client.post<DeliveryView>(`/webhook/endpoints/${endpointId}/test`, null);
+  }
+
+  /** 我的高分作品（默认 4 星及以上，即 min_rating=8） */
+  /** `GET /playback/rated` */
+  playbackRated(limit?: number, offset?: number, minRating?: number, sort?: string, order?: string, badges?: string): Promise<RatedItemsView> {
+    const pairs: QueryPair[] = [];
+    if (limit !== undefined && limit !== null) { pairs.push({ key: 'limit', value: limit }); }
+    if (offset !== undefined && offset !== null) { pairs.push({ key: 'offset', value: offset }); }
+    if (minRating !== undefined && minRating !== null) { pairs.push({ key: 'min_rating', value: minRating }); }
+    if (sort !== undefined && sort !== null) { pairs.push({ key: 'sort', value: sort }); }
+    if (order !== undefined && order !== null) { pairs.push({ key: 'order', value: order }); }
+    if (badges !== undefined && badges !== null) { pairs.push({ key: 'badges', value: badges }); }
+    return this.client.get<RatedItemsView>('/playback/rated' + ApiQuery.build(pairs));
+  }
+
+  /** 外部播放器签名直链（12 小时单文件授权，不建播放会话） */
+  /** `POST /playback/external-link` */
+  playbackExternalLink(body: PlaybackExternalLinkRequest): Promise<PlaybackExternalLinkView> {
+    const bodyText = (body === undefined || body === null) ? null : JSON.stringify(body);
+    return this.client.post<PlaybackExternalLinkView>('/playback/external-link', bodyText);
   }
 }

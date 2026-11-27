@@ -182,6 +182,11 @@ export struct DiscoverPage {
   }
 
   aboutToAppear(): void {
+    DiscoverStore.shared.ensureRestored(AppModel.origin());
+    this.feed = DiscoverStore.shared.feed(this.mediaType, this.source, AppModel.origin());
+    if (this.feed.rows.length > 0) {
+      this.rowsSource.setRows(this.feed.rows);
+    }
     this.load();
     this.loadSubscribed();
     this.startHeroRotation();
@@ -308,6 +313,8 @@ export struct DiscoverPage {
       if (feed.failure === null) {
         feed.failure = new DiscoverFailure('片单加载失败');
       }
+    } else {
+      DiscoverStore.shared.saveSnapshot(AppModel.origin());
     }
     this.loadRegion();
   }
@@ -428,7 +435,7 @@ export struct DiscoverPage {
     this.mediaType = mediaType;
     this.source = source;
     this.filters.clear();
-    this.feed = DiscoverStore.shared.feed(mediaType, source);
+    this.feed = DiscoverStore.shared.feed(mediaType, source, AppModel.origin());
     // 切到已缓存视角时 load() 会因 loaded=true 直接 return，rows 要在这里同步给懒加载源
     this.rowsSource.setRows(this.feed.rows);
     this.token++;

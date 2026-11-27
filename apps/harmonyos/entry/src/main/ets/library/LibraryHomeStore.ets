@@ -2,6 +2,7 @@ import { fileIo } from '@kit.CoreFileKit';
 import { util } from '@kit.ArkTS';
 import { Context } from '@kit.AbilityKit';
 import { MovieClawApi } from '../api/Endpoints';
+import { WidgetSync } from '../common/WidgetSync';
 import {
   CollectionView,
   FavoritesView,
@@ -9,6 +10,7 @@ import {
   LibraryItemView,
   LibraryKindGenreView,
   LibraryView,
+  RatedItemsView,
   UpNextItemView
 } from '../api/Models';
 import {
@@ -20,6 +22,7 @@ import {
   LibrariesKind,
   LibraryRowKind,
   MediaKindRowKind,
+  RatedKind,
   UpNextKind
 } from './HomeRows';
 
@@ -109,10 +112,12 @@ class FavoritesQuery {
 class HomePlan {
   readonly upNext: boolean;
   readonly favorites: FavoritesQuery | null;
+  readonly rated: boolean;
 
-  constructor(upNext: boolean, favorites: FavoritesQuery | null) {
+  constructor(upNext: boolean, favorites: FavoritesQuery | null, rated: boolean) {
     this.upNext = upNext;
     this.favorites = favorites;
+    this.rated = rated;
   }
 }
 
@@ -138,6 +143,7 @@ export class LibraryHomeStore {
   collections: CollectionView[] = [];
   upNext: UpNextItemView[] | null = null;
   favorites: FavoritesView | null = null;
+  rated: RatedItemsView | null = null;
   itemsByKey: Map<string, LibraryItemView[]> = new Map<string, LibraryItemView[]>();
   /** 「按类型找」行各自的类型格子（按 kind 存，服务端按部数排好）。
    *  有自己的一道指纹闸（类型行的 kind 集合 + 各 kind 相关库的扫描/整理状态与
@@ -180,6 +186,7 @@ export class LibraryHomeStore {
     this.collections = [];
     this.upNext = null;
     this.favorites = null;
+    this.rated = null;
     this.itemsByKey = new Map<string, LibraryItemView[]>();
     this.genresByKind = {};
     this.rowsLoaded = false;
@@ -220,6 +227,7 @@ export class LibraryHomeStore {
       this.collections = (raw.collections ?? []) as CollectionView[];
       this.upNext = (raw.upNext ?? null) as UpNextItemView[] | null;
       this.favorites = (raw.favorites ?? null) as FavoritesView | null;
+      this.rated = (raw.rated ?? null) as RatedItemsView | null;
       const items: Map<string, LibraryItemView[]> = new Map<string, LibraryItemView[]>();
       for (const pair of raw.itemsByKey ?? []) {
         items.set(pair.key, pair.items as LibraryItemView[]);
@@ -244,6 +252,7 @@ export class LibraryHomeStore {
 
   /** 刷新成功后把整页数据落盘（fire-and-forget；失败静默） */
   private saveToCache(key: string): void {
+    WidgetSync.shared.publishUpNext(this.upNext);
     if (this.cachePath === null || this.libraries === null) {
       return;
     }
@@ -260,6 +269,7 @@ export class LibraryHomeStore {
         collections: this.collections,
         upNext: this.upNext,
         favorites: this.favorites,
+        rated: this.rated,
         itemsByKey: pairs,
         genresByKind: this.genresByKind,
         rowsLoaded: this.rowsLoaded,
@@ -320,6 +330,8 @@ export class LibraryHomeStore {
         LibraryHomeStore.fetchUpNext(api, planned.upNext);
       const favoritesTask: Promise<FavoritesView | null> =
         LibraryHomeStore.fetchFavorites(api, planned.favorites);
+      const ratedTask: Promise<RatedItemsView | null> =
+        LibraryHomeStore.fetchRated(api, planned.rated);
       const libs: LibraryView[] = await libsTask;
       const cols: CollectionView[] = await colsTask;
       if (this.owner !== key) {
@@ -395,12 +407,16 @@ export class LibraryHomeStore {
       // 刷新到的偏好若改了这两行的取法（极少见：别处刚改过自定义首页），按新的再取一次
       let latestUpNext: UpNextItemView[] | null = await upNextTask;
       let latestFavorites: FavoritesView | null = await favoritesTask;
+      let latestRated: RatedItemsView | null = await ratedTask;
       const actual: HomePlan = LibraryHomeStore.plan(rowPrefs);
       if (actual.upNext !== planned.upNext) {
         latestUpNext = await LibraryHomeStore.fetchUpNext(api, actual.upNext);
       }
       if (!LibraryHomeStore.favoritesEqual(actual.favorites, planned.favorites)) {
         latestFavorites = await LibraryHomeStore.fetchFavorites(api, actual.favorites);
+      }
+      if (actual.rated !== planned.rated) {
+        latestRated = await LibraryHomeStore.fetchRated(api, actual.rated);
       }
       if (this.owner !== key) {
         return;
@@ -414,6 +430,11 @@ export class LibraryHomeStore {
         this.favorites = latestFavorites;
       } else if (this.favorites === null) {
         this.favorites = { items: [], total: 0 };
+      }
+      if (latestRated !== null) {
+        this.rated = latestRated;
+      } else if (this.rated === null) {
+        this.rated = { items: [], total: 0 };
       }
       this.refreshedAt = Date.now();
     } catch (error) {
@@ -461,13 +482,15 @@ export class LibraryHomeStore {
       }
     }
     let upNext: boolean = false;
+    let rated: boolean = false;
     for (const row of rows) {
       if (row.kind instanceof UpNextKind) {
         upNext = true;
-        break;
+      } else if (row.kind instanceof RatedKind) {
+        rated = true;
       }
     }
-    return new HomePlan(upNext, favorites);
+    return new HomePlan(upNext, favorites, rated);
   }
 
   private static favoritesEqual(a: FavoritesQuery | null, b: FavoritesQuery | null): boolean {
@@ -500,6 +523,17 @@ export class LibraryHomeStore {
       return await api.playbackFavorites(LibraryHomeStore.rowCount, 0, query.unwatchedFirst,
         query.sort, query.order ?? undefined);
     } catch (error) {
+      return null;
+    }
+  }
+
+  private static async fetchRated(api: MovieClawApi, wanted: boolean): Promise<RatedItemsView | null> {
+    if (!wanted) {
+      return null;
+    }
+    try {
+      return await api.playbackRated(LibraryHomeStore.rowCount, 0, 'rating', 'desc');
+    } catch (_error) {
       return null;
     }
   }
@@ -545,7 +579,7 @@ export class LibraryHomeStore {
         const sort: string = kind.sort;
         fetches.set(LibraryHomeStore.fetchKey(row), (): Promise<LibraryItemView[]> =>
           api.libraryItemsList(id, sort, order, limit, undefined, undefined, undefined,
-            undefined, undefined, watch));
+            undefined, undefined, watch, undefined, undefined, 'my_rating,progress,unwatched,hdr,atmos,zh_sub'));
       } else if (row.kind instanceof CollectionRowKind) {
         const kind = row.kind;
         const order: string | undefined =
@@ -576,7 +610,9 @@ export class LibraryHomeStore {
           if (!fetches.has(key)) {
             const id: number = library.id;
             fetches.set(key, (): Promise<LibraryItemView[]> =>
-              api.libraryItemsList(id, 'added_at', undefined, limit));
+              api.libraryItemsList(id, 'added_at', undefined, limit, undefined, undefined,
+                undefined, undefined, undefined, undefined, undefined, undefined,
+                'my_rating,progress,unwatched,hdr,atmos,zh_sub'));
           }
         }
       }
@@ -646,6 +682,7 @@ interface LibraryHomeSnapshot {
   collections: CollectionView[];
   upNext: UpNextItemView[] | null;
   favorites: FavoritesView | null;
+  rated?: RatedItemsView | null;
   itemsByKey: SnapshotPair[];
   genresByKind: Record<string, LibraryKindGenreView[]> | null;
   rowsLoaded: boolean;

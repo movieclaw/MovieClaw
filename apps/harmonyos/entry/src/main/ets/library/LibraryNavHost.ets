@@ -1,4 +1,5 @@
 import { HdsNavigation, HdsNavigationTitleMode } from '@kit.UIDesignKit';
+import { accessibility } from '@kit.AccessibilityKit';
 import { Theme } from '../theme/AppTheme';
 import { GlassButtonModifier, GlassTone } from '../common/GlassControls';
 import { AppNavBar, AppNavTitleBar } from '../common/AppNavBar';
@@ -133,25 +134,35 @@ export struct LibraryNavHost {
             this.navStack.pushPathByName('search', new SearchLaunchParams(SearchMode.library));
           })
       }
-      Button() {
-        Row({ space: 4 }) {
-          SymbolGlyph($r('sys.symbol.play_circle'))
-            .fontSize(16)
-            .fontColor([Theme.textMuted])
-          Text('片段')
-            .fontSize(13)
-            .fontColor(Theme.textMuted)
+      if (this.screenReaderOpen()) {
+        Button() {
+          Row({ space: 4 }) {
+            SymbolGlyph($r('sys.symbol.play_circle'))
+              .fontSize(16)
+              .fontColor([Theme.textMuted])
+            Text('片段')
+              .fontSize(13)
+              .fontColor(Theme.textMuted)
+          }
+          .padding({ left: 12, right: 12, top: 7, bottom: 7 })
         }
-        .padding({ left: 12, right: 12, top: 7, bottom: 7 })
+        .attributeModifier(new GlassButtonModifier(GlassTone.Secondary))
+        .padding(0)
+        .clip(true)
+        .borderRadius(17)
+        .margin({ left: 4 })
+        .onClick(() => {
+          this.navStack.pushPathByName('reels', new ReelsParams(0));
+        })
       }
-      .attributeModifier(new GlassButtonModifier(GlassTone.Secondary))
-      .padding(0)
-      .clip(true)
-      .borderRadius(17)
-      .margin({ left: 4 })
-      .onClick(() => {
-        this.navStack.pushPathByName('reels', new ReelsParams(0));
-      })
+    }
+  }
+
+  private screenReaderOpen(): boolean {
+    try {
+      return accessibility.isScreenReaderOpenSync();
+    } catch (_error) {
+      return false;
     }
   }
 

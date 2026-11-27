@@ -30,6 +30,12 @@ export class FoldState {
 
   /** 折叠中（= 应用在外屏方屏上跑）；非折叠设备恒 false */
   @Trace coverActive: boolean = false;
+  /** 半折悬停态（Mate X5 / Mate X6 / Pura X / Pocket 2 帐篷/桌面悬停观影） */
+  @Trace halfFolded: boolean = false;
+  /** 铰链折痕上沿坐标（vp；0 表示系统未上报折痕区，按屏幕中线 50% 分界） */
+  @Trace creaseTopVp: number = 0;
+  /** 铰链折痕区高度（vp） */
+  @Trace creaseHeightVp: number = 0;
 
   /**
    * EntryAbility 冷启动时调一次：先记初值再挂监听。
@@ -52,9 +58,28 @@ export class FoldState {
 
   private refresh(status: display.FoldStatus): void {
     const folded: boolean = status === display.FoldStatus.FOLD_STATUS_FOLDED;
+    const half: boolean = status === display.FoldStatus.FOLD_STATUS_HALF_FOLDED;
     if (folded !== this.coverActive) {
       this.coverActive = folded;
       hilog.info(0x0000, 'MovieClaw', '折叠态变化：coverActive=%{public}s', `${folded}`);
+    }
+    if (half !== this.halfFolded) {
+      this.halfFolded = half;
+      hilog.info(0x0000, 'MovieClaw', '半折悬停态变化：halfFolded=%{public}s', `${half}`);
+    }
+    if (half) {
+      try {
+        const region = display.getCurrentFoldCreaseRegion();
+        if (region !== null && region !== undefined && region.creaseRects.length > 0) {
+          const rect = region.creaseRects[0];
+          const density: number = display.getDefaultDisplaySync().densityPixels ?? 3;
+          const safeDensity: number = density > 0 ? density : 3;
+          this.creaseTopVp = Math.round(rect.top / safeDensity);
+          this.creaseHeightVp = Math.round(rect.height / safeDensity);
+        }
+      } catch (_err) {
+        // 模拟器或无折痕矩形的设备保持 0，由播放页按 50% 分界
+      }
     }
   }
 }

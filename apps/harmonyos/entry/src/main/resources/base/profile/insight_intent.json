@@ -1,0 +1,64 @@
+{
+  "insightIntents": [
+    {
+      "intentName": "ContinuePlay",
+      "domain": "VideoDomain",
+      "intentVersion": "1.0.0",
+      "srcEntry": "./ets/insight/XiaoyiIntentExecutor.ets",
+      "uiAbility": {
+        "ability": "EntryAbility",
+        "executeMode": ["foreground"]
+      }
+    },
+    {
+      "intentName": "PlayItem",
+      "domain": "VideoDomain",
+      "intentVersion": "1.0.0",
+      "srcEntry": "./ets/insight/XiaoyiIntentExecutor.ets",
+      "uiAbility": {
+        "ability": "EntryAbility",
+        "executeMode": ["foreground"]
+      }
+    },
+    {
+      "intentName": "SubscribeVoice",
+      "domain": "VideoDomain",
+      "intentVersion": "1.0.0",
+      "srcEntry": "./ets/insight/XiaoyiIntentExecutor.ets",
+      "uiAbility": {
+        "ability": "EntryAbility",
+        "executeMode": ["foreground"]
+      }
+    },
+    {
+      "intentName": "OpenSubscriptions",
+      "domain": "VideoDomain",
+      "intentVersion": "1.0.0",
+      "srcEntry": "./ets/insight/XiaoyiIntentExecutor.ets",
+      "uiAbility": {
+        "ability": "EntryAbility",
+        "executeMode": ["foreground"]
+      }
+    },
+    {
+      "intentName": "OpenSubscriptionDetail",
+      "domain": "VideoDomain",
+      "intentVersion": "1.0.0",
+      "srcEntry": "./ets/insight/XiaoyiIntentExecutor.ets",
+      "uiAbility": {
+        "ability": "EntryAbility",
+        "executeMode": ["foreground"]
+      }
+    },
+    {
+      "intentName": "SearchInApp",
+      "domain": "VideoDomain",
+      "intentVersion": "1.0.0",
+      "srcEntry": "./ets/insight/XiaoyiIntentExecutor.ets",
+      "uiAbility": {
+        "ability": "EntryAbility",
+        "executeMode": ["foreground"]
+      }
+    }
+  ]
+}

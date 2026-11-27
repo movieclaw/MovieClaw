@@ -1,6 +1,7 @@
 import { avSession } from '@kit.AVSessionKit';
 import { backgroundTaskManager } from '@kit.BackgroundTasksKit';
 import { common, wantAgent } from '@kit.AbilityKit';
+import { image } from '@kit.ImageKit';
 
 /** Serialized system lifecycle prevents a late start from resurrecting a stopped session. */
 export class PlaybackGuard {
@@ -15,6 +16,10 @@ export class PlaybackGuard {
   private onPlay: () => void;
   private onPause: () => void;
   private onSeek: (positionMs: number) => void;
+  private onPlayPrevious: (() => void) | null = null;
+  private onPlayNext: (() => void) | null = null;
+  private mediaImage: image.PixelMap | string | null = null;
+  private subtitleText: string = '';
   constructor(context: common.UIAbilityContext,
     onPlay: () => void,
     onPause: () => void,
@@ -23,6 +28,19 @@ export class PlaybackGuard {
     this.onPlay = onPlay;
     this.onPause = onPause;
     this.onSeek = onSeek;
+  }
+
+  /** 注册系统播控中心 / 锁屏 / 手表 / 车机的上一集、下一集指令（start 前调用） */
+  setEpisodeCommands(onPlayPrevious: () => void, onPlayNext: () => void): void {
+    this.onPlayPrevious = onPlayPrevious;
+    this.onPlayNext = onPlayNext;
+  }
+
+  /** 更新锁屏与超级终端播控卡片的海报与副标题（剧集季集号） */
+  setArtwork(artwork: image.PixelMap | string | null, subtitle: string = ''): void {
+    this.mediaImage = artwork;
+    this.subtitleText = subtitle;
+    this.lastBucket = -1;
   }
 
   private enqueue(action: () => Promise<void>): Promise<void> {
@@ -41,7 +59,16 @@ export class PlaybackGuard {
         session.on('pause', this.onPause);
         session.on('stop', this.onPause);
         session.on('seek', this.onSeek);
-        await session.setAVMetadata({ assetId: 'movieclaw', title: title });
+        if (this.onPlayPrevious !== null) {
+          session.on('playPrevious', this.onPlayPrevious);
+        }
+        if (this.onPlayNext !== null) {
+          session.on('playNext', this.onPlayNext);
+        }
+        const meta: avSession.AVMetadata = { assetId: 'movieclaw', title: title };
+        if (this.subtitleText.length > 0) { meta.subtitle = this.subtitleText; }
+        if (this.mediaImage !== null) { meta.mediaImage = this.mediaImage; }
+        await session.setAVMetadata(meta);
         await session.activate();
       }
       if (!this.background && !this.disposed && this.wanted) {
@@ -68,7 +95,10 @@ export class PlaybackGuard {
     this.enqueue(async (): Promise<void> => {
       const session = this.session;
       if (session === null || this.disposed) { return; }
-      await session.setAVMetadata({ assetId: 'movieclaw', title: title, duration: durationMs });
+      const meta: avSession.AVMetadata = { assetId: 'movieclaw', title: title, duration: durationMs };
+      if (this.subtitleText.length > 0) { meta.subtitle = this.subtitleText; }
+      if (this.mediaImage !== null) { meta.mediaImage = this.mediaImage; }
+      await session.setAVMetadata(meta);
       await session.setAVPlaybackState({
         state: playing ? avSession.PlaybackState.PLAYBACK_STATE_PLAY : avSession.PlaybackState.PLAYBACK_STATE_PAUSE,
         speed: rate, position: { elapsedTime: positionMs, updateTime: Date.now() }

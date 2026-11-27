@@ -13,6 +13,7 @@ import { EventStream, ServerEvent, StreamHandle } from '../common/EventStream';
 import { JobProgressView, JobView, JobWorkerHealthView, JobDismissAllView, PlaybackHistoryView, PlaybackLogEntryView, MediaActivityView, ActivePlaybackSessionView, ActiveFileDownloadView, PlaybackWatchStatsView, PlaybackStatsTotals, PlaybackStatsDayRow, MediaActivityTarget, DownloadTaskView, DownloadTaskSourceView } from '../api/Models';
 import { ActivityTasksParams } from './ActivityTasksPage';
 import { ItemRouteParams } from '../library/LibraryItemDetailPage';
+import { HandoffCenter, handoffMessage, runHandoffAndOpenChat } from '../settings/HandoffCenter';
 import {
   ActivityFormat,
   BoostTotals,
@@ -57,6 +58,8 @@ export struct ActivityPage {
   @Local private downloadSources: DownloadTaskSourceView[] = [];
   /** 正在处置的设备（结束播放 / 注销在途；期间其它处置按钮禁用） */
   @Local private busyDevice: string = '';
+  /** AI 模型可用性（有模型时失败任务显示「交给 AI 分析」） */
+  @Local private aiAvailable: boolean = false;
 
   // MARK: jobs 事件流与定时器（页面消失必须全清）
   private stream: StreamHandle | null = null;
@@ -266,12 +269,33 @@ export struct ActivityPage {
 
   /** 首次进入 / 下拉刷新：jobs + 其余段（最近播放 / 正在播放与下载 / 观看统计）。 */
   private async load(): Promise<void> {
+    const api: MovieClawApi | null = this.api();
+    if (api !== null) {
+      HandoffCenter.ensureChecked(api).then((ok: boolean): void => {
+        this.aiAvailable = ok;
+      }).catch((): void => {});
+    }
     await this.loadJobs();
     await this.loadDownloads();
     // 三段补充数据：最近播放 / 正在播放与下载 / 观看统计
     await this.loadPlays();
     await this.loadLive();
     await this.loadStats();
+  }
+
+  private async handoffJobToAi(job: JobView): Promise<void> {
+    const api: MovieClawApi | null = this.api();
+    if (api === null || this.acting.length > 0) {
+      return;
+    }
+    this.acting = job.id;
+    try {
+      await runHandoffAndOpenChat(api, 'job', job.id, this.navStack);
+    } catch (error) {
+      this.toast(handoffMessage(error));
+    } finally {
+      this.acting = '';
+    }
   }
 
   private messageOf(error: Object): string {
@@ -1760,6 +1784,19 @@ export struct ActivityPage {
               .onClick(() => {
                 this.dismiss(job);
               })
+              if (this.aiAvailable) {
+                Button() {
+                  Text(this.acting === job.id ? '生成工单…' : '交给 AI 分析')
+                    .fontSize(13)
+                    .fontColor(Theme.accentStrong)
+                }
+                .attributeModifier(new GlassButtonModifier(GlassTone.Secondary))
+                .padding({ left: 14, right: 14, top: 7, bottom: 7 })
+                .borderRadius(15)
+                .onClick(() => {
+                  this.handoffJobToAi(job);
+                })
+              }
             }
             .width('100%')
             .margin({ top: 2 })
@@ -1973,22 +2010,39 @@ export struct ActivityPage {
         })
 
       Column() {
-        Column() {
-          // 下载组在前、独立作业在后（二级页时间线也是这个顺序），两者合计最多露 5 条
+        List() {
+          // 下载组在前、独立作业在后（二级页时间线也是这个顺序），两者合计最多露 5 条；进行中作业支持左滑取消
           ForEach(this.activeGroups().slice(0, ActivityPage.ACTIVE_LIMIT), (group: DownloadGroup) => {
-            this.ActiveDownloadRow(group)
-            Divider().color(Theme.line).margin({ left: 16, right: 16 })
+            ListItem() {
+              Column() {
+                this.ActiveDownloadRow(group)
+                Divider().color(Theme.line).margin({ left: 16, right: 16 })
+              }
+              .width('100%')
+            }
+            .width('100%')
           }, (group: DownloadGroup) => group.id)
           ForEach(this.active().slice(0, Math.max(0,
             ActivityPage.ACTIVE_LIMIT - this.activeGroups().length)), (job: JobView) => {
-            this.JobRow(job, true)
-            Divider().color(Theme.line).margin({ left: 16, right: 16 })
+            ListItem() {
+              Column() {
+                this.JobRow(job, true)
+                Divider().color(Theme.line).margin({ left: 16, right: 16 })
+              }
+              .width('100%')
+            }
+            .width('100%')
+            .swipeAction({ end: this.CancelSwipe(job) })
           }, (job: JobView) => job.id)
           if (this.boostTasks().length > 0) {
-            this.BoostSummaryRow()
+            ListItem() {
+              this.BoostSummaryRow()
+            }
+            .width('100%')
           }
         }
         .width('100%')
+        .enableScrollInteraction(false)
         .backgroundColor(Theme.surface)
         .borderRadius(Theme.cardRadius)
         .border({ width: 1, color: Theme.line })

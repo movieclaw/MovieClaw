@@ -53,11 +53,17 @@ export struct AboutPage {
   }
 
   private list: OssComponent[] = [
-    new OssComponent('OpenHarmony / HarmonyOS SDK', 'Apache-2.0',
-      '系统能力与 ArkUI 框架，随设备系统提供'),
-    new OssComponent('HarmonyOS Design（HDS）组件', '随 HarmonyOS SDK',
-      '悬浮页签栏、沉浸材质等原生控件'),
-    new OssComponent('思源黑体（HarmonyOS Sans 回退）', 'SIL Open Font License 1.1',
+    new OssComponent('libmpv', 'LGPL-2.1-or-later',
+      '原盘直出、多声道音频与 ASS/PGS 特效字幕渲染播放内核'),
+    new OssComponent('FFmpeg', 'LGPL-2.1-or-later',
+      '容器解封装与音视频软硬协同解码管线'),
+    new OssComponent('libass · FreeType · HarfBuzz · FriBidi', 'ISC / FTL / MIT / LGPL-2.1-or-later',
+      'ASS/SSA 特效字幕排版与多语种字形塑形渲染'),
+    new OssComponent('dav1d', 'BSD-2-Clause',
+      '高性能 AV1 视频解码器'),
+    new OssComponent('OpenHarmony / HarmonyOS SDK & HDS', 'Apache-2.0 / 随 HarmonyOS SDK',
+      'ArkUI 空间光感材质、AVPlayer / AVSession 播控、HDR Vivid 与 Audio Vivid 系统能力'),
+    new OssComponent('HarmonyOS Sans / 思源黑体', 'SIL Open Font License 1.1',
       '随系统提供，App 不分发字体文件')
   ];
 
@@ -206,9 +212,8 @@ export struct AboutPage {
           .width('100%')
         }, (component: OssComponent) => component.name)
         Divider().color(Theme.line).margin({ left: 16, right: 16 })
-        Text('鸿蒙端是纯 ArkTS 实现，只用系统 Kit 与 HDS 设计套件，'
-          + '没有随包分发的第三方库——所以这里没有 Apple 端那份 AetherEngine / FFmpeg / Nuke 清单。'
-          + '播放交给系统 `AVPlayer`，解码能力以设备为准。')
+        Text('鸿蒙端采用双擎自适应播放架构：流媒体优先调用系统 `AVPlayer` 硬解以获得最低功耗与双 Vivid 直通，'
+          + 'MKV/原盘/多音轨与 ASS/PGS 字幕自动切换内置 `libmpv` 引擎渲染。')
           .fontSize(12)
           .fontColor(Theme.textFaint)
           .width('100%')
