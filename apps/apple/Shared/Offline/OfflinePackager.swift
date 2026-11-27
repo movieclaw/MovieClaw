@@ -1,5 +1,6 @@
 #if os(iOS)
 import CryptoKit
+import Darwin
 import Foundation
 
 /// 打包一个单元视频之外的东西（docs/design/offline-download.md §5.4「准备中」）：
@@ -164,23 +165,109 @@ struct OfflinePackager {
 
     private static let syncTimeout: TimeInterval = 30
 
+    /// 一次已完成单元的磁盘快照指纹：用于在拉取 manifest / 字幕期间检测单元是否被删除、换档或同档重下。
+    nonisolated struct SyncStamp: Equatable, Sendable {
+        struct FileIdentity: Equatable, Sendable {
+            var dev: Int32
+            var ino: UInt64
+            var birthSec: Int
+            var birthNsec: Int
+            var mtimeSec: Int
+            var mtimeNsec: Int
+
+            static func read(_ url: URL, includeMtime: Bool = true) -> FileIdentity? {
+                var st = stat()
+                guard stat(url.path, &st) == 0 else { return nil }
+                return FileIdentity(
+                    dev: st.st_dev,
+                    ino: st.st_ino,
+                    birthSec: st.st_birthtimespec.tv_sec,
+                    birthNsec: st.st_birthtimespec.tv_nsec,
+                    mtimeSec: includeMtime ? st.st_mtimespec.tv_sec : 0,
+                    mtimeNsec: includeMtime ? st.st_mtimespec.tv_nsec : 0
+                )
+            }
+        }
+
+        var profile: String
+        var fileExtension: String
+        var exportId: String?
+        var createdAt: Date
+        var completedAt: Date?
+        var dirIdentity: FileIdentity
+        var playbackIdentity: FileIdentity
+        var subtitles: [OfflinePlaybackSpec.Subtitle]
+        var fonts: [String]
+    }
+
+    private nonisolated static func diskNormalizedDate(_ date: Date) -> Date {
+        (try? OfflineDisk.decoder.decode([Date].self, from: OfflineDisk.encoder.encode([date])).first) ?? date
+    }
+
+    private nonisolated static func matchesUnitInstance(_ expected: OfflineUnit, diskUnit: OfflineUnit) -> Bool {
+        diskUnit.playable
+            && diskUnit.profile == expected.profile
+            && diskUnit.fileExtension == expected.fileExtension
+            && diskUnit.exportId == expected.exportId
+            && diskUnit.createdAt == diskNormalizedDate(expected.createdAt)
+            && diskUnit.completedAt == expected.completedAt.map(diskNormalizedDate)
+    }
+
+    private nonisolated static func readSyncStampLocked(ownerKey: String, unit: OfflineUnit) -> (stamp: SyncStamp, spec: OfflinePlaybackSpec)? {
+        let unitDir = OfflineDisk.unitDir(ownerKey, unit.mediaItemId, unit.fileId)
+        let unitFile = OfflineDisk.unitFile(ownerKey, unit.mediaItemId, unit.fileId)
+        let playbackFile = OfflineDisk.playbackFile(ownerKey, unit.mediaItemId, unit.fileId)
+        guard let liveUnit = OfflineDisk.read(OfflineUnit.self, from: unitFile),
+              matchesUnitInstance(unit, diskUnit: liveUnit),
+              let spec = OfflineDisk.read(OfflinePlaybackSpec.self, from: playbackFile),
+              let dirIdentity = SyncStamp.FileIdentity.read(unitDir, includeMtime: false),
+              let playbackIdentity = SyncStamp.FileIdentity.read(playbackFile, includeMtime: true) else { return nil }
+        let stamp = SyncStamp(
+            profile: liveUnit.profile,
+            fileExtension: liveUnit.fileExtension,
+            exportId: liveUnit.exportId,
+            createdAt: liveUnit.createdAt,
+            completedAt: liveUnit.completedAt,
+            dirIdentity: dirIdentity,
+            playbackIdentity: playbackIdentity,
+            subtitles: spec.subtitles,
+            fonts: spec.fonts
+        )
+        return (stamp, spec)
+    }
+
+    /// 在发出 `/offline/manifest` 请求前先读取一次磁盘快照指纹，防止 manifest 慢网期间单元被删除并同档重下。
+    nonisolated static func readSyncStamp(ownerKey: String, unit: OfflineUnit) async throws -> SyncStamp? {
+        guard unit.playable else { return nil }
+        return try await OfflineDisk.perform {
+            readSyncStampLocked(ownerKey: ownerKey, unit: unit)?.stamp
+        }
+    }
+
     /// 已完成本机副本的在线字幕补齐（#1336）：
     /// 只补齐服务端外挂文字字幕（含缺失的 ASS 字体），不碰视频文件、不重抽内封轨、不改既有默认选轨。
     /// 先把全部待下字幕与字体拉进内存，任一步失败直接抛出，盘上原有 `subs/` 与 `playback.json` 保持不动；
-    /// 全部拉完后再在 `OfflineDisk.queue` 上核对单元状态并原子落盘，最后清理不再引用的旧外挂字幕文件。
+    /// 全部拉完后再在 `OfflineDisk.queue` 上核对单元快照指纹并原子落盘，最后清理不再引用的旧外挂字幕文件。
     @discardableResult
     nonisolated static func syncSubtitles(
         ownerKey: String,
         unit: OfflineUnit,
         manifest: API.OfflineManifestView,
-        api: APIClient
+        api: APIClient,
+        expectedStamp: SyncStamp? = nil
     ) async throws -> Bool {
-        try await syncSubtitles(
+        guard let serverFile = manifest.item.files.first(where: { $0.id == unit.fileId }) else { return false }
+        return try await syncSubtitles(
             ownerKey: ownerKey,
             unit: unit,
             manifestFileId: manifest.fileId,
+            unavailableReason: manifest.unavailableReason,
+            manifestAudioTracks: manifest.audioTracks,
+            manifestDefaultAudio: manifest.defaultAudio,
             manifestSubtitles: manifest.subtitles,
-            fontsUrl: manifest.fontsUrl
+            fontsUrl: manifest.fontsUrl,
+            serverFile: serverFile,
+            expectedStamp: expectedStamp
         ) { path, timeout in
             try await Self.fetch(path, api: api, timeout: timeout)
         }
@@ -191,26 +278,41 @@ struct OfflinePackager {
         ownerKey: String,
         unit: OfflineUnit,
         manifestFileId: Int,
+        unavailableReason: String? = nil,
+        manifestAudioTracks: [API.AudioTrackView] = [],
+        manifestDefaultAudio: String? = nil,
         manifestSubtitles: [API.OfflineSubtitleView],
         fontsUrl: String?,
+        serverFile: API.LibraryFileView? = nil,
+        expectedStamp: SyncStamp? = nil,
         fetch: @Sendable (String, TimeInterval) async throws -> Data
     ) async throws -> Bool {
         guard unit.playable, manifestFileId == unit.fileId else { return false }
         let unitDir = OfflineDisk.unitDir(ownerKey, unit.mediaItemId, unit.fileId)
-        let unitFile = OfflineDisk.unitFile(ownerKey, unit.mediaItemId, unit.fileId)
         let playbackFile = OfflineDisk.playbackFile(ownerKey, unit.mediaItemId, unit.fileId)
         let subsDir = unitDir.appending(path: "subs", directoryHint: .isDirectory)
         let fontsDir = unitDir.appending(path: "fonts", directoryHint: .isDirectory)
 
-        let state: (spec: OfflinePlaybackSpec, subFiles: Set<String>, fontFiles: Set<String>)? = try await OfflineDisk.perform {
-            guard let liveUnit = OfflineDisk.read(OfflineUnit.self, from: unitFile),
-                  liveUnit.playable, liveUnit.profile == unit.profile,
-                  let spec = OfflineDisk.read(OfflinePlaybackSpec.self, from: playbackFile) else { return nil }
+        let state: (stamp: SyncStamp, spec: OfflinePlaybackSpec, subFiles: Set<String>, fontFiles: Set<String>)? = try await OfflineDisk.perform {
+            guard let current = readSyncStampLocked(ownerKey: ownerKey, unit: unit) else { return nil }
+            if let expectedStamp, current.stamp != expectedStamp { return nil }
             let subFiles = Set(OfflineDisk.children(subsDir).map(\.lastPathComponent))
             let fontFiles = Set(OfflineDisk.children(fontsDir).map(\.lastPathComponent))
-            return (spec, subFiles, fontFiles)
+            return (current.stamp, current.spec, subFiles, fontFiles)
         }
         guard let state else { return false }
+
+        // 服务端无法构建 PlaybackPlan 时仍可能返回 HTTP 200 空清单：此时直接中止，绝不清掉已有字幕
+        if OfflineSubtitleSync.isDegradedManifest(
+            unavailableReason: unavailableReason,
+            audioTracks: manifestAudioTracks,
+            defaultAudio: manifestDefaultAudio,
+            manifestSubtitles: manifestSubtitles,
+            serverFile: serverFile,
+            existingSpec: state.spec
+        ) {
+            return false
+        }
 
         let plan = OfflineSubtitleSync.plan(
             existing: state.spec.subtitles,
@@ -252,6 +354,7 @@ struct OfflinePackager {
             }
         }
 
+        let initialStamp = state.stamp
         let subsToWrite = fetchedSubs
         let fontsToWrite = fetchedFonts
         let addedFonts = syncedFontNames
@@ -259,9 +362,9 @@ struct OfflinePackager {
         let obsoleteFiles = plan.obsoleteFiles
 
         return try await OfflineDisk.perform {
-            guard let liveUnit = OfflineDisk.read(OfflineUnit.self, from: unitFile),
-                  liveUnit.playable, liveUnit.profile == unit.profile,
-                  var liveSpec = OfflineDisk.read(OfflinePlaybackSpec.self, from: playbackFile) else { return false }
+            guard let live = readSyncStampLocked(ownerKey: ownerKey, unit: unit),
+                  live.stamp == initialStamp else { return false }
+            var liveSpec = live.spec
 
             var writtenNewFiles: [URL] = []
             do {
@@ -305,7 +408,7 @@ struct OfflinePackager {
     }
 }
 
-/// 已下载本机副本的在线字幕补齐调度（按账号+文件去重，同一时刻只跑一次）。
+/// 已下载本机副本的在线字幕补齐调度（按账号+文件实例去重，同一时刻只跑一次）。
 @MainActor
 final class OfflineSubtitleSync {
     static let shared = OfflineSubtitleSync()
@@ -342,6 +445,30 @@ final class OfflineSubtitleSync {
         guard let localSpec else { return false }
         let localExternal = Set(localSpec.subtitles.map(\.sourceRef).filter { $0.hasPrefix("external:") })
         return localExternal != externalSubtitleRefs(in: serverFile)
+    }
+
+    /// 判定 `/offline/manifest` 是否为降级 HTTP 200 空清单（如文件缺失、需转码同意、被策略拒绝、原盘等）。
+    /// 此类响应缺少完整播放计划，绝对不能拿空 `subtitles` 去清理本机已有字幕。
+    nonisolated static func isDegradedManifest(
+        unavailableReason: String?,
+        audioTracks: [API.AudioTrackView],
+        defaultAudio: String?,
+        manifestSubtitles: [API.OfflineSubtitleView],
+        serverFile: API.LibraryFileView?,
+        existingSpec: OfflinePlaybackSpec
+    ) -> Bool {
+        if let reason = unavailableReason, !reason.isEmpty { return true }
+        if audioTracks.isEmpty && defaultAudio == nil && manifestSubtitles.isEmpty { return true }
+        if (!existingSpec.audioTracks.isEmpty || existingSpec.defaultAudio != nil)
+            && audioTracks.isEmpty && defaultAudio == nil {
+            return true
+        }
+        if let serverFile {
+            if serverFile.missing || serverFile.state != "in_place" { return true }
+            if !(serverFile.audioStreams ?? []).isEmpty && audioTracks.isEmpty && defaultAudio == nil { return true }
+            if !externalSubtitleRefs(in: serverFile).isEmpty && manifestSubtitles.allSatisfy(\.embedded) { return true }
+        }
+        return false
     }
 
     /// 新增外挂字幕的稳定落盘文件名：与初始打包的 `0-chi.srt` 不冲突，同一 `trackRef` 幂等。
@@ -420,31 +547,101 @@ final class OfflineSubtitleSync {
         return Plan(subtitles: finalSubtitles, downloads: downloads, obsoleteFiles: obsoleteFiles)
     }
 
-    /// 后台触发一次字幕补齐（同账号同文件已有任务在跑时直接复用，不重复请求）。
+    /// 等待一个独立后台任务最多 `timeout` 秒：超时或调用方被取消时立即返回（不取消 `task` 本身，留后台收尾）。
+    /// 注意：不能用 `withTaskGroup` 包 `await task.value`，因为 `await task.value` 不响应子任务取消，
+    /// `withTaskGroup` 会一直阻塞到慢网任务结束。
+    nonisolated static func awaitBounded(_ task: Task<Void, Never>, timeout: TimeInterval) async {
+        guard timeout > 0 else { return }
+        final class WaitState: @unchecked Sendable {
+            private let lock = NSLock()
+            private var continuation: CheckedContinuation<Void, Never>?
+            private var finished = false
+            private var timer: Task<Void, Never>?
+            private var observer: Task<Void, Never>?
+
+            func install(
+                continuation: CheckedContinuation<Void, Never>,
+                task: Task<Void, Never>,
+                timeout: TimeInterval
+            ) {
+                lock.lock()
+                if finished {
+                    lock.unlock()
+                    continuation.resume()
+                    return
+                }
+                self.continuation = continuation
+                timer = Task {
+                    try? await Task.sleep(for: .seconds(timeout))
+                    self.finish()
+                }
+                observer = Task {
+                    _ = await task.value
+                    self.finish()
+                }
+                lock.unlock()
+            }
+
+            func finish() {
+                let cont: CheckedContinuation<Void, Never>?
+                let t: Task<Void, Never>?
+                let o: Task<Void, Never>?
+                lock.lock()
+                if finished {
+                    cont = nil; t = nil; o = nil
+                } else {
+                    finished = true
+                    cont = continuation
+                    continuation = nil
+                    t = timer
+                    timer = nil
+                    o = observer
+                    observer = nil
+                }
+                lock.unlock()
+                t?.cancel()
+                o?.cancel()
+                cont?.resume()
+            }
+        }
+
+        let state = WaitState()
+        await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                state.install(continuation: continuation, task: task, timeout: timeout)
+            }
+        } onCancel: {
+            state.finish()
+        }
+    }
+
+    /// 后台触发一次字幕补齐（同账号同文件实例已有任务在跑时直接复用，不重复请求）。
     func sync(unit: OfflineUnit, ownerKey: String, api: APIClient) {
         _ = startTask(unit: unit, ownerKey: ownerKey, api: api)
     }
 
-    /// 触发字幕补齐并最多等待 `timeout` 秒；超时只结束等待、不取消后台同步，失败静默保留原字幕。
+    /// 触发字幕补齐并最多等待 `timeout` 秒；超时或调用方取消时立即结束等待、不取消后台同步，失败静默保留原字幕。
     func syncWaiting(unit: OfflineUnit, ownerKey: String, api: APIClient, timeout: Double = 2) async {
         guard let task = startTask(unit: unit, ownerKey: ownerKey, api: api) else { return }
-        await withTaskGroup(of: Void.self) { group in
-            group.addTask { _ = await task.value }
-            group.addTask { try? await Task.sleep(for: .seconds(timeout)) }
-            _ = await group.next()
-            group.cancelAll()
-        }
+        await Self.awaitBounded(task, timeout: timeout)
     }
 
     private func startTask(unit: OfflineUnit, ownerKey: String, api: APIClient) -> Task<Void, Never>? {
         guard unit.playable else { return nil }
-        let key = "\(ownerKey)|\(unit.fileId)"
+        let key = "\(ownerKey)|\(unit.fileId)|\(unit.profile)|\(unit.createdAt.timeIntervalSince1970)|\(unit.completedAt?.timeIntervalSince1970 ?? -1)"
         if let existing = inFlight[key] { return existing }
         let task = Task<Void, Never> {
             defer { self.inFlight.removeValue(forKey: key) }
             do {
+                guard let expectedStamp = try await OfflinePackager.readSyncStamp(ownerKey: ownerKey, unit: unit) else { return }
                 let manifest = try await api.offlineManifest(fileId: unit.fileId)
-                try await OfflinePackager.syncSubtitles(ownerKey: ownerKey, unit: unit, manifest: manifest, api: api)
+                try await OfflinePackager.syncSubtitles(
+                    ownerKey: ownerKey,
+                    unit: unit,
+                    manifest: manifest,
+                    api: api,
+                    expectedStamp: expectedStamp
+                )
             } catch {
                 // 失败保留本机原有字幕与 playback.json，不阻断播放或浏览
             }
