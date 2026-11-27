@@ -13,6 +13,10 @@ import { AppPushSection } from "@/components/app-push-section";
 import { AppStorageSection } from "@/components/app-storage-section";
 import { PluginDetailView } from "@/components/plugin-detail";
 import { PluginsPage } from "@/components/plugins-section";
+import {
+  ReelClipsPreferenceRow,
+  ReelClipsPreferenceSection,
+} from "@/components/reel-clips-preference-row";
 import { ReelClipsToggleRow } from "@/components/reel-clips-toggle-section";
 import { ScheduledTasksSection } from "@/components/scheduled-tasks-section";
 import { AppUpdateDot, usePendingUpdate } from "@/components/app-update-entry";
@@ -327,6 +331,8 @@ function ProfileSection() {
           </SettingsRow>
         </SettingsList>
       </SettingsSection>
+
+      <ReelClipsPreferenceSection />
 
       <SettingsSection title={t("settings.profile.security")}>
         <ChangePasswordCard />
@@ -705,6 +711,7 @@ function AppSection() {
 function PlaybackSection() {
   const t = useTranslations();
   const router = useRouter();
+  const [reelClipsAllowed, setReelClipsAllowed] = useState<boolean | null>(null);
   return (
     <div className="space-y-10">
       <PlaybackCompletionSection />
@@ -716,7 +723,8 @@ function PlaybackSection() {
         <SettingsList>
           <TrickplayToggleRow />
           <TranscodeCacheToggleRow />
-          <ReelClipsToggleRow />
+          <ReelClipsToggleRow onEnabledChange={setReelClipsAllowed} />
+          <ReelClipsPreferenceRow allowed={reelClipsAllowed} />
         </SettingsList>
       </SettingsSection>
       <CloudStreamModeSection />

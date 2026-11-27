@@ -69,17 +69,18 @@ async def update_preferences(
 
     例外：请求里没带 ``nav.hidden`` 时沿用已存的值。已发布的 iPhone App 用生成的模型整体回写，
     旧模型里没有这个字段，保存首页设置时不能把网页上「移出侧边栏」的项冲掉。
-    ``poster_badges`` 同理：手机 App 的模型里没有这一组，保存它们自己的设置时不能把
-    网页上打开的海报角标冲回默认。
+    ``poster_badges`` 与 ``reels`` 同理：老客户端的模型里没有这两组，保存它们自己的设置时
+    不能把网页上打开的海报角标或片段预切偏好冲回默认。
     """
     keep_language = "language" not in payload.model_fields_set
     keep_hidden = "hidden" not in payload.nav.model_fields_set
     keep_badges = "poster_badges" not in payload.model_fields_set
+    keep_reels = "reels" not in payload.model_fields_set
     if principal.kind == "member" and principal.member_id is not None:
         repo = MemberRepository(session)
         member = await repo.get(principal.member_id)
         if member is not None:
-            if (keep_hidden or keep_language or keep_badges) and member.ui_prefs:
+            if (keep_hidden or keep_language or keep_badges or keep_reels) and member.ui_prefs:
                 stored = parse_stored_ui_preferences(member.ui_prefs)
                 if keep_hidden:
                     payload.nav.hidden = stored.nav.hidden
@@ -87,10 +88,12 @@ async def update_preferences(
                     payload.language = stored.language
                 if keep_badges:
                     payload.poster_badges = stored.poster_badges
+                if keep_reels:
+                    payload.reels = stored.reels
             member.ui_prefs = payload.model_dump(mode="json")
             await repo.save(member)
         return ok(payload, message=t("settings.appearance.preferencesSaved"))
-    if keep_hidden or keep_language or keep_badges:
+    if keep_hidden or keep_language or keep_badges or keep_reels:
         stored = await get_ui_preferences()
         if keep_hidden:
             payload.nav.hidden = stored.nav.hidden
@@ -98,6 +101,8 @@ async def update_preferences(
             payload.language = stored.language
         if keep_badges:
             payload.poster_badges = stored.poster_badges
+        if keep_reels:
+            payload.reels = stored.reels
     return ok(await save_ui_preferences(payload), message=t("settings.appearance.preferencesSaved"))
 
 

@@ -355,16 +355,19 @@ def test_ui_preferences_isolated_per_member(client: TestClient) -> None:
     member_draft["sidebar"] = {**admin_prefs.get("sidebar", {}), "transparency": 0.33}
     member_draft["language"] = "en"
     member_draft["poster_badges"] = {**admin_prefs["poster_badges"], "unwatched": True}
+    member_draft["reels"] = {"use_clips": True}
     saved = client.put("/api/v1/ui/preferences", json=member_draft)
     assert saved.status_code == 200
     member_prefs = client.get("/api/v1/ui/preferences").json()["data"]
     assert member_prefs["sidebar"]["transparency"] == 0.33
     assert member_prefs["language"] == "en"
     assert member_prefs["poster_badges"]["unwatched"] is True
+    assert member_prefs["reels"]["use_clips"] is True
     legacy = client.put("/api/v1/ui/preferences", json={"theme": "silver"})
     assert legacy.json()["data"]["language"] == "en"
-    # 不带 poster_badges 的老客户端整体回写：成员自己开的角标保留
+    # 不带 poster_badges / reels 的老客户端整体回写：成员自己开的偏好保留
     assert legacy.json()["data"]["poster_badges"]["unwatched"] is True
+    assert legacy.json()["data"]["reels"]["use_clips"] is True
 
     # 超管的全局配置不受影响
     _use(client, admin_cookie)
@@ -676,8 +679,9 @@ _MEMBER_ALLOWLIST = {
     ("GET", "/api/v1/playback/files/{file_id}/bluray"),
     ("GET", "/api/v1/playback/files/{file_id}/bluray/{index}"),
     ("GET", "/api/v1/playback/files/{file_id}/subtitles"),
-    # 预切片段（reels.md §8）：同原文件直出，只凭签名 token（按文件签发）
+    # 预切片段（reels.md §8）：取流只凭签名 token；policy 只读当前主体两级开关状态
     ("GET", "/api/v1/reels/clips/{file_id}/{start_ms}.mp4"),
+    ("GET", "/api/v1/reels/clips/policy"),
     ("GET", "/api/v1/playback/files/{file_id}/fonts"),
     ("GET", "/api/v1/playback/files/{file_id}/fonts/{name}"),
     ("GET", "/api/v1/playback/files/{file_id}/trickplay"),

@@ -781,11 +781,63 @@ async def _clip_libraries(session) -> dict[int, str]:
 # --- 对外：开关、排队、进度 ----------------------------------------------------------
 
 
+@dataclass(frozen=True)
+class ReelClipPolicy:
+    """两级开关解析结果（docs/design/reels.md §8）。
+
+    - ``allowed``：管理员服务端开关（``PlaybackPolicySetting.reel_clips_enabled``），
+      同时控制后台切片与磁盘占用；
+    - ``preferred``：当前主体自己的偏好（``UiPreferencesSetting.reels.use_clips``），
+      只决定本人看刷片 / 大图预告时是否用预切小片，不影响后台；
+    - ``effective``：``allowed and preferred``，两者都满足时才真正出 ``mode="clip"``。
+    """
+
+    allowed: bool
+    preferred: bool
+
+    @property
+    def effective(self) -> bool:
+        return self.allowed and self.preferred
+
+
 async def enabled() -> bool:
+    """管理员级总开关：是否允许使用片段预切，并控制后台切片队列与整库补切。"""
     from movieclaw_api.settings.playback import PlaybackPolicySetting
     from movieclaw_api.settings.store import get_setting_store
 
     return bool((await get_setting_store().get(PlaybackPolicySetting)).reel_clips_enabled)
+
+
+async def member_prefers_clips(principal, *, session=None) -> bool:
+    """读取当前主体的个人偏好（``UiPreferencesSetting.reels.use_clips``，默认 False）。"""
+    from movieclaw_api.settings.schemas import UiPreferencesSetting, get_ui_preferences
+    from movieclaw_db.repositories.member_repo import MemberRepository
+
+    if principal.kind == "member":
+        raw = principal.member.ui_prefs if principal.member is not None else None
+        if raw is None and principal.member is None and session is not None and principal.member_id:
+            member = await MemberRepository(session).get(principal.member_id)
+            raw = member.ui_prefs if member is not None else None
+        return bool(UiPreferencesSetting.model_validate(raw).reels.use_clips) if raw else False
+    return bool((await get_ui_preferences()).reels.use_clips)
+
+
+async def effective_policy(principal, *, session=None) -> ReelClipPolicy:
+    """解析当前主体的两级开关状态。"""
+    allowed = await enabled()
+    preferred = await member_prefers_clips(principal, session=session)
+    return ReelClipPolicy(allowed=allowed, preferred=preferred)
+
+
+async def is_active_for(principal, modes: Sequence[str] | set[str] | None, *, session=None) -> bool:
+    """本次刷片 / 大图预告请求是否进入预切小片模式（两级开关的唯一集中判定点）。
+
+    生效条件：客户端声明会放 ``clip``，且管理员开启服务端开关，且当前主体自己打开了偏好。
+    任一不满足即回落到原片（``seek``），行为与管理员关闭开关完全一致。
+    """
+    if not modes or "clip" not in modes:
+        return False
+    return (await effective_policy(principal, session=session)).effective
 
 
 async def request_now(media_item_id: int) -> None:

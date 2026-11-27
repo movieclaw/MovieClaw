@@ -68,6 +68,41 @@ def enable(tc, on: bool = True) -> dict:
     return resp.json()["data"]
 
 
+def prefer_clips(tc, on: bool = True) -> dict:
+    """切换当前登录主体自己的「片段预切」偏好开关。"""
+    resp = tc.put("/api/v1/ui/preferences", json={"reels": {"use_clips": on}})
+    assert resp.status_code == 200, resp.text
+    return resp.json()["data"]["reels"]
+
+
+def clip_policy(tc) -> dict:
+    resp = tc.get("/api/v1/reels/clips/policy")
+    assert resp.status_code == 200, resp.text
+    return resp.json()["data"]
+
+
+def _create_member_and_login(tc, username: str, password: str = "MemberPass123!") -> str:
+    """用当前超管会话创建成员并登录，返回成员的会话 Cookie 字符串。"""
+    created = tc.post(
+        "/api/v1/members",
+        json={"username": username, "password": password, "nickname": username},
+    )
+    assert created.status_code == 200, created.text
+    admin_cookies = dict(tc.cookies)
+    tc.cookies.clear()
+    logged = tc.post("/api/v1/auth/login", json={"username": username, "password": password})
+    assert logged.status_code == 200, logged.text
+    member_cookies = dict(tc.cookies)
+    tc.cookies.clear()
+    tc.cookies.update(admin_cookies)
+    return member_cookies["movieclaw_session"]
+
+
+def _use_cookie(tc, cookie: str) -> None:
+    tc.cookies.clear()
+    tc.cookies.set("movieclaw_session", cookie)
+
+
 def queue_of(tc) -> clips.ClipQueue:
     async def get() -> clips.ClipQueue:
         return clips.get_queue()
@@ -232,6 +267,7 @@ def test_cancelling_in_the_task_center_stops_this_round_but_keeps_the_switch(cli
     policy = clip_client.get("/api/v1/playback/policy").json()["data"]
     assert policy["reel_clips_enabled"] is True
     # 开关还开着：眼前要看的照样排档 0；但刷片不会自动再开一轮整库
+    prefer_clips(clip_client, True)
     queue.current = None
     _call(clip_client, queue.planned_pools.clear)
     assert preview(clip_client, rest[0], modes="seek,clip") is None
@@ -291,6 +327,7 @@ def test_no_new_job_when_nothing_is_left_to_cut(clip_client, tmp_path):
     job = wait_for(lambda: (j := _job(clip_client))["status"] == "succeeded" and j)
     assert job["result"]["message"] == "新切 0 部，共 2 / 2 部有片段"
     # 之后刷片核对整库：没有要补的就不留一条空作业
+    prefer_clips(clip_client, True)
     _call(clip_client, queue_of(clip_client).planned_pools.clear)
     feed(clip_client, modes="seek,clip")
     settle(clip_client)
@@ -303,6 +340,7 @@ def test_no_new_job_when_nothing_is_left_to_cut(clip_client, tmp_path):
 def test_clip_mode_feed_only_has_cut_titles(clip_client, tmp_path):
     ids = seed(clip_client, tmp_path, movies=3, episodes=0, extras=False)
     enable(clip_client)
+    prefer_clips(clip_client, True)
     info = make_clip(clip_client, ids["movies"][1])
     data = feed(clip_client, modes="seek,clip")
     assert [i["title"]["media_item_id"] for i in data["items"]] == [ids["movies"][1]]
@@ -329,6 +367,7 @@ def test_clip_mode_feed_only_has_cut_titles(clip_client, tmp_path):
 def test_old_apps_keep_getting_originals_while_clips_are_on(clip_client, tmp_path):
     ids = seed(clip_client, tmp_path, movies=3, episodes=0, extras=False)
     enable(clip_client)
+    prefer_clips(clip_client, True)
     make_clip(clip_client, ids["movies"][0])
     data = feed(clip_client, modes="seek")
     assert {i["title"]["media_item_id"] for i in data["items"]} == set(ids["movies"])
@@ -339,6 +378,7 @@ def test_old_apps_keep_getting_originals_while_clips_are_on(clip_client, tmp_pat
 def test_clip_pages_follow_the_draw_order_without_repeats(clip_client, tmp_path):
     ids = seed(clip_client, tmp_path, movies=7, episodes=0, extras=False)
     enable(clip_client)
+    prefer_clips(clip_client, True)
     cut = ids["movies"][:5]
     for item_id in cut:
         make_clip(clip_client, item_id)
@@ -361,6 +401,7 @@ def test_clip_pages_follow_the_draw_order_without_repeats(clip_client, tmp_path)
 def test_nothing_cut_yet_gives_an_empty_page_with_progress(clip_client, tmp_path):
     seed(clip_client, tmp_path, movies=2, episodes=1, extras=False)
     enable(clip_client)
+    prefer_clips(clip_client, True)
     data = feed(clip_client, modes="seek,clip")
     assert data["items"] == []
     assert data["has_more"] is False
@@ -370,6 +411,7 @@ def test_nothing_cut_yet_gives_an_empty_page_with_progress(clip_client, tmp_path
 def test_replaced_source_file_is_not_served_and_gets_recut(clip_client, tmp_path):
     ids = seed(clip_client, tmp_path, movies=2, episodes=0, extras=False)
     enable(clip_client)
+    prefer_clips(clip_client, True)
     planned(clip_client)
     info = make_clip(clip_client, ids["movies"][0])
 
@@ -391,6 +433,7 @@ def test_replaced_source_file_is_not_served_and_gets_recut(clip_client, tmp_path
 def test_preview_serves_the_clip_or_queues_it_first(clip_client, tmp_path):
     ids = seed(clip_client, tmp_path, movies=2, episodes=0, extras=False)
     enable(clip_client)
+    prefer_clips(clip_client, True)
     planned(clip_client)
     ready, missing = ids["movies"]
     info = make_clip(clip_client, ready)
@@ -411,6 +454,7 @@ def test_preview_serves_the_clip_or_queues_it_first(clip_client, tmp_path):
 def test_clip_route_checks_the_token_and_the_clip(clip_client, tmp_path):
     ids = seed(clip_client, tmp_path, movies=2, episodes=0, extras=False)
     enable(clip_client)
+    prefer_clips(clip_client, True)
     info = make_clip(clip_client, ids["movies"][0])
     url = feed(clip_client, modes="seek,clip")["items"][0]["play"]["clip_url"]
     token = url.split("token=")[1]
@@ -629,6 +673,7 @@ def test_end_to_end_preview_queues_cuts_then_serves_the_clip(clip_client, tmp_pa
     monkeypatch.setattr(segments, "read_container_index", read_container_index)
     monkeypatch.setattr(clips, "_start_worker", _REAL_START_WORKER)
     enable(clip_client)
+    prefer_clips(clip_client, True)
     assert preview(clip_client, item_id, modes="seek,clip") is None
     deadline = time.monotonic() + 120
     item = None
@@ -752,3 +797,133 @@ def test_old_apps_with_the_switch_on_retire_the_suggestion(tip_client, tmp_path)
     event, record = tip_state(tip_client)
     assert event == {} and record["invalidated_reason"] == "action_performed"
     assert tip_client.pushed == []
+
+
+# --- 两级开关（管理员能力开关 × 成员级偏好）-------------------------------------------
+
+
+def test_two_level_admin_off_member_on_falls_back_to_originals(clip_client, tmp_path):
+    """管理员关 + 成员开：feed 与 preview 均放原片，不泄露 clips 进度，不排档 0。"""
+    ids = seed(clip_client, tmp_path, movies=2, episodes=0, extras=False)
+    make_clip(clip_client, ids["movies"][0])
+    member_cookie = _create_member_and_login(clip_client, "alice")
+
+    _use_cookie(clip_client, member_cookie)
+    prefer_clips(clip_client, True)
+    assert clip_policy(clip_client) == {"allowed": False, "preferred": True, "effective": False}
+
+    data = feed(clip_client, modes="seek,clip")
+    assert {i["title"]["media_item_id"] for i in data["items"]} == set(ids["movies"])
+    assert all(i["play"]["mode"] == "seek" and i["play"]["clip_url"] is None for i in data["items"])
+    assert data["clips"] is None
+    # 只声明 clip 时不满足生效条件，返回空页且 clips 为 None
+    clip_only = feed(clip_client, modes="clip")
+    assert clip_only["items"] == [] and clip_only["clips"] is None
+
+    # preview 同样走原片，不入档 0
+    item_ready = preview(clip_client, ids["movies"][0], modes="seek,clip")
+    item_missing = preview(clip_client, ids["movies"][1], modes="seek,clip")
+    assert item_ready["play"]["mode"] == "seek" and item_ready["play"]["clip_url"] is None
+    assert item_missing["play"]["mode"] == "seek"
+    assert queue_of(clip_client).pending == 0
+
+
+def test_two_level_admin_on_member_default_off_falls_back_to_originals(clip_client, tmp_path):
+    """管理员开 + 成员默认关：feed 与 preview 均放原片且不给 clips 进度，preview 不入档 0。"""
+    ids = seed(clip_client, tmp_path, movies=2, episodes=0, extras=False)
+    make_clip(clip_client, ids["movies"][0])
+    member_cookie = _create_member_and_login(clip_client, "bob")
+    enable(clip_client, True)
+    planned(clip_client)
+
+    _use_cookie(clip_client, member_cookie)
+    assert clip_policy(clip_client) == {"allowed": True, "preferred": False, "effective": False}
+
+    data = feed(clip_client, modes="seek,clip")
+    assert {i["title"]["media_item_id"] for i in data["items"]} == set(ids["movies"])
+    assert all(i["play"]["mode"] == "seek" and i["play"]["clip_url"] is None for i in data["items"])
+    assert data["clips"] is None
+
+    item_ready = preview(clip_client, ids["movies"][0], modes="seek,clip")
+    item_missing = preview(clip_client, ids["movies"][1], modes="seek,clip")
+    assert item_ready["play"]["mode"] == "seek"
+    assert item_missing["play"]["mode"] == "seek"
+    assert list(queue_of(clip_client).tiers[clips.TIER_NOW]) == []
+
+
+def test_two_level_member_isolation_for_feed_and_preview(clip_client, tmp_path):
+    """管理员开：成员 A 关、成员 B 开，互不干扰（feed、preview、policy 均隔离）。"""
+    ids = seed(clip_client, tmp_path, movies=2, episodes=0, extras=False)
+    ready, missing = ids["movies"]
+    info = make_clip(clip_client, ready)
+    cookie_a = _create_member_and_login(clip_client, "member_a")
+    cookie_b = _create_member_and_login(clip_client, "member_b")
+    enable(clip_client, True)
+    planned(clip_client)
+
+    # 成员 B 打开个人偏好；成员 A 保持关闭（默认）
+    _use_cookie(clip_client, cookie_b)
+    prefer_clips(clip_client, True)
+    assert clip_policy(clip_client) == {"allowed": True, "preferred": True, "effective": True}
+
+    feed_b = feed(clip_client, modes="seek,clip")
+    assert [i["title"]["media_item_id"] for i in feed_b["items"]] == [ready]
+    assert feed_b["items"][0]["play"]["mode"] == "clip"
+    assert feed_b["items"][0]["play"]["clip_url"].startswith(
+        f"/api/v1/reels/clips/{info.file_id}/{info.start_ms}.mp4?token="
+    )
+    assert feed_b["clips"]["ready"] == 1 and feed_b["clips"]["total"] == 2
+    assert preview(clip_client, ready, modes="seek,clip")["play"]["mode"] == "clip"
+    assert preview(clip_client, missing, modes="seek,clip") is None
+    assert list(queue_of(clip_client).tiers[clips.TIER_NOW]) == [missing]
+
+    # 成员 A 关闭：同一时刻仍然拿到原片、clips=None、preview 照常放原片
+    _use_cookie(clip_client, cookie_a)
+    assert clip_policy(clip_client) == {"allowed": True, "preferred": False, "effective": False}
+    feed_a = feed(clip_client, modes="seek,clip")
+    assert {i["title"]["media_item_id"] for i in feed_a["items"]} == {ready, missing}
+    assert all(i["play"]["mode"] == "seek" for i in feed_a["items"])
+    assert feed_a["clips"] is None
+    assert preview(clip_client, ready, modes="seek,clip")["play"]["mode"] == "seek"
+    assert preview(clip_client, missing, modes="seek,clip")["play"]["mode"] == "seek"
+
+    # 成员 B 依然有效，不受 A 影响
+    _use_cookie(clip_client, cookie_b)
+    assert feed(clip_client, modes="seek,clip")["items"][0]["play"]["mode"] == "clip"
+
+
+def test_member_turning_off_keeps_background_queue_and_existing_files(clip_client, tmp_path):
+    """成员（或管理员）关掉自己的偏好：后台队列不清空、作业不停、已切文件不删。"""
+    ids = seed(clip_client, tmp_path, movies=3, episodes=0, extras=False)
+    ready = ids["movies"][0]
+    info = make_clip(clip_client, ready, payload=b"CLIPDATA" * 32)
+    admin_cookie = clip_client.cookies["movieclaw_session"]
+    member_cookie = _create_member_and_login(clip_client, "charlie")
+
+    enable(clip_client, True)
+    queue = planned(clip_client)
+    pending_before = set(queue.queued)
+    assert pending_before == set(ids["movies"][1:])
+    active_job = _job(clip_client, active_only=True)
+
+    # 成员先开后关
+    _use_cookie(clip_client, member_cookie)
+    prefer_clips(clip_client, True)
+    assert feed(clip_client, modes="seek,clip")["items"][0]["play"]["mode"] == "clip"
+    prefer_clips(clip_client, False)
+    assert feed(clip_client, modes="seek,clip")["clips"] is None
+
+    # 管理员自己也开后再关
+    _use_cookie(clip_client, admin_cookie)
+    prefer_clips(clip_client, True)
+    prefer_clips(clip_client, False)
+
+    # 后台队列、活跃作业、磁盘文件与统计全部完好无损
+    assert set(queue_of(clip_client).queued) == pending_before
+    assert _job(clip_client, active_only=True)["id"] == active_job["id"]
+    assert info.path.is_file()
+    assert clip_client.get("/api/v1/reels/clips/stats").json()["data"] == {
+        "count": 1,
+        "bytes": len(b"CLIPDATA" * 32),
+    }
+    assert clip_client.get("/api/v1/playback/policy").json()["data"]["reel_clips_enabled"] is True

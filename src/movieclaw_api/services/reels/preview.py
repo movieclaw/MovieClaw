@@ -31,7 +31,6 @@ from movieclaw_api.services.auth import Principal
 from movieclaw_api.services.library.access import assert_item_visible
 from movieclaw_api.services.reels import clips, segments
 from movieclaw_api.services.reels.feed import (
-    MODE_CLIP,
     ReelCandidate,
     _assemble,
     _file_ref,
@@ -83,7 +82,7 @@ async def build_preview(
         return None
     kind = unit_kind(libraries.get(files[0].library_id, "movie"))
     member_id = principal.member_id if principal.member_id is not None else 0
-    if MODE_CLIP in (modes or set()) and await clips.enabled():
+    if await clips.is_active_for(principal, modes, session=session):
         return await _clip_preview(session, media_item_id, kind, files, member_id)
 
     candidate = None

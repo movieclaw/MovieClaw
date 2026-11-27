@@ -421,12 +421,25 @@ HDR，焦点动画跟着掉帧。NAS（Ryzen V1500B，**无核显**）实时转�
 | 问题 | 决定 |
 |---|---|
 | 剧集 | 不再做续播点回忆（`source=resume`）；首页、详情都放精彩片段，一部剧只切一段（最早一季第二集，同 §4） |
-| 开关 | 设置 → 播放「片段预切」，**默认关**，文案讲清开启的好处；关掉时若已有切好的，问要不要删 |
+| 开关 | 两级开关（见 §8.2.1）：管理员在「设置 → 播放」开「片段预切」（**默认关**，允许成员使用并控制后台整库预切与磁盘；关掉时若已有切好的，问要不要删）；每个成员在自己的偏好里单独选要不要用（**默认关**） |
 | 范围 | 全库切；顺序要保证「马上要看到的」先切好（§8.5） |
 | 没切好时 | 电视只显示剧照，不原地轮询，下次划回来切好了就放；手机刷片只出切好的 |
 | 提醒 | 简洁：一个都没有时提示「正在预切，已完成 N / M」；刷到底提示没有更多 |
 | 电视播放器 | 小片换系统播放器（Apple TV 用 AVPlayer，Android TV 用 ExoPlayer），不再开自研引擎 |
 | 720p | 首版不切。以后要省移动流量，从 1080p 小片再转一份（不读原片，全库几分钟） |
+
+#### 8.2.1 两级开关（管理员能力开关 vs 成员使用偏好）
+
+| 层级 | 配置位置 | 默认值 | 含义与作用范围 |
+|---|---|---|---|
+| 管理员开关 | `PlaybackPolicySetting.reel_clips_enabled`（`PUT /playback/policy`） | `false` | **允许成员使用片段预切**；同时唯一控制后台切片队列、整库补切作业、新片入库自动预切与磁盘清理 |
+| 成员级偏好 | `UiPreferencesSetting.reels.use_clips`（超管存 `ui.preferences`，成员存 `member.ui_prefs` JSON，零迁移） | `false` | **我个人愿不愿意刷片 / 首页大图预告只放预切好的 1080p 小片**；各账号独立保存、互不干扰 |
+
+- **生效条件（单点集中判定）**：`services/reels/clips.py` 的 `is_active_for(principal, modes)` 是刷片（`build_feed`）与大图预告（`build_preview`）唯一的判定入口：
+  `生效 = ("clip" in modes) 且 管理员已开启 且 该成员偏好已开启`。
+  任一条件不满足即回到旧行为（放原片 `mode="seek"`，预告保留 `source=resume` 语义且不把条目塞进档 0），`GET /reels` 响应中的 `clips` 进度字段也为 `null`——成员不走预切模式时不需要也不应该拿到后台切片进度，前端也不会误显示「正在预切」空态。
+- **为什么成员开关不影响后台**：预切小片是按片库文件复用的服务端共享资源，切片消耗的是管理员的 CPU 与磁盘。某个成员偏好直出原画（或想看未切完的新片）时关掉自己的开关，只改变他本人收到的播放方式——不能打断正在为其他成员切小片的后台队列，更不能删除已切好的文件。后台启停与清理权限始终只归管理员。
+- **前端呈现与只读策略接口**：新增只读端点 `GET /api/v1/reels/clips/policy`（所有登录成员可调用），返回 `{allowed, preferred, effective}`，避免把只读的服务器全局策略混进成员可写的 `/ui/preferences` 契约与本地首帧缓存。网页端在「设置 → 个人信息」（所有成员与管理员可见）与「设置 → 播放」（管理员总开关下方）渲染「片段预切（我的使用偏好）」开关，仅在 `allowed=true` 时显示，管理员关闭时隐藏；保存复用现有界面偏好保存链路（乐观更新 + 失败回滚），文案明确说明「只影响你自己看到的效果，不改变后台预切或删除已切好的片段」。老客户端整体回写 `/ui/preferences` 时若未携带 `reels` 字段，服务端保留已存的 `reels.use_clips`，不会冲回默认。
 
 ### 8.3 规格与依据
 
@@ -500,13 +513,14 @@ HDR，焦点动画跟着掉帧。NAS（Ryzen V1500B，**无核显**）实时转�
 
 ### 8.6 接口
 
-- `GET /reels?modes=seek,clip`：开关开着且 App 声明会放 `clip` 时，**只出切好的**，`play.mode = "clip"`，
+- `GET /reels?modes=seek,clip`：管理员开关与当前成员偏好均开启、且 App 声明会放 `clip` 时，**只出切好的**，`play.mode = "clip"`，
   `play.clip_url`（`/api/v1/reels/clips/<文件 id>/<起点>.mp4?token=…`，支持 Range）、`play.size_bytes` 是小片大小；
-  `segment` 仍是原片时间轴（「接着看」照旧用它）。响应加 `clips: {ready, total, state}`（可空，开关关着为 null）。
-- `GET /reels/preview/{id}?modes=seek,clip`：开关开着、App 会放 `clip` 时，一律放精彩片段（忽略 `source=resume`）；
-  切好了返回 clip 条目，没切好返回 null 并把这部排进档 0。
-- 老 App（`modes=seek`）行为完全不变，开关开着也照旧放原片。
-- 设置：`playback.reel_clips_enabled`（默认 false）。`GET /reels/clips/stats` 给 `{count, bytes}`（关开关前问删不删用），
+  `segment` 仍是原片时间轴（「接着看」照旧用它）。响应加 `clips: {ready, total, state}`（可空，管理员或当前成员任一关着、或 App 不会放 `clip` 时为 `null`）。
+- `GET /reels/preview/{id}?modes=seek,clip`：管理员开关与当前成员偏好均开启、且 App 会放 `clip` 时，一律放精彩片段（忽略 `source=resume`）；
+  切好了返回 clip 条目，没切好返回 null 并把这部排进档 0。任一开关未满足时完全退回原片（`mode="seek"`，不排队）。
+- `GET /reels/clips/policy`（登录态，成员与管理员均可调）：只读返回 `{allowed, preferred, effective}`，供各端判断管理员是否开放、当前成员的选择与实际生效状态。
+- 老 App（`modes=seek`）行为完全不变，两级开关都开着也照旧放原片。
+- 设置：管理员总开关 `playback.reel_clips_enabled`（默认 false），成员个人偏好 `ui.preferences.reels.use_clips`（默认 false，经 `GET/PUT /ui/preferences` 读写）。`GET /reels/clips/stats` 给 `{count, bytes}`（关开关前问删不删用），
   `DELETE /reels/clips` 清空（管理员）。
 
 ### 8.7 各端

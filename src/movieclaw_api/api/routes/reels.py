@@ -26,6 +26,7 @@ from movieclaw_api.api.deps import require_admin, require_login
 from movieclaw_api.api.routes.libraries import _filter_params
 from movieclaw_api.exceptions import NotFoundException
 from movieclaw_api.schemas.reels import (
+    ReelClipPolicyView,
     ReelClipStatsView,
     ReelEventBatch,
     ReelEventResult,
@@ -158,6 +159,28 @@ async def get_reel_preview(
     if item is not None and item["play"]["mode"] != "clip":
         clip_tip.note_played_without_clips()
     return ok(item)  # type: ignore[arg-type]
+
+
+@router.get(
+    "/clips/policy",
+    response_model=ApiResponse[ReelClipPolicyView],
+    summary="片段预切：当前主体能否使用及个人偏好状态",
+    operation_id="reels.clips.policy",
+    openapi_extra={"x-cli-hidden": True},
+)
+async def get_clip_policy(
+    principal: Principal = Depends(require_login),
+    session: AsyncSession = Depends(get_session),
+) -> ApiResponse[ReelClipPolicyView]:
+    """只读返回两级开关状态：管理员是否允许、本人偏好、以及此刻是否生效。"""
+    policy = await clips.effective_policy(principal, session=session)
+    return ok(
+        ReelClipPolicyView(
+            allowed=policy.allowed,
+            preferred=policy.preferred,
+            effective=policy.effective,
+        )
+    )
 
 
 @router.get(

@@ -59,6 +59,12 @@ export interface NavUiPrefs {
   hidden?: string[] | null;
 }
 
+/** 刷片与首页大图预告的个人偏好（每个成员一份，默认关闭）。 */
+export interface ReelsUiPrefs {
+  /** 是否在刷片与首页大图预告中优先播放服务端预切好的 1080p 小片 */
+  use_clips: boolean;
+}
+
 export interface UiPreferences {
   language: LanguagePreference;
   /** 主题 id，取值来自 lib/themes.ts 的注册表；未知值由 normalizeThemeId 兜底为 silver */
@@ -77,6 +83,8 @@ export interface UiPreferences {
   home: HomeUiPrefs;
   /** 媒体库海报墙的角标开关（默认全关），见 lib/poster-badges.ts */
   poster_badges: PosterBadgePrefs;
+  /** 刷片与大图预告的个人使用偏好（默认不启用预切小片） */
+  reels: ReelsUiPrefs;
 }
 
 /** 各页面的默认样式（与后端模型默认值一致），拉取失败时前端以此兜底；
@@ -97,6 +105,8 @@ export const DEFAULT_UI_PREFS: UiPreferences = {
   home: { rows: [] },
   // 海报角标默认全关：改版前的库存墙只有收藏的心
   poster_badges: DEFAULT_POSTER_BADGES,
+  // 片段预切的个人偏好默认关闭（需管理员开启服务端开关且本人打开才生效）
+  reels: { use_clips: false },
 };
 
 /** 按端主题覆盖的归一化：合法 id 原样保留；垃圾值 / 老后端缺项一律视为
@@ -128,6 +138,7 @@ export function normalizeUiPreferences(
     },
     home: { rows: Array.isArray(data?.home?.rows) ? data.home.rows : [] },
     poster_badges: normalizePosterBadges(data?.poster_badges),
+    reels: { use_clips: data?.reels?.use_clips === true },
   };
 }
 

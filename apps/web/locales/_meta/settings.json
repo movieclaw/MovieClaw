@@ -7314,5 +7314,17 @@
   },
   "playback.completion.upgrade": {
     "sourceHash": "e238060b2c0613ffe1f48861ee2242cd6dc4f8f9a771dd5805410ca1e3346546"
+  },
+  "playback.personalTitle": {
+    "sourceHash": "95f816970efdf0d4af30a77e5fe0ae82c156d754406264522456ca1d62dc8892"
+  },
+  "playback.controls.myClipsTitle": {
+    "sourceHash": "86a8621000ffecb6589ae6ecc2adc05c194b05954aea70ba666c7bfe2ecf39b2"
+  },
+  "playback.controls.myClipsHint": {
+    "sourceHash": "e512b0a716ee97737c90c4ffa89a0c878f5562da4f7f7383ed99ec1d8d54158b"
+  },
+  "playback.controls.myClipsSaveFailed": {
+    "sourceHash": "606ab29cd64d80b591eaef3c825bda9d11467c4d996af41f180ee32785a2bbbe"
   }
 }
