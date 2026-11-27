@@ -476,3 +476,169 @@ struct OfflineQueueTests {
         #expect(old.queueOrder == nil)
     }
 }
+
+/// 详情页剧集文件列表的实时派生（issue #1336）：`reload()` 刷新 `detail` 后（本地快照秒开 → 在线拉新、
+/// 生成/删字幕回调、下拉刷新），即使 `fileCount` 不变，也不能停在 `selectedEpisode.files` 旧快照。
+@MainActor
+struct LibraryDetailTrackFilesTests {
+    private func makeFile(
+        id: Int,
+        season: Int = 6,
+        episode: Int = 1,
+        state: String = "in_place",
+        subtitles: [API.SubtitleStreamView],
+        defaults: API.TrackDefaultsView? = nil
+    ) -> API.LibraryFileView {
+        API.LibraryFileView(
+            id: id,
+            filePath: "/media/Show/S0\(season)E0\(episode).mkv",
+            fileName: "Show - S0\(season)E0\(episode).mkv",
+            sizeBytes: 1_000_000,
+            container: "mkv",
+            resolution: "1080p",
+            videoCodec: "hevc",
+            hdr: nil,
+            bitDepth: 10,
+            durationSeconds: 3000,
+            bitRate: 5_000_000,
+            frameRate: 24,
+            colorSpace: "bt709",
+            mediaSource: "WEB-DL",
+            mediaSourceManual: false,
+            releaseGroup: nil,
+            source: "scanned",
+            seasonNumber: season,
+            episodeNumber: episode,
+            missing: false,
+            state: state,
+            purgeAfter: nil,
+            trashNote: nil,
+            origin: API.FileOriginView(kind: "scan", label: "存量扫描发现", detail: nil),
+            keptAt: nil,
+            audioStreams: nil,
+            subtitleStreams: subtitles,
+            playbackDefaults: defaults,
+            chapters: nil,
+            cloud: nil,
+            addedAt: "2026-11-25T10:00:00Z"
+        )
+    }
+
+    private func makeDetail(kind: String = "tv", files: [API.LibraryFileView]) -> API.LibraryItemDetailView {
+        API.LibraryItemDetailView(
+            mediaItemId: 676,
+            kind: kind,
+            source: "tmdb",
+            tmdbId: 991336,
+            imdbId: nil,
+            doubanId: nil,
+            title: "合成流人",
+            originalTitle: "Synthetic Horses",
+            englishTitle: nil,
+            chineseTitle: nil,
+            year: 2022,
+            posterUrl: nil,
+            backdropUrl: nil,
+            logoUrl: nil,
+            primaryAspect: 0.67,
+            localMeta: nil,
+            entryDirs: [],
+            files: files,
+            fileCount: files.count,
+            totalSizeBytes: files.reduce(0) { $0 + $1.sizeBytes },
+            seasons: kind == "tv" ? [6] : [],
+            scraping: false,
+            scrapingPhase: nil,
+            chaptersPending: false,
+            seriesName: nil,
+            seriesCollectionId: nil,
+            collections: []
+        )
+    }
+
+    private func makeEpisode(_ number: Int, fileIds: [Int]) -> API.EpisodeView {
+        API.EpisodeView(
+            episodeNumber: number,
+            name: "第 \(number) 集",
+            overview: nil,
+            airDate: nil,
+            stillUrl: nil,
+            owned: !fileIds.isEmpty,
+            fileIds: fileIds,
+            positionMs: 0,
+            played: false,
+            progressPercent: nil
+        )
+    }
+
+    @Test func tvEpisodeUsesFreshDetailFilesWhenFileCountUnchanged() {
+        let embedded = API.SubtitleStreamView(codec: "subrip", language: "chi", title: "内封中文", forced: false, default: false, external: false, fileName: nil)
+        let aiSub = API.SubtitleStreamView(
+            codec: "srt", language: "chi", title: "ai-bilingual-chs-eng", forced: false, default: false, external: true,
+            fileName: "Show - S06E01.ai-bilingual-chs-eng.chi.srt"
+        )
+        let staleFile = makeFile(id: 5056, subtitles: [embedded])
+        let freshDefaults = API.TrackDefaultsView(
+            audioTrack: "embedded:0", audioReason: "first", audioNote: "第一条",
+            subtitleTrack: "external:Show - S06E01.ai-bilingual-chs-eng.chi.srt",
+            subtitleReason: "library_language", subtitleNote: "AI 双语字幕"
+        )
+        let freshFile = makeFile(id: 5056, subtitles: [embedded, aiSub], defaults: freshDefaults)
+
+        // selectedEpisode 仍带着本地 detail.json 秒开时的旧 files 快照，但 detail 已在线刷新（fileCount 同为 1）
+        let selection = LibraryItemDetailView.SelectedEpisode(season: 6, episode: makeEpisode(1, fileIds: [5056]), files: [staleFile])
+        let freshDetail = makeDetail(kind: "tv", files: [freshFile])
+
+        let resolved = LibraryItemDetailView.resolvedTrackFiles(detail: freshDetail, selectedEpisode: selection)
+        #expect(resolved.count == 1)
+        #expect(resolved[0].subtitleStreams.count == 2)
+        #expect(resolved[0].subtitleStreams.contains { $0.external && $0.fileName == aiSub.fileName })
+        #expect(resolved[0].playbackDefaults?.subtitleTrack == "external:Show - S06E01.ai-bilingual-chs-eng.chi.srt")
+    }
+
+    @Test func tvEpisodeFallsBackBySeasonAndEpisodeWhenFileIdReplaced() {
+        let staleFile = makeFile(id: 5056, season: 6, episode: 1, subtitles: [])
+        let upgradedFile = makeFile(id: 5057, season: 6, episode: 1, subtitles: [
+            API.SubtitleStreamView(codec: "srt", language: "chi", title: "ai-chs", forced: false, default: false, external: true, fileName: "Show - S06E01.ai-chs.srt"),
+        ])
+        let otherEpisodeFile = makeFile(id: 5058, season: 6, episode: 2, subtitles: [])
+
+        let selection = LibraryItemDetailView.SelectedEpisode(season: 6, episode: makeEpisode(1, fileIds: [5056]), files: [staleFile])
+        let freshDetail = makeDetail(kind: "tv", files: [upgradedFile, otherEpisodeFile])
+
+        let resolved = LibraryItemDetailView.resolvedTrackFiles(detail: freshDetail, selectedEpisode: selection)
+        #expect(resolved.map(\.id) == [5057])
+    }
+
+    @Test func unownedEpisodeReturnsEmptyAndMovieReturnsAllFiles() {
+        let file = makeFile(id: 5056, season: 6, episode: 1, subtitles: [])
+        let tvDetail = makeDetail(kind: "tv", files: [file])
+        let missingSelection = LibraryItemDetailView.SelectedEpisode(season: 6, episode: makeEpisode(2, fileIds: []), files: [])
+        #expect(LibraryItemDetailView.resolvedTrackFiles(detail: tvDetail, selectedEpisode: missingSelection).isEmpty)
+        #expect(LibraryItemDetailView.resolvedTrackFiles(detail: tvDetail, selectedEpisode: nil).isEmpty)
+
+        let movieDetail = makeDetail(kind: "movie", files: [file])
+        #expect(LibraryItemDetailView.resolvedTrackFiles(detail: movieDetail, selectedEpisode: nil).map(\.id) == [5056])
+    }
+
+    @Test func tvEpisodeReflectsMultiVersionChangesWhenFileIdsPartiallyStale() {
+        let v1 = makeFile(id: 5056, season: 6, episode: 1, subtitles: [])
+        let v2 = makeFile(id: 5057, season: 6, episode: 1, subtitles: [])
+        let v3 = makeFile(id: 5059, season: 6, episode: 1, subtitles: [])
+        let trashed = makeFile(id: 5060, season: 6, episode: 1, state: "trashed", subtitles: [])
+
+        // 1) 单版本快照 [5056] 在线刷新出第二版本 5057（fileIds 仍只有 [5056]）→ 两个版本都可见且原顺序在前
+        let singleSelection = LibraryItemDetailView.SelectedEpisode(season: 6, episode: makeEpisode(1, fileIds: [5056]), files: [v1])
+        let twoVersionDetail = makeDetail(kind: "tv", files: [v2, v1])
+        #expect(LibraryItemDetailView.resolvedTrackFiles(detail: twoVersionDetail, selectedEpisode: singleSelection).map(\.id) == [5056, 5057])
+
+        // 2) 双版本 [5056, 5057] 中 5057 洗版换成 5059（fileCount 不变）→ 不丢新版本 5059
+        let multiSelection = LibraryItemDetailView.SelectedEpisode(season: 6, episode: makeEpisode(1, fileIds: [5056, 5057]), files: [v1, v2])
+        let replacedDetail = makeDetail(kind: "tv", files: [v1, v3])
+        #expect(LibraryItemDetailView.resolvedTrackFiles(detail: replacedDetail, selectedEpisode: multiSelection).map(\.id) == [5056, 5059])
+
+        // 3) 同集包含 in_place + trashed：全部返回供文件区展示（轨道区自行过滤 in_place）
+        let mixedDetail = makeDetail(kind: "tv", files: [v1, trashed])
+        #expect(LibraryItemDetailView.resolvedTrackFiles(detail: mixedDetail, selectedEpisode: singleSelection).map(\.id) == [5056, 5060])
+    }
+}
