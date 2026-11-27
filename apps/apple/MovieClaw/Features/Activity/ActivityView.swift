@@ -72,10 +72,26 @@ struct ActivityView: View {
             }
 
             if activity.attentionTotal > 0 {
+                let lastGroupId = activity.standaloneAttentionJobs.isEmpty ? activity.attentionDownloadGroups.last?.id : nil
+                let lastJobId = activity.standaloneAttentionJobs.last?.id
                 Section {
-                    TaskCenterPanel(store: tasks, mode: .attention, actions: taskActions)
-                        .listRowInsets(EdgeInsets())
+                    ForEach(activity.attentionDownloadGroups) { group in
+                        DownloadTaskGroupCard(
+                            group: group, ingestJobsByHash: activity.ingestJobsByHash,
+                            replacingTaskId: taskActions.replacingTaskId,
+                            onDelete: { taskActions.pendingDelete = $0 },
+                            onReplace: { taskActions.replace($0, api: api, feedback: feedback, store: tasks) }
+                        )
+                        .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: group.id == lastGroupId ? 0 : 10, trailing: 0))
                         .listRowBackground(Color.clear)
+                        .listRowSeparator(.hidden)
+                    }
+                    ForEach(activity.standaloneAttentionJobs, id: \.id) { job in
+                        JobCard(job: job, store: tasks)
+                            .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: job.id == lastJobId ? 0 : 10, trailing: 0))
+                            .listRowBackground(Color.clear)
+                            .listRowSeparator(.hidden)
+                    }
                 } header: {
                     let canDismissAll = activity.standaloneAttentionJobs.contains { $0.status == "failed" }
                     ActivitySectionHeader(

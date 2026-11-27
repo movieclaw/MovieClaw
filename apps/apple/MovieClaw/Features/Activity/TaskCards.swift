@@ -368,6 +368,7 @@ struct DownloadTaskCard: View {
             ].compactMap { $0 })
             .font(.footnote)
             .lineLimit(3)
+            .fixedSize(horizontal: false, vertical: true)
             .textSelection(.enabled)
             if TaskCenter.shouldOfferInlineReplacement(task) {
                 Button { onReplace(task) } label: {
