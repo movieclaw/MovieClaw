@@ -204,6 +204,12 @@ export struct LibrarySectionHeader {
  * 框比例锁死、同一行等高；主图真实比例与框不一致时，用同一张图放大模糊铺底、
  * 中央按真实比例完整显示一张清晰图，而不是裁掉或把格子撑变形。
  */
+/*
+ * @Reusable：海报格在墙 / 横滚行里被 LazyForEach 复用，滚动同尺寸格子时
+ * 组件树整个复用、只换参数，省掉每次滑动的整树重建开销。
+ * 全部成员是普通变量（无 @State），复用时由框架按新参数重设，无残留状态。
+ */
+@Reusable
 @Component
 export struct LibraryArtwork {
   /** 图片 URL；空串 = 无图（印兜底文字或占位底色） */
@@ -252,6 +258,11 @@ export struct LibraryArtwork {
  * 文件缺失是需要常显的异常，作为唯一例外在片名下单独点灯；
  * 文件全部缺失的「死条目」海报置灰；后台正在处理这一格时描边点亮并写出阶段。
  */
+/*
+ * @Reusable：墙 / 横滚行里滚出视区的海报格组件进池，滚入的同尺寸格子直接复用；
+ * 全部成员为普通变量，复用时框架按新参数重设，无状态残留。
+ */
+@Reusable
 @Component
 export struct LibraryPosterCell {
   title: string = '';

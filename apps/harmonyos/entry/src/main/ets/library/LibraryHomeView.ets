@@ -8,6 +8,7 @@ import { Permissions } from '../common/Permissions';
 import { ApiClient, ApiError, ApiQuery, QueryPair } from '../api/ApiClient';
 import { MovieClawApi } from '../api/Endpoints';
 import { RemoteImage } from '../common/RemoteImage';
+import { RemoteImagePrefetch } from '../common/RemoteImage';
 import { ImageUrls, ImageVariant } from '../common/ImageUrls';
 import { AppFooter } from '../common/AppFooter';
 import { Formatters } from '../common/Formatters';
@@ -173,6 +174,117 @@ class HomeRowSource implements IDataSource {
     this.rows = rows;
     for (const listener of this.listeners) {
       listener.onDataReloaded();
+    }
+  }
+}
+
+/**
+ * 横滚海报行的数据源（行内 LazyForEach 用）：一行的海报只建视区附近的格子，
+ * 百部片子的库行不再整行全量建 100 个组件。
+ */
+class PosterRowSource implements IDataSource {
+  private items: PosterRowItem[] = [];
+  private listeners: DataChangeListener[] = [];
+
+  totalCount(): number {
+    return this.items.length;
+  }
+
+  getData(index: number): PosterRowItem {
+    return this.items[index];
+  }
+
+  registerDataChangeListener(listener: DataChangeListener): void {
+    if (this.listeners.indexOf(listener) < 0) {
+      this.listeners.push(listener);
+    }
+  }
+
+  unregisterDataChangeListener(listener: DataChangeListener): void {
+    const at: number = this.listeners.indexOf(listener);
+    if (at >= 0) {
+      this.listeners.splice(at, 1);
+    }
+  }
+
+  setItems(items: PosterRowItem[]): void {
+    this.items = items;
+    for (const listener of this.listeners) {
+      listener.onDataReloaded();
+    }
+  }
+}
+
+/**
+ * 横滚海报行组件（收藏行 / 库行 / 合集行统一形态）。
+ *
+ * 之前是 `Scroll + Row + ForEach`：一行 100 部就一次建 100 个海报格，行进入视区那一帧
+ * 集中建树直接掉帧。改成横向 `List + LazyForEach + cachedCount`：只建视区 ±4 格，
+ * 滚动复用走格子的 @Reusable 池（LibraryPosterCell）。
+ */
+@Component
+struct PosterRowView {
+  title: string = '';
+  moreTitle: string = '';
+  items: PosterRowItem[] = [];
+  onMore: () => void = () => {
+  };
+  onOpenItem: (item: PosterRowItem) => void = (_item: PosterRowItem): void => {
+  };
+
+  private source: PosterRowSource = new PosterRowSource();
+
+  aboutToAppear(): void {
+    this.source.setItems(this.items);
+  }
+
+  build() {
+    Column({ space: 12 }) {
+      LibrarySectionHeader({
+        title: this.title,
+        trailingText: this.moreTitle,
+        onTrailing: (): void => {
+          this.onMore();
+        }
+      })
+      List({ space: 12 }) {
+        LazyForEach(this.source, (item: PosterRowItem) => {
+          ListItem() {
+            Column() {
+              LibraryPosterCell({
+                title: item.title,
+                year: item.year,
+                url: item.url ?? '',
+                imageAspect: item.aspect,
+                frameAspect: Theme.posterAspect
+              })
+            }
+            .width(124)
+            .onClick(() => {
+              this.onOpenItem(item);
+            })
+            .bindContextMenu(this.PosterInfoMenu(item), ResponseType.LongPress)
+          }
+        }, (item: PosterRowItem) => `${item.id}`)
+      }
+      .listDirection(Axis.Horizontal)
+      .scrollBar(BarState.Off)
+      .cachedCount(4)
+      .padding({ left: Theme.pagePadding, right: Theme.pagePadding })
+      .width('100%')
+    }
+    .padding({ top: 24 })
+    .width('100%')
+    .alignItems(HorizontalAlign.Start)
+  }
+
+  /** 长按海报：最近添加的季集范围、入库时间、收藏层级 */
+  @Builder
+  PosterInfoMenu(item: PosterRowItem) {
+    Menu() {
+      ForEach(item.info, (line: string) => {
+        MenuItem({ content: line })
+      }, (line: string) => line)
     }
   }
 }
@@ -517,6 +629,28 @@ export struct LibraryHomeView {
     this.rowItems = record;
     this.genresByKind = store.genresByKind;
     this.rowSource.setRows(this.rows);
+    // 首屏海报先灌磁盘缓存：滚到时只剩内存命中 + 解码，零网络等待
+    this.prefetchUpcomingRows(0);
+  }
+
+  /**
+   * 预取「即将进入视区的行」的前若干张海报进磁盘缓存：
+   * onScrollIndex 的 last 是最后可见行，把 last+1..last+3 的行首批 URL 丢给预取门面；
+   * 管线内部对在途/已缓存的 URL 幂等跳过，重复触发无副作用。
+   */
+  private prefetchUpcomingRows(lastIndex: number): void {
+    const rowTotal: number = this.rowSource.totalCount();
+    const urls: (string | null)[] = [];
+    for (let index = Math.max(0, lastIndex - 1); index <= lastIndex + 3 && index < rowTotal; index++) {
+      const items: PosterRowItem[] = this.rowPosterItems(this.rowSource.getData(index));
+      const take: number = Math.min(10, items.length);
+      for (let slot = 0; slot < take; slot++) {
+        urls.push(items[slot].url);
+      }
+    }
+    if (urls.length > 0) {
+      RemoteImagePrefetch.posterUrls(urls);
+    }
   }
 
   // MARK: 「按类型找」行
@@ -937,6 +1071,9 @@ export struct LibraryHomeView {
         // 向下滚累计到阈值：底栏收成圆形按钮（往回滑立刻放回）
         .onDidScroll((xOffset: number, yOffset: number) => {
           TabBarCollapse.shared().onScroll(this.scroller.currentOffset().yOffset, this.scroller.isAtEnd());
+        })
+        .onScrollIndex((_first: number, last: number) => {
+          this.prefetchUpcomingRows(last);
         })
         .cachedCount(4)
         // 底部让位用 contentEndOffset：内容能滚到页签胶囊/手势条下面，胶囊背后不再是黑底
@@ -1514,55 +1651,18 @@ export struct LibraryHomeView {
     .alignItems(HorizontalAlign.Start)
   }
 
-  /** 横滚海报行（收藏行 / 库行 / 合集行统一形态） */
+  /** 横滚海报行（收藏行 / 库行 / 合集行统一形态）：行内只建视区附近的格子（见 PosterRowView） */
   @Builder
   PosterRow(title: string, moreTitle: string, items: PosterRowItem[], onMore: () => void) {
-    Column({ space: 12 }) {
-      LibrarySectionHeader({
-        title: title,
-        trailingText: moreTitle,
-        onTrailing: (): void => {
-          onMore();
-        }
-      })
-      Scroll() {
-        Row({ space: 12 }) {
-          ForEach(items, (item: PosterRowItem) => {
-            Column() {
-              LibraryPosterCell({
-                title: item.title,
-                year: item.year,
-                url: item.url ?? '',
-                imageAspect: item.aspect,
-                frameAspect: Theme.posterAspect
-              })
-            }
-            .width(124)
-            .onClick(() => {
-              this.navStack.pushPathByName('libraryItem', new ItemRouteParams(item.libraryId, item.id));
-            })
-            .bindContextMenu(this.PosterInfoMenu(item), ResponseType.LongPress)
-          }, (item: PosterRowItem) => `${item.id}`)
-        }
-        .padding({ left: Theme.pagePadding, right: Theme.pagePadding })
+    PosterRowView({
+      title: title,
+      moreTitle: moreTitle,
+      items: items,
+      onMore: onMore,
+      onOpenItem: (item: PosterRowItem): void => {
+        this.navStack.pushPathByName('libraryItem', new ItemRouteParams(item.libraryId, item.id));
       }
-      .scrollable(ScrollDirection.Horizontal)
-      .scrollBar(BarState.Off)
-      .width('100%')
-    }
-    .padding({ top: 24 })
-    .width('100%')
-    .alignItems(HorizontalAlign.Start)
-  }
-
-  /** 长按海报：最近添加的季集范围、入库时间、收藏层级 */
-  @Builder
-  PosterInfoMenu(item: PosterRowItem) {
-    Menu() {
-      ForEach(item.info, (line: string) => {
-        MenuItem({ content: line })
-      }, (line: string) => line)
-    }
+    })
   }
 
   /** 「清空某个媒体库的观看记录」选择框（同 Web ClearLibraryHistoryDialog） */

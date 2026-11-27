@@ -370,6 +370,12 @@ export struct DiscoverFilteredGrid {
       .onReachEnd(() => {
         this.loadPage();
       })
+      // 近底预取：倒数第 3 行就开拉下一页，滚到底时数据多半已就位；onReachEnd 仍是兜底
+      .onScrollIndex((first: number, last: number) => {
+        if (last >= this.rowsSource.totalCount() - 3) {
+          this.loadPage();
+        }
+      })
     }
     .width('100%')
     .height('100%')
