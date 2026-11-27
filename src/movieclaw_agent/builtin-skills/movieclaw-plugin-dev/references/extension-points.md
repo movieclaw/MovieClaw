@@ -42,7 +42,6 @@ tests 守着：契约有增删时本文必须同步）。都是实验级；清�
 | `library.item.moved` | 条目转移到了另一个库（分错库补救、库内归并），文件随之搬走 | 同步路径、通知下游刷新 | |
 | `library.file.trashed` / `restored` / `purged` | 文件进回收站 / 恢复 / 彻底清除 | 回收站联动 | |
 | `library.item.favorited` / `unfavorited` | 收藏 / 取消收藏（`level`：整部、一季、一集） | 收藏即准备好整部 | 敏感 |
-| `library.item.rated` / `unrated` | 个人评分 / 清除评分（`level`：整部、一季、一集；`rating` 1–10 整数或 `None`，`previous_rating` 为变更前评分） | 双向同步评分到 Trakt / Plex / 豆瓣 | 敏感 |
 | `library.item.viewed` | 打开条目详情（网页详情页、播放器取条目） | 用户可能要看了，先准备 | 敏感、高频 |
 | `playback.started` / `stopped` / `completed` | 开始播放 / 停止（`completed` 表示停时刚好看完）/ 看完 | 预取下一集、播放联动、记录 | 敏感 |
 | `playback.progress` | 播放进度（每集最多 30 秒一条） | 同步进度 | 敏感、高频 |

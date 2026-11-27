@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import Column, ForeignKey, Integer, SmallInteger, UniqueConstraint
+from sqlalchemy import Column, ForeignKey, Integer, UniqueConstraint
 from sqlmodel import Field
 
 from movieclaw_db.models.base import TimestampMixin
@@ -90,16 +90,4 @@ class PlaybackState(MemberScopedMixin, TimestampMixin, table=True):
     continue_dismissed_at: datetime | None = Field(
         default=None,
         description="隐藏的服务器时间；只有比它新的播放事实才让作品回来。未隐藏时为 NULL",
-    )
-    # 个人评分（docs/design/user-rating.md）：1–10 整数（1=半星、10=5 星），NULL=未评分，
-    # 与 Plex / Jellyfin / Trakt 零换算。落点单元复用收藏哨兵约定（电影 (0,0)、整剧 (-1,-1)）。
-    # rated_at 单独记，理由同 favorited_at：updated_at 会被进度上报等其它写入改写；清除时置 NULL。
-    user_rating: int | None = Field(
-        default=None,
-        sa_column=Column(SmallInteger, nullable=True),
-        description="个人评分（1–10 整数，1=半星，10=5 星）；NULL=未评分",
-    )
-    rated_at: datetime | None = Field(
-        default=None,
-        description="最近一次评分的服务器时间；清除时置 NULL",
     )

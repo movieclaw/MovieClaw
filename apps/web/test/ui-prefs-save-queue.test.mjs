@@ -232,8 +232,8 @@ test("wall badges request is published on commit (layout effect), not during ren
   ctx.render();
   assert.deepEqual(ctx.wallWrites, [], "render alone leaves the module value untouched");
   ctx.runLayoutEffects();
-  assert.deepEqual(ctx.wallWrites, ["my_rating,progress"]);
+  assert.deepEqual(ctx.wallWrites, ["progress"]);
   ctx.render();
   ctx.runLayoutEffects();
-  assert.deepEqual(ctx.wallWrites, ["my_rating,progress"], "unchanged value is not rewritten");
+  assert.deepEqual(ctx.wallWrites, ["progress"], "unchanged value is not rewritten");
 });

@@ -103,7 +103,7 @@ class McApi(private val transport: ApiTransport) {
     }
 
     /** 按类型的跨库海报墙（同一部片跨库只出现一次）（`GET /libraries/kinds/{kind}/items`） */
-    suspend fun uiLibraryKindItems(kind: String, sort: String? = null, order: String? = null, limit: Long? = null, offset: Long? = null, g: String? = null, c: String? = null, d: String? = null, w: String? = null, ratingGte: Double? = null, myRatingGte: Long? = null, rt: String? = null, lang: String? = null, res: String? = null, hdr: Boolean? = null, stock: String? = null, seriesKeys: String? = null, actor: String? = null, badges: String? = null): List<LibraryItemView> {
+    suspend fun uiLibraryKindItems(kind: String, sort: String? = null, order: String? = null, limit: Long? = null, offset: Long? = null, g: String? = null, c: String? = null, d: String? = null, w: String? = null, ratingGte: Double? = null, rt: String? = null, lang: String? = null, res: String? = null, hdr: Boolean? = null, stock: String? = null, seriesKeys: String? = null, actor: String? = null, badges: String? = null): List<LibraryItemView> {
         val query = buildList<Pair<String, String>> {
             sort?.let { add("sort" to it.toString()) }
             order?.let { add("order" to it.toString()) }
@@ -114,7 +114,6 @@ class McApi(private val transport: ApiTransport) {
             d?.let { add("d" to it.toString()) }
             w?.let { add("w" to it.toString()) }
             ratingGte?.let { add("rating_gte" to it.toString()) }
-            myRatingGte?.let { add("my_rating_gte" to it.toString()) }
             rt?.let { add("rt" to it.toString()) }
             lang?.let { add("lang" to it.toString()) }
             res?.let { add("res" to it.toString()) }
@@ -162,7 +161,7 @@ class McApi(private val transport: ApiTransport) {
     }
 
     /** 库内媒体条目的库存聚合（单库海报墙数据源）（`GET /libraries/{library_id}/items`） */
-    suspend fun libraryItemsList(libraryId: Long, sort: String? = null, order: String? = null, limit: Long? = null, offset: Long? = null, identity: String? = null, g: String? = null, c: String? = null, d: String? = null, w: String? = null, ratingGte: Double? = null, myRatingGte: Long? = null, rt: String? = null, lang: String? = null, res: String? = null, hdr: Boolean? = null, stock: String? = null, seriesKeys: String? = null, actor: String? = null, badges: String? = null): List<LibraryItemView> {
+    suspend fun libraryItemsList(libraryId: Long, sort: String? = null, order: String? = null, limit: Long? = null, offset: Long? = null, identity: String? = null, g: String? = null, c: String? = null, d: String? = null, w: String? = null, ratingGte: Double? = null, rt: String? = null, lang: String? = null, res: String? = null, hdr: Boolean? = null, stock: String? = null, seriesKeys: String? = null, actor: String? = null, badges: String? = null): List<LibraryItemView> {
         val query = buildList<Pair<String, String>> {
             sort?.let { add("sort" to it.toString()) }
             order?.let { add("order" to it.toString()) }
@@ -174,7 +173,6 @@ class McApi(private val transport: ApiTransport) {
             d?.let { add("d" to it.toString()) }
             w?.let { add("w" to it.toString()) }
             ratingGte?.let { add("rating_gte" to it.toString()) }
-            myRatingGte?.let { add("my_rating_gte" to it.toString()) }
             rt?.let { add("rt" to it.toString()) }
             lang?.let { add("lang" to it.toString()) }
             res?.let { add("res" to it.toString()) }
@@ -188,7 +186,7 @@ class McApi(private val transport: ApiTransport) {
     }
 
     /** 筛选面板的候选值与计数（每一维排除自身条件后算）（`GET /libraries/{library_id}/facets`） */
-    suspend fun libraryItemsFacets(libraryId: Long, tier: String? = null, g: String? = null, c: String? = null, d: String? = null, w: String? = null, ratingGte: Double? = null, myRatingGte: Long? = null, rt: String? = null, lang: String? = null, res: String? = null, hdr: Boolean? = null, stock: String? = null, seriesKeys: String? = null, actor: String? = null): LibraryFacetsView {
+    suspend fun libraryItemsFacets(libraryId: Long, tier: String? = null, g: String? = null, c: String? = null, d: String? = null, w: String? = null, ratingGte: Double? = null, rt: String? = null, lang: String? = null, res: String? = null, hdr: Boolean? = null, stock: String? = null, seriesKeys: String? = null, actor: String? = null): LibraryFacetsView {
         val query = buildList<Pair<String, String>> {
             tier?.let { add("tier" to it.toString()) }
             g?.let { add("g" to it.toString()) }
@@ -196,7 +194,6 @@ class McApi(private val transport: ApiTransport) {
             d?.let { add("d" to it.toString()) }
             w?.let { add("w" to it.toString()) }
             ratingGte?.let { add("rating_gte" to it.toString()) }
-            myRatingGte?.let { add("my_rating_gte" to it.toString()) }
             rt?.let { add("rt" to it.toString()) }
             lang?.let { add("lang" to it.toString()) }
             res?.let { add("res" to it.toString()) }
@@ -209,7 +206,7 @@ class McApi(private val transport: ApiTransport) {
     }
 
     /** 海报墙的跳转索引（按标题：A-Z 首字母档；按内容时间：月份档）（`GET /libraries/{library_id}/item-index`） */
-    suspend fun uiLibraryItemsIndex(libraryId: Long, sort: String? = null, order: String? = null, granularity: String? = null, g: String? = null, c: String? = null, d: String? = null, w: String? = null, ratingGte: Double? = null, myRatingGte: Long? = null, rt: String? = null, lang: String? = null, res: String? = null, hdr: Boolean? = null, stock: String? = null, seriesKeys: String? = null, actor: String? = null): List<LibraryIndexEntryView> {
+    suspend fun uiLibraryItemsIndex(libraryId: Long, sort: String? = null, order: String? = null, granularity: String? = null, g: String? = null, c: String? = null, d: String? = null, w: String? = null, ratingGte: Double? = null, rt: String? = null, lang: String? = null, res: String? = null, hdr: Boolean? = null, stock: String? = null, seriesKeys: String? = null, actor: String? = null): List<LibraryIndexEntryView> {
         val query = buildList<Pair<String, String>> {
             sort?.let { add("sort" to it.toString()) }
             order?.let { add("order" to it.toString()) }
@@ -219,7 +216,6 @@ class McApi(private val transport: ApiTransport) {
             d?.let { add("d" to it.toString()) }
             w?.let { add("w" to it.toString()) }
             ratingGte?.let { add("rating_gte" to it.toString()) }
-            myRatingGte?.let { add("my_rating_gte" to it.toString()) }
             rt?.let { add("rt" to it.toString()) }
             lang?.let { add("lang" to it.toString()) }
             res?.let { add("res" to it.toString()) }
@@ -232,14 +228,13 @@ class McApi(private val transport: ApiTransport) {
     }
 
     /** 筛空时的放宽建议（只列救得回内容的条件）（`GET /libraries/{library_id}/relax`） */
-    suspend fun libraryItemsRelax(libraryId: Long, g: String? = null, c: String? = null, d: String? = null, w: String? = null, ratingGte: Double? = null, myRatingGte: Long? = null, rt: String? = null, lang: String? = null, res: String? = null, hdr: Boolean? = null, stock: String? = null, seriesKeys: String? = null, actor: String? = null): LibraryRelaxView {
+    suspend fun libraryItemsRelax(libraryId: Long, g: String? = null, c: String? = null, d: String? = null, w: String? = null, ratingGte: Double? = null, rt: String? = null, lang: String? = null, res: String? = null, hdr: Boolean? = null, stock: String? = null, seriesKeys: String? = null, actor: String? = null): LibraryRelaxView {
         val query = buildList<Pair<String, String>> {
             g?.let { add("g" to it.toString()) }
             c?.let { add("c" to it.toString()) }
             d?.let { add("d" to it.toString()) }
             w?.let { add("w" to it.toString()) }
             ratingGte?.let { add("rating_gte" to it.toString()) }
-            myRatingGte?.let { add("my_rating_gte" to it.toString()) }
             rt?.let { add("rt" to it.toString()) }
             lang?.let { add("lang" to it.toString()) }
             res?.let { add("res" to it.toString()) }

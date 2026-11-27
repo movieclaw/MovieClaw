@@ -125,7 +125,7 @@ test("route query parsing preserves all filters without reading the outgoing bro
   const { readLibraryFilter } = await import("../lib/library-filter.ts");
   const params = new URLSearchParams("g=16,878,NaN&c=US,JP&d=2020s&w=played&rating_gte=8&rt=gt120&lang=ja&res=2160p&hdr=false&stock=missing");
   const parsed = readLibraryFilter(params);
-  assert.deepEqual(parsed, { genres: [16, 878], countries: ["US", "JP"], decades: ["2020s"], watch: "played", ratingGte: 8, myRatingGte: null, runtimes: ["gt120"], languages: ["ja"], resolutions: ["2160p"], hdr: false, stock: ["missing"], actor: null });
+  assert.deepEqual(parsed, { genres: [16, 878], countries: ["US", "JP"], decades: ["2020s"], watch: "played", ratingGte: 8, runtimes: ["gt120"], languages: ["ja"], resolutions: ["2160p"], hdr: false, stock: ["missing"], actor: null });
   const restored = new URLSearchParams();
   filterQuery(parsed, restored);
   assert.deepEqual(readLibraryFilter(restored), parsed);

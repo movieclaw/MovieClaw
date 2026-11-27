@@ -1,15 +1,17 @@
 from __future__ import annotations
 
+import json
 import re
 import secrets
 from datetime import UTC, datetime
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, ValidationError, model_validator
 
 from movieclaw_api.i18n import t
 from movieclaw_api.settings.base import SettingSchema, register_setting
 from movieclaw_api.settings.store import get_setting_store
+from movieclaw_db.repositories.setting_repo import SettingRepository
 from movieclaw_tracker.models import TorrentCategory
 
 # ---------------------------------------------------------------------------
@@ -411,12 +413,10 @@ HOME_ROW_SORTS = frozenset(
 )
 #: 「我的收藏」行的排序档：未看优先是首页那一行的默认（见 playback_favorites）。
 HOME_FAVORITES_SORTS = frozenset({"unwatched_first", "favorited_at", "rating", "title"})
-#: 「我的高分作品」行的排序档：我的评分倒序是默认，最近评分次之（见 GET /playback/rated）。
-HOME_RATED_SORTS = frozenset({"my_rating", "rated_at"})
 #: 行 id 只认这几种形状：内置行（含「按类型找电影 / 剧集」色块区）、每库一条的
 #: 默认库行、默认类型行、用户自己加的行。
 _HOME_ROW_ID = re.compile(
-    r"^(up-next|favorites|rated|libraries|genres:(movie|tv)|lib:\d+|kind:(movie|tv|video)"
+    r"^(up-next|favorites|libraries|genres:(movie|tv)|lib:\d+|kind:(movie|tv|video)"
     r"|row:[A-Za-z0-9_-]{1,32})$"
 )
 
@@ -473,8 +473,6 @@ class HomeRowPref(BaseModel):
             allowed = (
                 HOME_FAVORITES_SORTS
                 if self.id == "favorites"
-                else HOME_RATED_SORTS
-                if self.id == "rated"
                 else HOME_ROW_SORTS
                 if custom or self.id.startswith(("lib:", "kind:"))
                 else frozenset()
@@ -518,10 +516,6 @@ class PosterBadgePrefs(BaseModel):
     progress_percent / unplayed_count），打开开关不会多发请求。
     """
 
-    my_rating: bool = Field(
-        default=True,
-        description="左上角我的评分（已评分时优先替代外部评分，默认开启；未评分条目无视觉变化）",
-    )
     rating: bool = Field(default=False, description="左上角评分")
     year: bool = Field(default=False, description="左上角年份")
     resolution: bool = Field(default=False, description="右上角最高分辨率（4K / 1080P …）")
@@ -578,9 +572,39 @@ class UiPreferencesSetting(SettingSchema):
     )
 
 
+def parse_stored_ui_preferences(raw: object) -> UiPreferencesSetting:
+    """从持久化 JSON 解析界面偏好；若库里残留已撤回的 ``rated`` 首页行则仅在读出时忽略。"""
+    if not raw:
+        return UiPreferencesSetting()
+    try:
+        return UiPreferencesSetting.model_validate(raw)
+    except ValidationError:
+        if not isinstance(raw, dict):
+            raise
+        home = raw.get("home")
+        if not isinstance(home, dict) or not isinstance(home.get("rows"), list):
+            raise
+        rows = [
+            row
+            for row in home["rows"]
+            if not (isinstance(row, dict) and row.get("id") == "rated")
+        ]
+        if len(rows) == len(home["rows"]):
+            raise
+        return UiPreferencesSetting.model_validate({**raw, "home": {**home, "rows": rows}})
+
+
 async def get_ui_preferences() -> UiPreferencesSetting:
     """读取界面偏好（从未配置则返回各页面的默认值）。"""
-    return await get_setting_store().get(UiPreferencesSetting)
+    store = get_setting_store()
+    try:
+        return await store.get(UiPreferencesSetting)
+    except ValidationError:
+        async with store._db().session() as session:
+            row = await SettingRepository(session).get("ui.preferences")
+        if row is None:
+            return UiPreferencesSetting()
+        return parse_stored_ui_preferences(json.loads(row.value_json))
 
 
 async def save_ui_preferences(prefs: UiPreferencesSetting) -> UiPreferencesSetting:

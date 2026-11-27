@@ -406,8 +406,6 @@ export interface LibraryItem {
   progress_percent?: number | null;
   /** 剧集：本墙在位集里当前观看者还没看完的集数；电影为 null */
   unplayed_count?: number | null;
-  /** 当前观看者的个人评分（1–10 整数）；没请求 badges=my_rating 或未评分为 null */
-  user_rating?: number | null;
 }
 
 /** 收敛器判不了时留下的一个候选（点一下即可认领）。 */
@@ -690,7 +688,6 @@ export type LibraryItemSort =
   | "release_date_asc"
   | "probing"
   | "rating"
-  | "my_rating"
   | "runtime"
   | "size"
   | "last_played"
@@ -887,7 +884,6 @@ export interface LibraryFacets {
   watch: FacetValue[];
   // 以下只在 tier="all" 时非空（「更多筛选」面板打开才算）
   ratings: FacetValue[];
-  my_ratings?: FacetValue[];
   runtimes: FacetValue[];
   languages: FacetValue[];
   resolutions: FacetValue[];
@@ -1717,8 +1713,6 @@ export interface LibraryItemDetail {
   collections: { id: number; name: string }[];
   /** 剧集播出状态（同海报墙）；电影或状态未知为 null，老服务端没有该字段 */
   air_status?: "airing" | "ended" | null;
-  /** 当前观看者的个人评分（1–10 整数）；未评分或老服务端为 null/undefined */
-  user_rating?: number | null;
 }
 
 /** 剧集分集区的一集（季集结构 + 本地分集刮削 + TMDB 兜底的合并结果）。 */

@@ -55,9 +55,7 @@ import { preloadHlsEngine } from "@/lib/player/engine";
 import { getCapabilitySnapshot } from "@/lib/player/capability";
 import { ReidentifyDialog } from "@/components/reidentify-dialog";
 import { ShareDialog } from "@/components/share-dialog";
-import { StarRating } from "@/components/star-rating";
 import { Tooltip } from "@/components/tooltip";
-import { canRateTarget } from "@/lib/user-rating";
 import {
   type FileCloudCopy,
   type ItemDeleteResult,
@@ -222,9 +220,7 @@ export function LibraryItemDetailView({
   // 整个条目（电影 / 整部剧）的收藏态——与 Jellyfin 客户端在条目页点的心是
   // 同一份数据。null = 还没问到，心先按未收藏渲染。
   const [favorite, setFavorite] = useState<boolean | null>(null);
-  // 整个条目（电影 / 整部剧）的个人评分（1–10 整数）；null = 未评分。
-  const [userRating, setUserRating] = useState<number | null>(null);
-  // 心 / 对勾 / 评分的请求进行中：防连点，共用一把锁（同一行数据）
+  // 心 / 对勾的请求进行中：防连点，两个按钮共用一把锁（同一行数据）
   const [marking, setMarking] = useState(false);
   // 在页面内改写了观看状态（对勾）之后让分集区静默重拉：分集卡的绿色对勾
   // 与 Hero 的「已看完」必须同步，但不能重置当前选中的集
@@ -302,40 +298,16 @@ export function LibraryItemDetailView({
   useEffect(() => {
     let cancelled = false;
     setFavorite(null);
-    setUserRating(null);
     fetchPlaybackMarks({ media_item_id: mediaItemId })
       .then((marks) => {
-        if (!cancelled) {
-          setFavorite(marks.is_favorite);
-          setUserRating(marks.user_rating ?? null);
-        }
+        if (!cancelled) setFavorite(marks.is_favorite);
       })
-      // 查不到收藏 / 评分态不影响浏览，按未收藏 / 未评分渲染即可
+      // 查不到收藏态不影响浏览，心按未收藏渲染即可
       .catch(() => undefined);
     return () => {
       cancelled = true;
     };
   }, [mediaItemId]);
-
-  /** 设置或清除整个条目的个人评分（1–10 设置，0 清除）：先乐观更新，失败回滚并提示。 */
-  const rateItem = useCallback(
-    async (next: number) => {
-      if (marking) return;
-      const previous = userRating;
-      setMarking(true);
-      setUserRating(next === 0 ? null : next);
-      try {
-        const marks = await setPlaybackMarks({ media_item_id: mediaItemId }, { rating: next });
-        setUserRating(marks.user_rating ?? null);
-      } catch (e) {
-        setUserRating(previous);
-        toast.error(e instanceof Error ? e.message : t("library.item.rateFailed"));
-      } finally {
-        setMarking(false);
-      }
-    },
-    [marking, mediaItemId, t, toast, userRating],
-  );
 
   /** 收藏 / 取消收藏整个条目：先翻按钮再请求，失败翻回来并提示。 */
   const toggleFavorite = useCallback(async () => {
@@ -1001,11 +973,8 @@ export function LibraryItemDetailView({
               watched={watched}
               favorite={favorite}
               favoriteLabel={isMovie ? t("library.item.thisMovie") : t("library.item.thisSeries")}
-              userRating={userRating}
-              ratingKind={detail.kind}
               marking={marking}
               onToggleFavorite={toggleFavorite}
-              onRate={canRateTarget({ kind: detail.kind }) ? rateItem : undefined}
               onTogglePlayed={togglePlayed}
               externalLink={
                 playUnit
@@ -1364,11 +1333,8 @@ export function PlayAction({
   onPlay,
   favorite = null,
   favoriteLabel = "",
-  userRating = null,
-  ratingKind = "movie",
   marking = false,
   onToggleFavorite,
-  onRate,
   onTogglePlayed,
   externalLink,
 }: {
@@ -1376,16 +1342,11 @@ export function PlayAction({
   onPlay: () => void;
   /** 整个条目的收藏态；null = 还没问到，按未收藏渲染 */
   favorite?: boolean | null;
-  /** 收藏 / 评分对象的称呼（「这部电影」/「这部剧」），进提示文案 */
+  /** 收藏对象的称呼（「这部电影」/「这部剧」），进提示文案 */
   favoriteLabel?: string;
-  /** 整个条目的个人评分（1–10 整数）；null = 未评分 */
-  userRating?: number | null;
-  /** 条目类型；第一期仅开放电影与整剧评分 */
-  ratingKind?: string;
-  /** 标记请求进行中：整组按钮一起禁用，防连点 */
+  /** 标记请求进行中：两枚键一起禁用，防连点 */
   marking?: boolean;
   onToggleFavorite?: () => void;
-  onRate?: (next: number) => void;
   onTogglePlayed?: () => void;
   /** 传了才渲染外部播放器入口；分享页不传 */
   externalLink?: PlaybackExternalLinkRequest;
@@ -1441,8 +1402,8 @@ export function PlayAction({
 
       {externalLink && <ExternalPlayerSplitButton request={externalLink} />}
 
-      {(onToggleFavorite || onRate || onTogglePlayed) && (
-        <div className="flex flex-wrap items-center gap-2.5">
+      {(onToggleFavorite || onTogglePlayed) && (
+        <div className="flex items-center gap-2.5">
           {onToggleFavorite && (
             <Tooltip
               content={favorite ? t("library.item.unfavoriteTitle", { title: favoriteLabel }) : t("library.item.favoriteTitle", { title: favoriteLabel })}
@@ -1465,15 +1426,6 @@ export function PlayAction({
                 <span className="text-ui font-medium md:hidden">{favorite ? t("library.item.favorited") : t("library.gallery.favorite")}</span>
               </button>
             </Tooltip>
-          )}
-          {onRate && (
-            <StarRating
-              value={userRating}
-              kind={ratingKind}
-              disabled={marking}
-              targetLabel={favoriteLabel}
-              onChange={onRate}
-            />
           )}
           {onTogglePlayed && (
             <Tooltip

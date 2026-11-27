@@ -962,10 +962,6 @@ data class FavoriteItemView(
      * 剧集：本墙在位集里当前观看者还没看完的集数；电影、没请求 badges=unwatched 或不认人的调用为 null
      */
     @SerialName("unplayed_count") val unplayedCount: Long? = null,
-    /**
-     * 当前观看者的个人评分（1–10 整数，1=半星，10=5 星）；未评分、没请求 badges=my_rating 或不认人的调用为 null
-     */
-    @SerialName("user_rating") val userRating: Long? = null,
     @SerialName("favorite_season_number") val favoriteSeasonNumber: Long? = null,
     @SerialName("favorite_episode_number") val favoriteEpisodeNumber: Long? = null,
 )
@@ -1281,10 +1277,6 @@ data class LibraryFacetsView(
      */
     @SerialName("ratings") val ratings: List<FacetValueView> = emptyList(),
     /**
-     * 我的评分档（找片）
-     */
-    @SerialName("my_ratings") val myRatings: List<FacetValueView> = emptyList(),
-    /**
      * 片长档（找片）
      */
     @SerialName("runtimes") val runtimes: List<FacetValueView> = emptyList(),
@@ -1517,10 +1509,6 @@ data class LibraryItemDetailView(
      * 剧集播出状态（同海报墙）：airing=在播 / ended=完结；电影或状态未知为 null
      */
     @SerialName("air_status") val airStatus: String? = null,
-    /**
-     * 当前成员的个人评分（1–10 整数，1=半星，10=5 星）；未评分为 null
-     */
-    @SerialName("user_rating") val userRating: Long? = null,
 )
 
 /**
@@ -1658,10 +1646,6 @@ data class LibraryItemView(
      * 剧集：本墙在位集里当前观看者还没看完的集数；电影、没请求 badges=unwatched 或不认人的调用为 null
      */
     @SerialName("unplayed_count") val unplayedCount: Long? = null,
-    /**
-     * 当前观看者的个人评分（1–10 整数，1=半星，10=5 星）；未评分、没请求 badges=my_rating 或不认人的调用为 null
-     */
-    @SerialName("user_rating") val userRating: Long? = null,
 )
 
 /**
@@ -2428,9 +2412,7 @@ data class PlaybackItemView(
  * 目标的表达与 Jellyfin 的 Series / Season / Episode 三级一一对应：不带季集
  * = 整个条目（电影，或整剧级联到全部集）；只带季 = 整季；季集都带 = 单集。
  * 电影也可以像播放接口那样带哨兵 ``(0, 0)``，落到同一个单元。
- * ``played``、``favorite`` 与 ``rating`` 至少给一个，没给的保持原值。
- * ``rating`` 取值 0–10（0 = 清除，1–10 对应半星到 5 星）；第一期仅支持电影与整剧，
- * 带季/集参数时返回 400。
+ * ``played`` 与 ``favorite`` 至少给一个，没给的那个保持原值。
  */
 @Serializable
 data class PlaybackMarksRequest(
@@ -2439,12 +2421,11 @@ data class PlaybackMarksRequest(
     @SerialName("episode_number") val episodeNumber: Long? = null,
     @SerialName("played") val played: Boolean? = null,
     @SerialName("favorite") val favorite: Boolean? = null,
-    @SerialName("rating") val rating: Long? = null,
     @SerialName("device_id") val deviceId: String? = null,
 )
 
 /**
- * 目标在当前成员名下的已看 / 收藏 / 个人评分状态。读接口与写接口同一形状，
+ * 目标在当前成员名下的已看 / 收藏状态。读接口与写接口同一形状，
  * 写完直接拿它刷新按钮，不必再查一次。
  */
 @Serializable
@@ -2452,7 +2433,6 @@ data class PlaybackMarksView(
     @SerialName("played") val played: Boolean = false,
     @SerialName("is_favorite") val isFavorite: Boolean = false,
     @SerialName("unplayed_count") val unplayedCount: Long? = null,
-    @SerialName("user_rating") val userRating: Long? = null,
 )
 
 /**
@@ -2654,10 +2634,6 @@ data class PlaybackStateView(
  */
 @Serializable
 data class PosterBadgePrefs(
-    /**
-     * 左上角我的评分（已评分时优先替代外部评分，默认开启；未评分条目无视觉变化）
-     */
-    @SerialName("my_rating") val myRating: Boolean = false,
     /**
      * 左上角评分
      */

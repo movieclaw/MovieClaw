@@ -46,9 +46,6 @@ export type HomeRowOrder = "asc" | "desc";
 export type FavoritesSort =
   "unwatched_first" | "favorited_at" | "rating" | "title";
 
-/** 「我的高分作品」行的排序档：我的评分倒序为默认，最近评分次之（见 GET /playback/rated）。 */
-export type RatedSort = "my_rating" | "rated_at";
-
 /** 服务端存的一行（settings.schemas.HomeRowPref）；除 id 外全部可空，空即默认。 */
 export interface HomeRowPref {
   id: string;
@@ -122,13 +119,6 @@ export type HomeRow =
       hidden: boolean;
       sort: FavoritesSort;
       /** 是否反转了这一档的自然方向；「未看优先」没有方向，恒为 false */
-      reversed: boolean;
-    }
-  | {
-      id: "rated";
-      kind: "rated";
-      hidden: boolean;
-      sort: RatedSort;
       reversed: boolean;
     }
   | { id: "libraries"; kind: "libraries"; hidden: boolean }
@@ -343,32 +333,6 @@ export const FAVORITES_SORT_PRESETS = favoritesSortPresets("zh-Hans");
 
 const FAVORITES_SORTS = new Set<string>(Object.keys(FAVORITES_SORT_PRESETS));
 
-export function ratedSortPresets(locale?: AppLocale): Record<
-  RatedSort,
-  {
-    name: (reversed: boolean) => string;
-    direction: SortDirection | null;
-    hint: string;
-  }
-> {
-  const t = appTranslator(locale);
-  return {
-    my_rating: {
-      name: (r) => (r ? t("library.rows.myLowestRated") : t("library.rows.myRating")),
-      direction: { naturalAsc: false, asc: t("library.rows.lowToHigh"), desc: t("library.rows.highToLow") },
-      hint: t("library.rows.myRatingHint"),
-    },
-    rated_at: {
-      name: (r) => (r ? t("library.rows.firstRated") : t("library.rows.recentRated")),
-      direction: { naturalAsc: false, asc: t("library.rows.oldToNew"), desc: t("library.rows.newToOld") },
-      hint: t("library.rows.ratedAtHint"),
-    },
-  };
-}
-export const RATED_SORT_PRESETS = ratedSortPresets("zh-Hans");
-
-const RATED_SORTS = new Set<string>(Object.keys(RATED_SORT_PRESETS));
-
 /**
  * 把存下来的（sort, order）认成（档位, 是否反转）。
  *
@@ -427,8 +391,6 @@ export function rowTitle(row: HomeRow, locale?: AppLocale): string {
       return t("library.rows.upNext");
     case "favorites":
       return t("library.rows.favorites");
-    case "rated":
-      return t("library.rows.rated");
     case "libraries":
       return t("library.rows.libraries");
     case "genres":
@@ -465,8 +427,6 @@ export function rowMeta(row: HomeRow): string {
       return t("library.rows.watchingMeta");
     case "favorites":
       return t("library.rows.favoritesMeta", { sort: favoritesSortPresets()[row.sort].name(row.reversed) });
-    case "rated":
-      return t("library.rows.favoritesMeta", { sort: ratedSortPresets()[row.sort].name(row.reversed) });
     case "libraries":
       return t("library.rows.librariesMeta");
     case "genres":
@@ -542,13 +502,6 @@ function defaultRows(libraries: HomeLibraryLike[]): HomeRow[] {
       kind: "favorites",
       hidden: false,
       sort: "unwatched_first",
-      reversed: false,
-    },
-    {
-      id: "rated",
-      kind: "rated",
-      hidden: false,
-      sort: "my_rating",
       reversed: false,
     },
     { id: "libraries", kind: "libraries", hidden: false },
@@ -664,18 +617,6 @@ function resolveRow(
       reversed: isReversed(FAVORITES_SORT_PRESETS[sort].direction, pref.order),
     };
   }
-  if (pref.id === "rated") {
-    const sort = RATED_SORTS.has(pref.sort ?? "")
-      ? (pref.sort as RatedSort)
-      : "my_rating";
-    return {
-      id: "rated",
-      kind: "rated",
-      hidden,
-      sort,
-      reversed: isReversed(RATED_SORT_PRESETS[sort].direction, pref.order),
-    };
-  }
   if (pref.id.startsWith("lib:")) {
     const library = libById.get(Number(pref.id.slice(4)));
     // 管理员勾了「从首页排除」的库：默认行不出现，存过也一样（管理员的决定优先）；
@@ -788,15 +729,6 @@ export function rowsToPrefs(rows: HomeRow[]): HomeRowPref[] {
         if (row.sort !== "unwatched_first") base.sort = row.sort;
         const order = orderParamFor(
           FAVORITES_SORT_PRESETS[row.sort].direction,
-          row.reversed,
-        );
-        if (order) base.order = order;
-        return base;
-      }
-      case "rated": {
-        if (row.sort !== "my_rating") base.sort = row.sort;
-        const order = orderParamFor(
-          RATED_SORT_PRESETS[row.sort].direction,
           row.reversed,
         );
         if (order) base.order = order;

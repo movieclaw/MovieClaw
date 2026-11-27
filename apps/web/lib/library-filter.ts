@@ -8,7 +8,7 @@
 /** 观看状态筛选：未看 / 在看 / 已看完是一个划分，收藏与它们正交（单选）。 */
 /** 观看状态。前三者是一个划分；favorite 与之正交；seen = 在看 ∪ 已看完，只有首页
  *  「最近观看」行用它把从没播过的片挡在外面，筛选条里不出现。 */
-export type WatchFilter = "unwatched" | "unfinished" | "watching" | "played" | "favorite" | "seen" | "rated";
+export type WatchFilter = "unwatched" | "unfinished" | "watching" | "played" | "favorite" | "seen";
 
 /**
  * 海报墙的筛选条件（docs/design/library-filtering.md 3.1）。
@@ -27,8 +27,6 @@ export interface LibraryFilter {
   watch?: WatchFilter | null;
   // —— 二级·找片（作品是什么样的）——
   ratingGte?: number | null;
-  /** 我的评分门槛（1–10 整数，如 8 = ≥ 4★） */
-  myRatingGte?: number | null;
   /** 片长档：lte60 / 60to90 / 90to120 / gt120 */
   runtimes?: string[];
   /** 原始语言码 */
@@ -56,8 +54,6 @@ export function filterQuery(filter: LibraryFilter | undefined, query: URLSearchP
   if (filter.watch) query.set("w", filter.watch);
   if (filter.ratingGte !== undefined && filter.ratingGte !== null)
     query.set("rating_gte", String(filter.ratingGte));
-  if (filter.myRatingGte !== undefined && filter.myRatingGte !== null)
-    query.set("my_rating_gte", String(filter.myRatingGte));
   if (filter.runtimes?.length) query.set("rt", filter.runtimes.join(","));
   if (filter.languages?.length) query.set("lang", filter.languages.join(","));
   if (filter.resolutions?.length) query.set("res", filter.resolutions.join(","));
@@ -75,7 +71,6 @@ export function isFilterEmpty(filter: LibraryFilter | undefined): boolean {
     !filter.decades?.length &&
     !filter.watch &&
     (filter.ratingGte === undefined || filter.ratingGte === null) &&
-    (filter.myRatingGte === undefined || filter.myRatingGte === null) &&
     !filter.runtimes?.length &&
     !filter.languages?.length &&
     !filter.resolutions?.length &&
@@ -95,7 +90,6 @@ export function filterCount(filter: LibraryFilter | undefined): number {
     (filter.decades?.length ?? 0) +
     (filter.watch ? 1 : 0) +
     (filter.ratingGte !== undefined && filter.ratingGte !== null ? 1 : 0) +
-    (filter.myRatingGte !== undefined && filter.myRatingGte !== null ? 1 : 0) +
     (filter.runtimes?.length ?? 0) +
     (filter.languages?.length ?? 0) +
     (filter.resolutions?.length ?? 0) +
@@ -204,7 +198,6 @@ export function filterKey(filter: LibraryFilter | undefined): string {
     d: filter?.decades ?? [],
     w: filter?.watch ?? null,
     r: filter?.ratingGte != null ? String(filter.ratingGte) : null,
-    mr: filter?.myRatingGte != null ? String(filter.myRatingGte) : null,
     rt: filter?.runtimes ?? [],
     lang: filter?.languages ?? [],
     res: filter?.resolutions ?? [],
@@ -226,7 +219,6 @@ export function readLibraryFilter(params: Pick<URLSearchParams, "get">): Library
   const list = (key: string) => (params.get(key) ?? "").split(",").filter(Boolean);
   const watch = params.get("w");
   const rating = params.get("rating_gte");
-  const myRating = params.get("my_rating_gte");
   const hdr = params.get("hdr");
   return {
     genres: list("g")
@@ -236,7 +228,6 @@ export function readLibraryFilter(params: Pick<URLSearchParams, "get">): Library
     decades: list("d"),
     watch: watch ? (watch as WatchFilter) : null,
     ratingGte: rating !== null && Number.isFinite(Number(rating)) ? Number(rating) : null,
-    myRatingGte: myRating !== null && Number.isFinite(Number(myRating)) ? Number(myRating) : null,
     runtimes: list("rt"),
     languages: list("lang"),
     resolutions: list("res"),

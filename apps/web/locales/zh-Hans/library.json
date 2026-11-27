@@ -295,14 +295,7 @@
     "genresMeta": "内置 · 每个类型一格（{count} 个库）",
     "libraryMeta": "{name}库",
     "kindMeta": "全部{kind}（{count} 个库）",
-    "collectionMeta": "合集 · {sort}",
-    "rated": "我的高分作品",
-    "myRating": "我的评分",
-    "myLowestRated": "我的评分（低→高）",
-    "myRatingHint": "按我的评分排序",
-    "recentRated": "最近评分",
-    "firstRated": "最早评分",
-    "ratedAtHint": "评分时间"
+    "collectionMeta": "合集 · {sort}"
   },
   "confirm": {
     "scanIntro": "本次扫描会检查库文件夹的最新变化：",
@@ -642,8 +635,7 @@
     "smallToLarge": "小→大",
     "largeToSmall": "大→小",
     "random": "随机",
-    "reverseHint": "{label}，{direction}，再点一次反转顺序",
-    "myRating": "我的评分"
+    "reverseHint": "{label}，{direction}，再点一次反转顺序"
   },
   "issues": {
     "title": "待处理",
@@ -744,8 +736,7 @@
     "dropCondition": "去掉「<strong>{dimension} = {value}</strong>」",
     "relaxedCount": "→ {count} 部",
     "viewCount": "查看 {count} 部",
-    "selectedSuffix": " · 已选 {count}",
-    "myRating": "我的评分"
+    "selectedSuffix": " · 已选 {count}"
   },
   "cloudPicker": {
     "enterFolder": "点进要挂的文件夹再选",
@@ -1014,13 +1005,7 @@
     "airExpectedShort": "预计入库",
     "airThisWeek": "本周",
     "airNextWeek": "下周",
-    "airLater": "之后",
-    "myRating": "我的评分",
-    "rate": "评分",
-    "rateTitle": "为{title}评分",
-    "rateStars": "{stars} 星",
-    "clearRating": "清除评分",
-    "rateFailed": "评分失败，请稍后重试"
+    "airLater": "之后"
   },
   "transfer": {
     "librariesFailed": "读取媒体库列表失败，请稍后重试",
@@ -1751,8 +1736,7 @@
     "unfinished": "未看完",
     "watching": "在看",
     "played": "已看完",
-    "favorite": "我收藏的",
-    "rated": "我评过的"
+    "favorite": "我收藏的"
   },
   "watchFilter": {
     "all": "全部观看状态",
@@ -1784,9 +1768,7 @@
     "unwatched": "{count} 集未看",
     "progress": "已看 {percent}%",
     "rating": "评分 {rating}",
-    "detailStatus": "播出状态：{status}",
-    "toggleMyRating": "我的评分",
-    "myRating": "我的评分 {rating}"
+    "detailStatus": "播出状态：{status}"
   },
   "externalPlayer": {
     "openWith": "用 {player} 打开",
