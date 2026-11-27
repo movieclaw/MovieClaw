@@ -1183,24 +1183,6 @@ def _asset_tag(rel_path: str | None, version: datetime | None) -> str | None:
 # UserData
 # ---------------------------------------------------------------------------
 
-#: Jellyfin `UserItemDataDto.Likes` 判定阈值（Rating >= 6.5 → Likes=True，否则 False）。
-#: MovieClaw 落库为 1–10 整数（0.5–5.0 星），对应整数分界为 6 (3.0★) → False、7 (3.5★) → True。
-JELLYFIN_LIKES_THRESHOLD = 6.5
-
-
-def rating_to_likes(rating: int | float | None) -> bool | None:
-    """将个人评分换算为 Jellyfin `Likes` 布尔语义；未评分返回 None。"""
-    if rating is None:
-        return None
-    return float(rating) >= JELLYFIN_LIKES_THRESHOLD
-
-
-def _apply_rating_user_data(data: dict[str, Any], st: PlaybackState | None) -> None:
-    """有评分时写入 Jellyfin `Rating`（1–10）与 `Likes`；未评分保持缺省（WhenWritingNull）。"""
-    if st is not None and st.user_rating is not None:
-        data["Rating"] = st.user_rating
-        data["Likes"] = rating_to_likes(st.user_rating)
-
 
 def _leaf_user_data(bundle: ItemBundle, season: int, episode: int, guid: str) -> dict[str, Any]:
     st = bundle.state(season, episode)
@@ -1213,7 +1195,6 @@ def _leaf_user_data(bundle: ItemBundle, season: int, episode: int, guid: str) ->
         "Key": guid,
         "ItemId": guid,
     }
-    _apply_rating_user_data(data, st)
     if st and st.position_ms > 0 and runtime_ms:
         pct = st.position_ms / runtime_ms * 100
         if pct > 0:
@@ -1230,10 +1211,9 @@ def _folder_user_data(
     units = [u for u in bundle.units if season is None or u[0] == season]
     played = sum(1 for u in units if (st := bundle.state(*u)) and st.played)
     total = len(units)
-    # 文件夹级收藏与评分用哨兵单元：Season → (season, -1)，Series → (-1, -1)
+    # 文件夹级收藏用哨兵单元：Season → (season, -1)，Series → (-1, -1)
     sentinel = (season, -1) if season is not None else (-1, -1)
-    sentinel_state = bundle.state(*sentinel)
-    favorite = bool(sentinel_state and sentinel_state.is_favorite)
+    favorite = bool((st := bundle.state(*sentinel)) and st.is_favorite)
     data: dict[str, Any] = {
         "PlaybackPositionTicks": 0,
         "PlayCount": 0,
@@ -1242,7 +1222,6 @@ def _folder_user_data(
         "Key": guid,
         "ItemId": guid,
     }
-    _apply_rating_user_data(data, sentinel_state)
     if total > 0:
         data["PlayedPercentage"] = played / total * 100
         data["Played"] = played >= total

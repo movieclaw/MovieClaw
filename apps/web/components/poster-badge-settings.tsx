@@ -12,7 +12,6 @@ import { useUiPrefs } from "@/lib/ui-prefs";
 
 /** 开关键 → 文案键（文案键段内不能带下划线） */
 const TOGGLE_LABELS = {
-  my_rating: "library.posterBadges.toggleMyRating",
   rating: "library.posterBadges.toggleRating",
   year: "library.posterBadges.toggleYear",
   resolution: "library.posterBadges.toggleResolution",

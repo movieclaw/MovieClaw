@@ -120,8 +120,6 @@ async def migrate_watch_state(session: AsyncSession, old_unit: Unit, new_unit: U
                 play_count=old.play_count,
                 is_favorite=old.is_favorite,
                 favorited_at=old.favorited_at,
-                user_rating=old.user_rating,
-                rated_at=old.rated_at,
                 last_played_at=old.last_played_at,
             )
             session.add(target)
@@ -141,12 +139,6 @@ async def migrate_watch_state(session: AsyncSession, old_unit: Unit, new_unit: U
             if times:
                 target.favorited_at = min(times)
         target.is_favorite = target.is_favorite or old.is_favorite
-        if old.user_rating is not None and (
-            target.user_rating is None
-            or (old.rated_at or datetime.min) > (target.rated_at or datetime.min)
-        ):
-            target.user_rating = old.user_rating
-            target.rated_at = old.rated_at
         target.play_count = max(target.play_count, old.play_count)
         target.updated_at = utcnow()
         session.add(target)

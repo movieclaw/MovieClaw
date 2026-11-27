@@ -50,9 +50,7 @@ import {
   type FavoriteItem,
   type FavoritesPage,
   listFavorites,
-  listRated,
   listUpNext,
-  type RatedPage,
   type UpNextItem,
 } from "@/lib/api/playback";
 import type { Subscription } from "@/lib/api/subscriptions";
@@ -63,7 +61,6 @@ import {
   homeRowHref,
   homeCollectionIds,
   FAVORITES_SORT_PRESETS,
-  RATED_SORT_PRESETS,
   type GenreRowKind,
   type HomeRow,
   orderParamFor,
@@ -91,8 +88,6 @@ const RECENT_COUNT = 20;
 const UP_NEXT_COUNT = 20;
 /** 「我的收藏」横滚行只放最近收藏的这么多部，更多的到 /library/favorites 看。 */
 const FAVORITES_COUNT = 20;
-/** 「我的高分作品」横滚行最多放这么多部（默认 4 星及以上，GET /playback/rated）。 */
-const RATED_COUNT = 20;
 
 /**
  * 库存条目的悬浮操作与本卡 hover 的完整度文案同源：季或集有一项未齐就
@@ -167,7 +162,6 @@ let lastLoadedHome: {
   collections: Collection[];
   upNext: UpNextItem[];
   favorites: FavoritesPage;
-  rated: RatedPage;
   itemsByKey: Map<string, LibraryItem[]>;
   genresByKind: Map<GenreRowKind, KindGenre[]>;
 } | null = null;
@@ -263,8 +257,6 @@ export function LibraryView({ hero }: { hero?: ReactNode }) {
   const [favorites, setFavorites] = useState<FavoritesPage | null>(
     () => lastLoadedHome?.favorites ?? null,
   );
-  // 我的高分作品：默认 4 星及以上，没有符合条件的作品时整行隐藏
-  const [rated, setRated] = useState<RatedPage | null>(() => lastLoadedHome?.rated ?? null);
   const [failed, setFailed] = useState(false);
 
   // 轮询乱序守卫：扫描期间后端响应时间抖动大，上一轮的慢响应可能晚于
@@ -315,9 +307,8 @@ export function LibraryView({ hero }: { hero?: ReactNode }) {
         // 只取**显示中的**行：隐藏的行不发请求
         const rows = buildHomeRows(homePrefs, libs, collectionsNow).filter((row) => !row.hidden);
         const favoritesRow = rows.find((row) => row.kind === "favorites");
-        const ratedRow = rows.find((row) => row.kind === "rated");
-        // 接下来继续 / 我的收藏 / 我的高分作品随播放与评分状态变，每轮都拉；失败不拖垮首页，保留旧数据
-        const [latestUpNext, latestFavorites, latestRated] = await Promise.all([
+        // 接下来继续 / 我的收藏随播放状态变，每轮都拉；失败不拖垮首页，保留旧数据
+        const [latestUpNext, latestFavorites] = await Promise.all([
           rows.some((row) => row.kind === "up-next")
             ? listUpNext(UP_NEXT_COUNT).catch(() => null)
             : Promise.resolve(null),
@@ -338,23 +329,12 @@ export function LibraryView({ hero }: { hero?: ReactNode }) {
                 },
               ).catch(() => null)
             : Promise.resolve(null),
-          ratedRow && ratedRow.kind === "rated"
-            ? listRated(RATED_COUNT, 0, {
-                sort: ratedRow.sort,
-                order: orderParamFor(
-                  RATED_SORT_PRESETS[ratedRow.sort].direction,
-                  ratedRow.reversed,
-                ),
-              }).catch(() => null)
-            : Promise.resolve(null),
         ]);
         if (seq !== reloadSeq.current) return;
         if (latestUpNext !== null) setUpNext(latestUpNext);
         else setUpNext((previous) => previous ?? []);
         if (latestFavorites !== null) setFavorites(latestFavorites);
         else setFavorites((previous) => previous ?? { items: [], total: 0 });
-        if (latestRated !== null) setRated(latestRated);
-        else setRated((previous) => previous ?? { items: [], total: 0 });
 
         const fetches = rowFetches(rows, libs);
         const genreKinds = rows.flatMap((row) => (row.kind === "genres" ? [row.mediaKind] : []));
@@ -401,11 +381,10 @@ export function LibraryView({ hero }: { hero?: ReactNode }) {
       collections,
       upNext: upNext ?? [],
       favorites: favorites ?? { items: [], total: 0 },
-      rated: rated ?? { items: [], total: 0 },
       itemsByKey,
       genresByKind,
     };
-  }, [libraries, collections, upNext, favorites, rated, itemsByKey, genresByKind]);
+  }, [libraries, collections, upNext, favorites, itemsByKey, genresByKind]);
 
   // 有库在扫描/整理时轮询刷新，任务完成即看到最新库存与文件名
   const busyAny = (libraries ?? []).some((l) => l.scanning || l.organizing);
@@ -499,21 +478,6 @@ export function LibraryView({ hero }: { hero?: ReactNode }) {
     };
   }, [favorites, locale]);
 
-  // 「我的高分作品」横滚行：无符合条件作品时在 renderRow 中整体返回 null，老用户升级后首页不变
-  const ratedRowView = useMemo(() => {
-    const items = rated?.items ?? [];
-    const hrefs = new Map(
-      items.map((it) => [
-        libraryItemKey(it),
-        `/library/${it.library_id}/item/${it.media_item_id}` as Route,
-      ]),
-    );
-    return {
-      items: items.map((item) => libraryItemToMediaItem(item, locale)),
-      hrefOf: (m: MediaItem) => hrefs.get(m.id),
-    };
-  }, [rated, locale]);
-
   /** 库行 / 合集行：服务端已按这一行的排序给到前 20，复用发现页的横滚海报行。
    *  已在库的条目点击进**媒体库条目详情**（本地刮削信息 + 片源规格 + 条目操作），
    *  与单库页库存格同一目标。只呈现入库上下文，订阅/补齐操作留在单库页。 */
@@ -571,19 +535,6 @@ export function LibraryView({ hero }: { hero?: ReactNode }) {
               moreLabel={t("library.home.viewFavorites", { count: favorites?.total ?? 0 })}
               cardAction="none"
               cardHref={favoriteRow.hrefOf}
-              cardRevealInfoOnTouch
-            />
-          </div>
-        );
-      case "rated":
-        // 我的高分作品（默认 ≥ 4★）：无数据时整行不显示，老用户升级后首页零变化
-        if (ratedRowView.items.length === 0) return null;
-        return (
-          <div key={row.id} className="mt-8 max-md:mt-6" data-testid="rated-row">
-            <MediaRow
-              row={{ id: "rated", title: rowTitle(row, locale), items: ratedRowView.items }}
-              cardAction="none"
-              cardHref={ratedRowView.hrefOf}
               cardRevealInfoOnTouch
             />
           </div>

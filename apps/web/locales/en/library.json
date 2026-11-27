@@ -295,14 +295,7 @@
     "genresMeta": "Built-in · One tile per genre ({count, plural, one {# library} other {# libraries}})",
     "libraryMeta": "{name} library",
     "kindMeta": "All {kind} ({count, plural, one {# library} other {# libraries}})",
-    "collectionMeta": "Collection · {sort}",
-    "rated": "My top rated",
-    "myRating": "My rating",
-    "myLowestRated": "My lowest rated",
-    "myRatingHint": "Sorted by your rating",
-    "recentRated": "Recently rated",
-    "firstRated": "Oldest rated",
-    "ratedAtHint": "Rated date"
+    "collectionMeta": "Collection · {sort}"
   },
   "confirm": {
     "scanIntro": "This scan checks for changes in the library folders:",
@@ -642,8 +635,7 @@
     "smallToLarge": "Small → large",
     "largeToSmall": "Large → small",
     "random": "Random",
-    "reverseHint": "{label}, {direction}; select again to reverse",
-    "myRating": "My rating"
+    "reverseHint": "{label}, {direction}; select again to reverse"
   },
   "issues": {
     "title": "Issues",
@@ -744,8 +736,7 @@
     "dropCondition": "Remove “<strong>{dimension} = {value}</strong>”",
     "relaxedCount": "→ {count, plural, one {# title} other {# titles}}",
     "viewCount": "View {count, plural, one {# title} other {# titles}}",
-    "selectedSuffix": " · {count} selected",
-    "myRating": "My rating"
+    "selectedSuffix": " · {count} selected"
   },
   "cloudPicker": {
     "enterFolder": "Open the folder you want to add first",
@@ -1014,13 +1005,7 @@
     "airExpectedShort": "Expected",
     "airThisWeek": "This week",
     "airNextWeek": "Next week",
-    "airLater": "Later",
-    "myRating": "My rating",
-    "rate": "Rate",
-    "rateTitle": "Rate {title}",
-    "rateStars": "{stars} stars",
-    "clearRating": "Clear rating",
-    "rateFailed": "Couldn’t save rating. Try again later."
+    "airLater": "Later"
   },
   "transfer": {
     "librariesFailed": "Could not load libraries. Please try again.",
@@ -1751,8 +1736,7 @@
     "unfinished": "Unfinished",
     "watching": "In progress",
     "played": "Watched",
-    "favorite": "My favorites",
-    "rated": "Rated by me"
+    "favorite": "My favorites"
   },
   "watchFilter": {
     "all": "All watch states",
@@ -1784,9 +1768,7 @@
     "unwatched": "{count, plural, one {# unwatched episode} other {# unwatched episodes}}",
     "progress": "{percent}% watched",
     "rating": "Rating {rating}",
-    "detailStatus": "Airing status: {status}",
-    "toggleMyRating": "My rating",
-    "myRating": "My rating {rating}"
+    "detailStatus": "Airing status: {status}"
   },
   "externalPlayer": {
     "openWith": "Open in {player}",

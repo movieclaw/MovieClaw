@@ -91,7 +91,7 @@
     "subtitleUrlExpired": "字幕地址无效或已过期",
     "subtitleUnsupported": "字幕轨不存在或暂不支持在网页端渲染",
     "seasonRequired": "给了集号就必须同时给季号",
-    "markRequired": "played、favorite 与 rating 至少要给一个",
+    "markRequired": "played 与 favorite 至少要给一个",
     "itemMissing": "媒体条目不存在（可能已被删除）",
     "fontUrlExpired": "字体地址无效或已过期",
     "fontMissing": "字体不存在",
@@ -120,10 +120,7 @@
     "processStart": "转码进程启动失败：{reason}",
     "remoteSeekUnavailable": "远程 seek 不可用：{reason}",
     "remoteSeekStart": "远程 seek 启动失败：{reason}",
-    "remoteBackendMissing": "远程会话缺少执行后端（决策层未给出）",
-    "ratingInvalid": "评分须为 0–10 的整数（0 表示清除，1–10 对应半星到 5 星）",
-    "ratingItemOnly": "当前仅支持对整部电影或整部剧评分，暂不支持季或单集",
-    "ratingFilterInvalid": "评分筛选条件须为 1–10 的整数（1 对应半星，10 对应 5 星）"
+    "remoteBackendMissing": "远程会话缺少执行后端（决策层未给出）"
   },
   "subscription": {
     "episodeMissing": "没有找到该单集",

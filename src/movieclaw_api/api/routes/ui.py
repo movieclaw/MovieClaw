@@ -28,6 +28,7 @@ from movieclaw_api.services.auth import Principal
 from movieclaw_api.settings.schemas import (
     UiPreferencesSetting,
     get_ui_preferences,
+    parse_stored_ui_preferences,
     save_ui_preferences,
 )
 from movieclaw_db.engine import get_session
@@ -49,7 +50,7 @@ async def get_preferences(
     if principal.kind == "member" and principal.member is not None:
         raw = principal.member.ui_prefs
         # 未知字段前向兼容忽略（与配置域读取同语义）
-        return ok(UiPreferencesSetting.model_validate(raw) if raw else UiPreferencesSetting())
+        return ok(parse_stored_ui_preferences(raw))
     return ok(await get_ui_preferences())
 
 
@@ -79,7 +80,7 @@ async def update_preferences(
         member = await repo.get(principal.member_id)
         if member is not None:
             if (keep_hidden or keep_language or keep_badges) and member.ui_prefs:
-                stored = UiPreferencesSetting.model_validate(member.ui_prefs)
+                stored = parse_stored_ui_preferences(member.ui_prefs)
                 if keep_hidden:
                     payload.nav.hidden = stored.nav.hidden
                 if keep_language:

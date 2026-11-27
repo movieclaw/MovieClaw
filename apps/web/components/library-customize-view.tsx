@@ -17,8 +17,6 @@ import {
   COLLECTION_SORTS,
   favoritesSortPresets,
   type FavoritesSort,
-  ratedSortPresets,
-  type RatedSort,
   type HomeRow,
   type HomeRowSort,
   homeMediaKindLabels,
@@ -501,17 +499,6 @@ function sortOptions(
           );
         },
       );
-    case "rated":
-      return (Object.keys(ratedSortPresets(locale)) as RatedSort[]).flatMap(
-        (key) => {
-          const preset = ratedSortPresets(locale)[key];
-          return both(
-            key,
-            preset.name(false),
-            preset.direction ? preset.name(true) : null,
-          );
-        },
-      );
     case "collection":
     case "media-kind":
     case "library": {
@@ -571,7 +558,6 @@ function RowItem({
   const editable = options !== null;
   const sort =
     row.kind === "favorites" ||
-    row.kind === "rated" ||
     row.kind === "library" ||
     row.kind === "media-kind" ||
     row.kind === "collection"
@@ -582,7 +568,6 @@ function RowItem({
     ((row.kind === "library" || row.kind === "media-kind") && !row.builtin);
   const reversed =
     row.kind === "favorites" ||
-    row.kind === "rated" ||
     row.kind === "library" ||
     row.kind === "media-kind" ||
     row.kind === "collection"
@@ -733,12 +718,6 @@ function RowItem({
                     return {
                       ...r,
                       sort: key as FavoritesSort,
-                      reversed: nextReversed,
-                    };
-                  if (r.kind === "rated")
-                    return {
-                      ...r,
-                      sort: key as RatedSort,
                       reversed: nextReversed,
                     };
                   if (r.kind === "collection")

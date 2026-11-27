@@ -364,7 +364,6 @@ open = "plugin"                         # 点开去哪：插件页，或载荷�
 | `library.item.deleted` / `library.file.deleted` | `routes/libraries.py` 删除 | — | | |
 | `library.file.trashed` / `restored` / `purged` | `library/recycle.py` | — | | |
 | `library.item.favorited` / `unfavorited` | `playback/marks.py` | — | ✓ | |
-| `library.item.rated` / `unrated` | `playback/marks.py` | — | ✓ | |
 | `library.item.viewed` | Jellyfin 条目路由、`routes/libraries.py` | — | ✓ | ✓ |
 | `playback.started` / `stopped` / `completed` | `playback/watch.py` | — | ✓ | |
 | `playback.progress` | `playback/watch.py` | — | ✓ | ✓ |
