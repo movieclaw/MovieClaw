@@ -1257,6 +1257,7 @@ struct LibraryItemDetailView: View {
             if !d.chaptersPending { chapterPolls = 0 }
             if needsEpisodeRefresh { episodesVersion += 1 }
             offlineStore.refresh(detail: d)
+            syncOfflineSubtitlesIfNeeded(detail: d)
         } catch is CancellationError {
         } catch let error as APIError where error.status == 404 {
             if let local {
@@ -1284,6 +1285,25 @@ struct LibraryItemDetailView: View {
 
     /// 只读：离线模式，或在线请求失败 / 服务器上已删除、回落本机副本
     private var readOnly: Bool { reachability.isOffline || localOnly }
+
+    /// 联网刷新详情时顺手把本机已下载单元缺的新外挂字幕补齐（仅外挂文字轨变化时触发，不重下视频）
+    private func syncOfflineSubtitlesIfNeeded(detail: API.LibraryItemDetailView) {
+        guard let ownerKey = offlineStore.key else { return }
+        let filesById = Dictionary(detail.files.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        let candidates = offlineStore.units(ofItem: itemId).compactMap { unit -> (OfflineUnit, API.LibraryFileView)? in
+            guard unit.playable, let file = filesById[unit.fileId] else { return nil }
+            return (unit, file)
+        }
+        guard !candidates.isEmpty else { return }
+        let api = self.api
+        Task {
+            for (unit, file) in candidates {
+                let spec = await offlineStore.spec(unit)
+                guard OfflineSubtitleSync.needsSync(localSpec: spec, serverFile: file) else { continue }
+                OfflineSubtitleSync.shared.sync(unit: unit, ownerKey: ownerKey, api: api)
+            }
+        }
+    }
 
     /// 这个单元能下载的文件（选中的版本在前）
     private var downloadableFiles: [API.LibraryFileView] {

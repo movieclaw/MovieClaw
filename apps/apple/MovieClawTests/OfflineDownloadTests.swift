@@ -642,3 +642,300 @@ struct LibraryDetailTrackFilesTests {
         #expect(LibraryItemDetailView.resolvedTrackFiles(detail: mixedDetail, selectedEpisode: singleSelection).map(\.id) == [5056, 5060])
     }
 }
+
+/// Issue #1336：已下载本机副本联网补齐外挂字幕（不重下视频、不改默认选轨、失败保留原字幕）
+struct OfflineSubtitleSyncTests {
+    private enum SyncTestError: Error { case simulatedFailure }
+
+    private func makeFile(id: Int = 1, subtitles: [API.SubtitleStreamView]) -> API.LibraryFileView {
+        API.LibraryFileView(
+            id: id,
+            filePath: "/media/Show/S06E01.mkv",
+            fileName: "Show - S06E01.mkv",
+            sizeBytes: 1_024_000,
+            container: "mkv",
+            resolution: "1080p",
+            videoCodec: "h264",
+            hdr: nil,
+            bitDepth: 8,
+            durationSeconds: 1800,
+            bitRate: 5_000_000,
+            frameRate: 24,
+            colorSpace: "bt709",
+            mediaSource: "WEB-DL",
+            mediaSourceManual: false,
+            releaseGroup: nil,
+            source: "scanned",
+            seasonNumber: 6,
+            episodeNumber: 1,
+            missing: false,
+            state: "in_place",
+            purgeAfter: nil,
+            trashNote: nil,
+            origin: API.FileOriginView(kind: "scan", label: "存量扫描发现", detail: nil),
+            keptAt: nil,
+            audioStreams: nil,
+            subtitleStreams: subtitles,
+            playbackDefaults: nil,
+            chapters: nil,
+            cloud: nil,
+            addedAt: "2026-11-25T10:00:00Z"
+        )
+    }
+
+    private func makeSpec(subtitles: [OfflinePlaybackSpec.Subtitle], fonts: [String] = []) -> OfflinePlaybackSpec {
+        OfflinePlaybackSpec(
+            durationMs: 1_800_000,
+            chapters: [],
+            segments: [],
+            audioTracks: [],
+            defaultAudio: "embedded:0",
+            subtitles: subtitles,
+            fonts: fonts,
+            resolution: "1080p",
+            videoCodec: "h264",
+            container: "mkv"
+        )
+    }
+
+    private func makeUnit(fileId: Int = 1, profile: String = "original", state: OfflineUnit.State = .done) -> OfflineUnit {
+        OfflineUnit(
+            fileId: fileId,
+            mediaItemId: 1,
+            season: 6,
+            episode: 1,
+            profile: profile,
+            profileLabel: profile == "original" ? "原画" : profile,
+            state: state,
+            expectedBytes: 4096,
+            receivedBytes: 4096,
+            fileExtension: profile == "original" ? "mkv" : "mp4",
+            createdAt: Date(),
+            completedAt: Date()
+        )
+    }
+
+    private func makeManifestSub(
+        ref: String,
+        format: String = "srt",
+        language: String? = "chi",
+        title: String? = nil,
+        isDefault: Bool = false,
+        isAi: Bool = false,
+        embedded: Bool = false,
+        url: String? = nil
+    ) -> API.OfflineSubtitleView {
+        API.OfflineSubtitleView(
+            trackRef: ref,
+            format: format,
+            language: language,
+            title: title,
+            isDefault: isDefault,
+            isForced: false,
+            isAi: isAi,
+            embedded: embedded,
+            url: url ?? "/api/v1/playback/files/1/subtitles?track=\(ref)"
+        )
+    }
+
+    @Test func needsSyncComparesOnlySupportedExternalTextSubtitles() {
+        let embedded = API.SubtitleStreamView(codec: "subrip", language: "chi", title: "内封", forced: false, default: true, external: false, fileName: nil)
+        let bitmapExt = API.SubtitleStreamView(codec: "sup", language: "eng", title: nil, forced: false, default: false, external: true, fileName: "ep.eng.sup")
+        let aiExt = API.SubtitleStreamView(codec: "srt", language: "chi", title: "AI", forced: false, default: false, external: true, fileName: "ep.ai.chi.srt")
+
+        let emptySpec = makeSpec(subtitles: [])
+        #expect(!OfflineSubtitleSync.needsSync(localSpec: emptySpec, serverFile: makeFile(subtitles: [embedded, bitmapExt])), "仅有内封与图形外挂时无需同步")
+        #expect(OfflineSubtitleSync.needsSync(localSpec: emptySpec, serverFile: makeFile(subtitles: [embedded, aiExt])), "新增外挂文字字幕应触发同步")
+
+        // 转码档本地 spec 里有 embedded:0，且已含 ep.ai.chi.srt → 不应误判需同步
+        let syncedSpec = makeSpec(subtitles: [
+            .init(ref: "external:0-chi.srt", fileName: "0-chi.srt", kind: "vtt", language: "chi", title: "内封", isDefault: true, isForced: false, isAi: false, sourceRef: "embedded:0"),
+            .init(ref: "external:sync-abc-chi.srt", fileName: "sync-abc-chi.srt", kind: "vtt", language: "chi", title: "AI", isDefault: false, isForced: false, isAi: true, sourceRef: "external:ep.ai.chi.srt"),
+        ])
+        #expect(!OfflineSubtitleSync.needsSync(localSpec: syncedSpec, serverFile: makeFile(subtitles: [embedded, aiExt])))
+        #expect(!OfflineSubtitleSync.needsSync(localSpec: nil, serverFile: makeFile(subtitles: [aiExt])))
+    }
+
+    @Test func planPreservesDefaultSelectionAndEmbeddedTracks() {
+        let existing: [OfflinePlaybackSpec.Subtitle] = [
+            // 转码档已打包的内封轨：必须原样保留
+            .init(ref: "external:0-eng.srt", fileName: "0-eng.srt", kind: "vtt", language: "eng", title: "内封英文", isDefault: true, isForced: false, isAi: false, sourceRef: "embedded:3"),
+            // 既有外挂轨：保留原文件名与 isDefault
+            .init(ref: "external:1-eng.srt", fileName: "1-eng.srt", kind: "vtt", language: "eng", title: "旧外挂", isDefault: true, isForced: false, isAi: false, sourceRef: "external:old.eng.srt"),
+            // 服务端已删除的外挂轨：标记清理
+            .init(ref: "external:2-jpn.srt", fileName: "2-jpn.srt", kind: "vtt", language: "jpn", title: "已删", isDefault: false, isForced: false, isAi: false, sourceRef: "external:removed.jpn.srt"),
+        ]
+        let manifestSubs = [
+            makeManifestSub(ref: "embedded:3", language: "eng", title: "内封英文", isDefault: false, embedded: true),
+            makeManifestSub(ref: "external:old.eng.srt", language: "eng", title: "旧外挂", isDefault: false),
+            makeManifestSub(ref: "external:ai-bilingual.chi.srt", language: "chi", title: "简体中文 + 英语", isDefault: true, isAi: true),
+        ]
+
+        let plan = OfflineSubtitleSync.plan(
+            existing: existing,
+            manifestSubtitles: manifestSubs,
+            existingSubFiles: ["0-eng.srt", "1-eng.srt", "2-jpn.srt"]
+        )
+
+        #expect(plan.subtitles.count == 3)
+        #expect(plan.subtitles[0].sourceRef == "embedded:3")
+        #expect(plan.subtitles[0].isDefault == true, "既有内封轨默认标记不变")
+        #expect(plan.subtitles[1].fileName == "1-eng.srt")
+        #expect(plan.subtitles[1].isDefault == true, "既有外挂轨保留原默认标记")
+        #expect(plan.subtitles[2].sourceRef == "external:ai-bilingual.chi.srt")
+        #expect(plan.subtitles[2].isDefault == false, "后补齐的外挂字幕即使服务端标默认也不改默认选轨")
+        #expect(plan.subtitles[2].fileName.hasPrefix("sync-"))
+        #expect(plan.downloads.map(\.fileName) == [plan.subtitles[2].fileName], "只下载新增外挂字幕，不重下内封和既有外挂")
+        #expect(plan.obsoleteFiles == ["2-jpn.srt"])
+    }
+
+    @Test func syncSubtitlesBackfillsAtomicallyWithoutTouchingMedia() async throws {
+        let key = "test-sync-\(UUID().uuidString.prefix(8))"
+        defer { OfflineDisk.remove(OfflineDisk.ownerDir(key)) }
+
+        let unit = makeUnit(fileId: 1)
+        let unitDir = OfflineDisk.unitDir(key, unit.mediaItemId, unit.fileId)
+        try OfflineDisk.write(unit, to: OfflineDisk.unitFile(key, unit.mediaItemId, unit.fileId))
+        try OfflineDisk.write(makeSpec(subtitles: []), to: OfflineDisk.playbackFile(key, unit.mediaItemId, unit.fileId))
+        let mediaURL = unitDir.appending(path: unit.mediaFileName)
+        let mediaBytes = Data("synthetic-video-bytes".utf8)
+        try mediaBytes.write(to: mediaURL)
+
+        let aiSub = makeManifestSub(
+            ref: "external:Show - S06E01.ai-bilingual-chs-eng.chi.srt",
+            format: "srt", language: "chi", title: "简体中文 + 英语", isDefault: true, isAi: true,
+            url: "/sub/ai"
+        )
+        let changed = try await OfflinePackager.syncSubtitles(
+            ownerKey: key,
+            unit: unit,
+            manifestFileId: 1,
+            manifestSubtitles: [makeManifestSub(ref: "embedded:3", language: "eng", isDefault: true, embedded: true), aiSub],
+            fontsUrl: nil
+        ) { path, _ in
+            #expect(path == "/sub/ai")
+            return Data("1\n00:00:01,000 --> 00:00:10,000\n合成双语AI字幕\n".utf8)
+        }
+
+        #expect(changed == true)
+        let updatedSpec = try #require(OfflineDisk.read(OfflinePlaybackSpec.self, from: OfflineDisk.playbackFile(key, 1, 1)))
+        #expect(updatedSpec.subtitles.count == 1)
+        #expect(updatedSpec.subtitles[0].sourceRef == aiSub.trackRef)
+        #expect(updatedSpec.subtitles[0].isDefault == false, "补齐的 AI 字幕不改默认选轨")
+        #expect(updatedSpec.subtitles[0].isAi == true)
+
+        let savedText = try String(contentsOf: unitDir.appending(path: "subs/\(updatedSpec.subtitles[0].fileName)"), encoding: .utf8)
+        #expect(savedText.contains("合成双语AI字幕"))
+        #expect(try Data(contentsOf: mediaURL) == mediaBytes, "视频文件毫发无损")
+    }
+
+    @Test func syncFailurePreservesExistingSubtitlesAndPlaybackSpec() async throws {
+        let key = "test-sync-fail-\(UUID().uuidString.prefix(8))"
+        defer { OfflineDisk.remove(OfflineDisk.ownerDir(key)) }
+
+        let unit = makeUnit(fileId: 1)
+        let unitDir = OfflineDisk.unitDir(key, unit.mediaItemId, unit.fileId)
+        let originalSub = OfflinePlaybackSpec.Subtitle(
+            ref: "external:0-chi.srt", fileName: "0-chi.srt", kind: "vtt",
+            language: "chi", title: "原有字幕", isDefault: false, isForced: false, isAi: true,
+            sourceRef: "external:keep.chi.srt"
+        )
+        let originalSpec = makeSpec(subtitles: [originalSub])
+        try OfflineDisk.write(unit, to: OfflineDisk.unitFile(key, unit.mediaItemId, unit.fileId))
+        try OfflineDisk.write(originalSpec, to: OfflineDisk.playbackFile(key, unit.mediaItemId, unit.fileId))
+        let subsDir = unitDir.appending(path: "subs", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: subsDir, withIntermediateDirectories: true)
+        let keepData = Data("1\n00:00:01,000 --> 00:00:05,000\n原字幕\n".utf8)
+        try keepData.write(to: subsDir.appending(path: "0-chi.srt"))
+
+        // 第一条新增字幕成功，第二条失败 → 整体抛出，不得改写 playback.json，不得写入半截新字幕或删掉原字幕
+        let s1 = makeManifestSub(ref: "external:new1.eng.srt", language: "eng", url: "/sub/1")
+        let s2 = makeManifestSub(ref: "external:new2.jpn.srt", language: "jpn", url: "/sub/2")
+        await #expect(throws: SyncTestError.self) {
+            try await OfflinePackager.syncSubtitles(
+                ownerKey: key,
+                unit: unit,
+                manifestFileId: 1,
+                manifestSubtitles: [s1, s2],
+                fontsUrl: nil
+            ) { path, _ in
+                if path == "/sub/2" { throw SyncTestError.simulatedFailure }
+                return Data("ok".utf8)
+            }
+        }
+
+        let afterSpec = try #require(OfflineDisk.read(OfflinePlaybackSpec.self, from: OfflineDisk.playbackFile(key, 1, 1)))
+        #expect(afterSpec.subtitles == [originalSub], "失败后 playback.json 必须保持原样")
+        let filesOnDisk = Set(OfflineDisk.children(subsDir).map(\.lastPathComponent))
+        #expect(filesOnDisk == ["0-chi.srt"], "失败后原有字幕文件保留且不遗留半截文件")
+        #expect(try Data(contentsOf: subsDir.appending(path: "0-chi.srt")) == keepData)
+    }
+
+    @Test func syncDownloadsAssFontsAndCleansUpDeletedExternalSubtitle() async throws {
+        let key = "test-sync-ass-\(UUID().uuidString.prefix(8))"
+        defer { OfflineDisk.remove(OfflineDisk.ownerDir(key)) }
+
+        let unit = makeUnit(fileId: 1)
+        let unitDir = OfflineDisk.unitDir(key, unit.mediaItemId, unit.fileId)
+        let oldSub = OfflinePlaybackSpec.Subtitle(
+            ref: "external:0-old.srt", fileName: "0-old.srt", kind: "vtt",
+            language: "eng", title: nil, isDefault: false, isForced: false, isAi: false,
+            sourceRef: "external:old.eng.srt"
+        )
+        try OfflineDisk.write(unit, to: OfflineDisk.unitFile(key, unit.mediaItemId, unit.fileId))
+        try OfflineDisk.write(makeSpec(subtitles: [oldSub]), to: OfflineDisk.playbackFile(key, unit.mediaItemId, unit.fileId))
+        let subsDir = unitDir.appending(path: "subs", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: subsDir, withIntermediateDirectories: true)
+        try Data("old".utf8).write(to: subsDir.appending(path: "0-old.srt"))
+
+        let assSub = makeManifestSub(ref: "external:anime.chi.ass", format: "ass", language: "chi", title: "特效字幕", url: "/sub/ass")
+        let changed = try await OfflinePackager.syncSubtitles(
+            ownerKey: key,
+            unit: unit,
+            manifestFileId: 1,
+            manifestSubtitles: [assSub],
+            fontsUrl: "/fonts/list"
+        ) { path, _ in
+            switch path {
+            case "/sub/ass": Data("[Script Info]\nTitle: Test\n".utf8)
+            case "/fonts/list": Data(#"{"success":true,"data":{"fonts":["/fonts/NotoSans.ttf"]}}"#.utf8)
+            case "/fonts/NotoSans.ttf": Data("TTF_BYTES".utf8)
+            default: throw SyncTestError.simulatedFailure
+            }
+        }
+
+        #expect(changed == true)
+        let afterSpec = try #require(OfflineDisk.read(OfflinePlaybackSpec.self, from: OfflineDisk.playbackFile(key, 1, 1)))
+        #expect(afterSpec.subtitles.count == 1)
+        #expect(afterSpec.subtitles[0].kind == "ass")
+        #expect(afterSpec.fonts == ["NotoSans.ttf"])
+        #expect(FileManager.default.fileExists(atPath: unitDir.appending(path: "fonts/NotoSans.ttf").path))
+        #expect(!FileManager.default.fileExists(atPath: subsDir.appending(path: "0-old.srt").path), "已删除的旧外挂字幕在新 playback.json 落盘后清理")
+    }
+
+    @Test func syncAbortsCleanlyIfUnitDeletedBeforeCommit() async throws {
+        let key = "test-sync-deleted-\(UUID().uuidString.prefix(8))"
+        defer { OfflineDisk.remove(OfflineDisk.ownerDir(key)) }
+
+        let unit = makeUnit(fileId: 1)
+        let unitDir = OfflineDisk.unitDir(key, unit.mediaItemId, unit.fileId)
+        try OfflineDisk.write(unit, to: OfflineDisk.unitFile(key, unit.mediaItemId, unit.fileId))
+        try OfflineDisk.write(makeSpec(subtitles: []), to: OfflineDisk.playbackFile(key, unit.mediaItemId, unit.fileId))
+
+        let newSub = makeManifestSub(ref: "external:late.chi.srt", url: "/sub/late")
+        let changed = try await OfflinePackager.syncSubtitles(
+            ownerKey: key,
+            unit: unit,
+            manifestFileId: 1,
+            manifestSubtitles: [newSub],
+            fontsUrl: nil
+        ) { _, _ in
+            // 模拟网络拉取期间用户删掉了本机副本
+            try await OfflineDisk.perform { OfflineDisk.remove(unitDir) }
+            return Data("late".utf8)
+        }
+
+        #expect(changed == false)
+        #expect(!FileManager.default.fileExists(atPath: unitDir.path), "已删除的单元目录不应被后台同步重新建出来")
+    }
+}

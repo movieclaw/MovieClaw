@@ -936,11 +936,14 @@ final class PlaybackController {
     /// 本机副本起播：按本机存的播放数据拼一个与服务端会话同形的会话，交给同一段装载逻辑
     private func startLocal(_ local: OfflineUnit, file: URL, startMs: Int?, attempt myAttempt: Int) async {
         let store = OfflineStore.shared
+        async let syncedSubtitles: Void = syncLocalSubtitles(for: local)
+        async let freshResume: API.PlaybackStateView? = startMs == nil ? serverResume(for: local) : nil
+        let (_, fresh) = await (syncedSubtitles, freshResume)
         let spec = await store.spec(local)
         guard myAttempt == attempt, !closed, let dir = store.unitDir(local) else { return }
         let subtitles = spec?.subtitles ?? []
         var progress = store.localProgress(itemId: local.mediaItemId, season: local.season, episode: local.episode)
-        if startMs == nil, let fresh = await serverResume(for: local) {
+        if let fresh {
             // 在线：续播点以服务器为准（别的设备可能看到了更后面）；本机有没发出去的观看记录时仍用本机的
             progress = OfflineProgress(positionMs: fresh.positionMs, played: fresh.played, durationMs: fresh.durationMs, updatedAt: Date())
             store.recordProgress(itemId: local.mediaItemId, season: local.season, episode: local.episode,
@@ -973,6 +976,13 @@ final class PlaybackController {
         localUnit = local
         record?.event("local", String(localized: .playerOfflinePlayingProfile(local.profileLabel)))
         await handleSession(session, useNative: true, requestedStartMs: startMs, localFile: file)
+    }
+
+    /// 在线起播本机副本前补齐后来生成的外挂字幕（最多等 2 秒；超时不取消、留后台收尾，失败保留原字幕）
+    private func syncLocalSubtitles(for local: OfflineUnit) async {
+        let reachability = ServerReachability.shared
+        guard !reachability.isOffline, reachability.status != .unreachable, let ownerKey = OfflineStore.shared.key else { return }
+        await OfflineSubtitleSync.shared.syncWaiting(unit: local, ownerKey: ownerKey, api: scope.api, timeout: 2)
     }
 
     /// 在线时问一下服务器的续播点（最多等 2 秒，问不到就用本机的）
