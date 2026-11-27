@@ -87,7 +87,7 @@ struct ActivityView: View {
                         .listRowSeparator(.hidden)
                     }
                     ForEach(activity.standaloneAttentionJobs, id: \.id) { job in
-                        JobCard(job: job, store: tasks)
+                        JobCard(job: job, store: tasks, onDismiss: { taskActions.pendingDismiss = job })
                             .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: job.id == lastJobId ? 0 : 10, trailing: 0))
                             .listRowBackground(Color.clear)
                             .listRowSeparator(.hidden)
@@ -202,6 +202,12 @@ struct ActivityView: View {
         .toolbarTitleDisplayMode(.inlineLarge)
         .appBackground()
         .taskDeleteSheet(taskActions, store: tasks)
+        .sheet(item: $taskActions.pendingDismiss) { job in
+            DismissJobSheet(job: job) { mute in
+                await taskActions.dismiss(job, muteSource: mute, api: api, feedback: feedback, store: tasks)
+            }
+            .sheetFeedback()
+        }
         // 外壳已预取过，这里只为拿最新（观看时长、看到哪会一直变），回来后就地更新
         .task { await media.refreshExtras() }
         .task(id: activity.boostTasks.isEmpty) { await loadBoostPool() }
