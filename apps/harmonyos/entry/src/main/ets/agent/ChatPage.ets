@@ -888,7 +888,11 @@ export struct ChatPage {
     if (!url.startsWith('http://') && !url.startsWith('https://')) {
       target = `${AppModel.origin()}${url.startsWith('/') ? url : `/${url}`}`;
     }
-    const context: common.UIAbilityContext = getContext() as common.UIAbilityContext;
+    const context: common.UIAbilityContext | undefined =
+      this.getUIContext().getHostContext() as common.UIAbilityContext | undefined;
+    if (context === undefined) {
+      return;
+    }
     context.openLink(target).catch((): void => {
       this.toast('打不开链接');
     });

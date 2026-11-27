@@ -30,6 +30,7 @@ import { ApiError } from '../api/ApiClient';
 import { MovieClawApi } from '../api/Endpoints';
 import { OfflineDisk } from '../offline/OfflineDisk';
 import { OfflineStore } from '../offline/OfflineStore';
+import { OfflineSmartCache } from '../offline/OfflineSmartCache';
 import { OfflineViewingRecorder } from '../offline/OfflineViewings';
 import { OfflinePlaybackSpec, OfflineProgress, OfflineUnit } from '../offline/OfflineModels';
 import { ClientCapabilityIn, PlaybackSessionRequest, PlaybackSessionView, PlaybackDecisionView, PlaybackStateView, AudioTrackView, EpisodeView, LibraryItemDetailView, PlaybackChapterMarkView, PlaybackItemView, SeasonEpisodesView, SubtitlePlanView, TrickplayView, PlaybackSegmentView, PlaybackDiagnosticsView, PlaybackPolicyView, PlaybackArtifactUploadView } from '../api/Models';
@@ -1233,6 +1234,15 @@ export class PhonePlaybackHost implements PlaybackTestHost {
             this.title,
             0
           );
+          const nextEp: EpisodeView | null = this.nextEpisode();
+          if (nextEp !== null && nextEp.file_ids.length > 0) {
+            OfflineSmartCache.shared.maybePrefetchNext(
+              AppModel.shared.api,
+              nextEp.file_ids[0],
+              this.positionMs,
+              this.durationMs
+            );
+          }
         }
       }
       this.viewingRecorder?.tick(snapshot.positionMs, snapshot.playing, snapshot.durationMs);
@@ -1241,6 +1251,9 @@ export class PhonePlaybackHost implements PlaybackTestHost {
       if (snapshot.phase === 'ended') {
         this.ended = true;
         this.viewingRecorder?.finish(snapshot.positionMs, true);
+        if (!this.isClip() && this.episodeNumber > 0) {
+          OfflineSmartCache.shared.maybeEvictWatched(this.session?.decision.file_id ?? this.fileId);
+        }
       }
       if (snapshot.playing && !previousPlaying) {
         this.ended = false;

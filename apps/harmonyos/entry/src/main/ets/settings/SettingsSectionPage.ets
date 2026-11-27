@@ -32,6 +32,7 @@ import { ScrapeSection } from './ScrapeSection';
 import { PlaybackSection } from './PlaybackSection';
 import { PluginsSection } from '../plugins/PluginsSection';
 import { DeviceApprovalDialog } from './DeviceApprovalDialog';
+import { PairingScanner, ScanOutcome, ScanOutcomeKind } from '../common/PairingScanner';
 import { DetailParams, DeviceGroupDef, GroupListParams } from './DeviceGroupPages';
 import { SettingsSegmentChip, SettingsSwitchRow, SettingsTwoStateSegment } from '../common/SettingsControls';
 import { SpatialMaterial } from '../common/SpatialMaterial';
@@ -772,8 +773,40 @@ export struct SettingsSectionPage {
     .alignItems(HorizontalAlign.Start)
   }
 
+  private approvalInitialCode: string = '';
+  private approvalInitialHint: string = '';
+
   /** 拉起原生弹窗：居中系统式（定宽、圆角 24）、输入法避让、点遮罩可关 */
   private openApproval(): void {
+    this.approvalInitialCode = '';
+    this.approvalInitialHint = '';
+    this.openApprovalDialog();
+  }
+
+  private async scanForApproval(reopenOnCancel: boolean): Promise<void> {
+    const outcome: ScanOutcome = await PairingScanner.scan(this.getUIContext().getHostContext());
+    if (outcome.kind === ScanOutcomeKind.cancelled) {
+      if (reopenOnCancel) {
+        this.approvalInitialCode = '';
+        this.approvalInitialHint = '';
+        this.openApprovalDialog();
+      }
+      return;
+    }
+    if (outcome.kind === ScanOutcomeKind.recognized) {
+      this.approvalInitialCode = outcome.text;
+      this.approvalInitialHint = '';
+    } else if (outcome.kind === ScanOutcomeKind.unrecognized) {
+      this.approvalInitialCode = '';
+      this.approvalInitialHint = '这不是 MovieClaw 的登录二维码，换一张试试';
+    } else {
+      this.approvalInitialCode = '';
+      this.approvalInitialHint = '这台设备上用不了相机扫码，请改为手动输入配对码';
+    }
+    this.openApprovalDialog();
+  }
+
+  private openApprovalDialog(): void {
     const screenWidthVp: number = this.getUIContext().px2vp(display.getDefaultDisplaySync().width);
     const options: promptAction.CustomDialogOptions =
       NativeDialog.options((): void => {
@@ -801,6 +834,12 @@ export struct SettingsSectionPage {
   @Builder
   ApprovalCard() {
     DeviceApprovalDialog({
+      initialCode: this.approvalInitialCode,
+      initialHint: this.approvalInitialHint,
+      onRescan: (): void => {
+        this.closeApproval();
+        this.scanForApproval(true);
+      },
       onClose: (): void => {
         this.closeApproval();
       }

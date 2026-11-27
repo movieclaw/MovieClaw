@@ -7,6 +7,7 @@
 import { KeyCode } from '@kit.InputKit';
 import { SessionView } from '../../api/Models';
 import { AppModel } from '../../common/AppModel';
+import { AppLanguage } from '../../common/AppLanguage';
 import { ContinuationBridge, ContinuationTarget } from '../../common/ContinuationBridge';
 import { ServerAddress } from '../../common/ServerAddress';
 import { TvAccountsPage } from '../accounts/TvAccountsPage';
@@ -56,6 +57,7 @@ export struct TvShell {
 struct TvShellContent {
   @Local ui: TvUiState = TvUiState.shared;
   @Local model: AppModel = AppModel.shared;
+  @Local appLanguage: AppLanguage = AppLanguage.shared();
   @Local continuation: ContinuationBridge = ContinuationBridge.shared();
   /** 页签顺序：谁在看 → 搜索 → 首页 → 发现 → 放映厅 */
   private readonly railTabs: string[] = [
@@ -332,18 +334,18 @@ struct TvShellContent {
 
   private tabLabel(tab: string): string {
     if (tab === TvTab.search) {
-      return '搜索';
+      return this.appLanguage.t('tv.tab.search');
     }
     if (tab === TvTab.accounts) {
-      return '谁在看';
+      return this.appLanguage.t('tv.tab.accounts');
     }
     if (tab === TvTab.discover) {
-      return '发现';
+      return this.appLanguage.t('tv.tab.discover');
     }
     if (tab === TvTab.reels) {
-      return '放映厅';
+      return this.appLanguage.t('tv.tab.reels');
     }
-    return '首页';
+    return this.appLanguage.t('tv.tab.home');
   }
 
   private tabIcon(tab: string): Resource {

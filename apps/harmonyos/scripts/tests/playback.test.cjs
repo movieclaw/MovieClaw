@@ -70,6 +70,8 @@ function runtime(overrides = {}, timers = globalThis) {
     '@kit.ImageKit': { image: {} },
     '@kit.AssetStoreKit': { asset: {} },
     '@kit.CryptoArchitectureKit': { cryptoFramework: {} },
+    '@kit.LiveViewKit': { liveViewManager: {} },
+    '@kit.ScanKit': { scanBarcode: {}, scanCore: {} },
     '@ohos/hypium': {
       describe,
       it: (name, level, run) => test(name, run),
@@ -118,7 +120,7 @@ function runtime(overrides = {}, timers = globalThis) {
 
 // Run the same shared suites registered by the on-device Hypium runner.
 const shared = runtime();
-for (const suite of ['PlaybackController', 'PlaybackSession', 'PlaybackGateway', 'HomeRows', 'StaleLoadGuard', 'PgsPrepareGuard', 'PlayerInteraction', 'AppLanguage', 'Chapters', 'PlayerDiagnostics', 'HarmonyUpgrades']) {
+for (const suite of ['PlaybackController', 'PlaybackSession', 'PlaybackGateway', 'HomeRows', 'StaleLoadGuard', 'PgsPrepareGuard', 'PlayerInteraction', 'PlaybackTrackSelection', 'AppLanguage', 'Chapters', 'PlayerDiagnostics', 'HarmonyUpgrades', 'HarmonyPhase2']) {
   shared(`entry/src/test/${suite}.test.ets`).default();
 }
 

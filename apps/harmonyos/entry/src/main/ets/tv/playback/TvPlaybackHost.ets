@@ -26,7 +26,7 @@ import { DefaultEngineFactory, EngineEvent, EngineFailure } from '@movieclaw/pla
 import { AppModel } from '../../common/AppModel';
 import { ContinuationBridge } from '../../common/ContinuationBridge';
 import { ImageUrls } from '../../common/ImageUrls';
-import { PlayRequest } from '../../common/AvPlayerEngine';
+import { PlayRequest } from '../../playback/PlayRequest';
 import { ApiError } from '../../api/ApiClient';
 import { MovieClawApi } from '../../api/Endpoints';
 import {
@@ -144,10 +144,13 @@ export class TvPlaybackHost {
   // —— Surface 代际（AVPlayer 降级 MPV 时自动重建 XComponent 换新 Surface）——
   surfaceController: XComponentController = new XComponentController();
   @Trace surfaceGeneration: number = 0;
+  /** 车机行车音频锁：false 时隐藏视频表面、保留音频链路不断音 */
+  @Trace videoSurfaceVisible: boolean = true;
   surfaceWaiter: ((surface: string) => void) | null = null;
   surfaceId: string = '';
 
   readonly request: PlayRequest;
+  readonly clientKind: string;
   private controller: PlaybackController = new PlaybackController(
     new DefaultEngineFactory(MpvTrust.caBundlePath())
   );
@@ -190,8 +193,9 @@ export class TvPlaybackHost {
 
   private diagTimer: number = -1;
 
-  constructor(request: PlayRequest) {
+  constructor(request: PlayRequest, clientKind: string = DeviceCapability.tvClient) {
     this.request = request;
+    this.clientKind = clientKind;
     this.currentSeason = request.seasonNumber ?? 0;
     this.currentEpisode = request.episodeNumber ?? 0;
     this.currentFileId = request.fileId ?? null;
@@ -565,7 +569,7 @@ export class TvPlaybackHost {
       body.season_number = this.currentSeason > 0 ? this.currentSeason : 0;
       body.episode_number = this.currentEpisode > 0 ? this.currentEpisode : 0;
       body.start_ms = startOverride;
-      body.client = DeviceCapability.tvClient;
+      body.client = this.clientKind;
       body.audio_track = this.selectedAudioRef.length > 0 ? this.selectedAudioRef : null;
       if (this.subtitleTouched) {
         body.subtitle_track = this.selectedSubtitleIndex < 0
@@ -578,7 +582,9 @@ export class TvPlaybackHost {
       body.failed_tiers = this.failedTiers;
 
       await PlayerPrefs.loadEngine();
-      const profile = DeviceCapability.tv(this.deviceId);
+      const profile = this.clientKind === DeviceCapability.carClient
+        ? DeviceCapability.car(this.deviceId)
+        : DeviceCapability.tv(this.deviceId);
       const gateway: MovieClawPlaybackGateway = new MovieClawPlaybackGateway(
         api,
         '',
@@ -640,7 +646,7 @@ export class TvPlaybackHost {
           view.decision.file_id ?? (this.currentFileId ?? 0),
           this.currentSeason,
           this.currentEpisode,
-          DeviceCapability.tvClient,
+          this.clientKind,
           this.deviceId
         )
       );
@@ -1738,6 +1744,11 @@ export class TvPlaybackHost {
     }
     this.retryCount++;
     this.reopenAt(this.positionMs > 0 ? this.positionMs : null);
+  }
+
+  /** 行车音频锁：隐藏/恢复视频表面，音频链路不重建、播放不中断 */
+  setVideoSurfaceVisible(visible: boolean): void {
+    this.videoSurfaceVisible = visible;
   }
 
   private fail(message: string, suggestion: string, kind: string): void {

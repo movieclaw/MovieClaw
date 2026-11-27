@@ -992,27 +992,30 @@ export struct CarPlayerPage {
     })
   }
 
-  /** 视频面：XComponent(SURFACE)，按视频宽高比完整放入屏幕；行车锁只隐藏不拆（无黑屏） */
+  /** 视频面：XComponent(SURFACE) 按 surfaceGeneration 代次重建（切换内核/轨道零黑屏），行车锁仅隐藏不拆 */
   @Builder
   private videoSurface(): void {
-    XComponent({
-      id: 'car_player_surface',
-      type: XComponentType.SURFACE,
-      controller: this.surfaceController
-    })
-      .width(this.fitWidth())
-      .height(this.fitHeight())
-      // SURFACE 型 XComponent 会消费触摸（真机实测），画面不需要触摸，交给根处理
-      .hitTestBehavior(HitTestMode.None)
-      .visibility(this.engine !== null && this.eng().videoSurfaceVisible
-        ? Visibility.Visible : Visibility.Hidden)
-      .onLoad((): void => {
-        this.surfaceId = this.surfaceController.getXComponentSurfaceId();
-        const engine: CarAvPlayerEngine | null = this.engine;
-        if (engine !== null) {
-          engine.start(this.surfaceId);
-        }
+    ForEach([this.engine !== null ? this.eng().surfaceGeneration : 0], (gen: number) => {
+      XComponent({
+        id: `car_player_surface_${gen}`,
+        type: XComponentType.SURFACE,
+        controller: this.engine !== null ? this.eng().surfaceController : this.surfaceController
       })
+        .width(this.fitWidth())
+        .height(this.fitHeight())
+        .hdrBrightness(this.engine !== null && this.eng().isHdrActive() ? 1.0 : 0.0)
+        // SURFACE 型 XComponent 会消费触摸（真机实测），画面不需要触摸，交给根处理
+        .hitTestBehavior(HitTestMode.None)
+        .visibility(this.engine !== null && this.eng().videoSurfaceVisible
+          ? Visibility.Visible : Visibility.Hidden)
+        .onLoad((): void => {
+          const engine: CarAvPlayerEngine | null = this.engine;
+          if (engine !== null) {
+            this.surfaceId = engine.surfaceController.getXComponentSurfaceId();
+            engine.start(this.surfaceId);
+          }
+        })
+    }, (gen: number): string => `car_surface_${gen}`)
   }
 
   // MARK: - 驻车视频模式

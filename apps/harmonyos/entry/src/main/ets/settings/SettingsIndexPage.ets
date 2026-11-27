@@ -235,7 +235,7 @@ export struct SettingsIndexPage {
      * 返回键与标题由官方 HdsNavDestination 渲染，滚动时标题栏从透明渐显磨砂。
      */
     .titleMode(HdsNavDestinationTitleMode.MINI)
-    .titleBar(AppNavBar.subPageTitleBar('设置'))
+    .titleBar(AppNavBar.subPageTitleBar(this.appLanguage.t('settings.title')))
     .bindToScrollable([this.scroller])
     .dynamicHideTitleBar(AppNavBar.dynamicHide())
     .onReady((ctx: NavDestinationContext) => {
@@ -302,10 +302,10 @@ export struct SettingsIndexPage {
         .fontColor([Theme.accent2])
         .width(26)
       Column({ space: 2 }) {
-        Text('经典底栏')
+        Text(this.appLanguage.t('settings.classic_tabs'))
           .fontSize(15)
           .fontColor(Theme.text)
-        Text('开 = 通用的整宽贴底栏；关 = 悬浮胶囊（默认）')
+        Text(this.appLanguage.t('settings.classic_tabs_hint'))
           .fontSize(12)
           .fontColor(Theme.textMuted)
       }
@@ -362,10 +362,10 @@ export struct SettingsIndexPage {
         .fontColor([Theme.accent2])
         .width(26)
       Column({ space: 2 }) {
-        Text('图标')
+        Text(this.appLanguage.t('settings.icon'))
           .fontSize(15)
           .fontColor(Theme.text)
-        Text('选择应用内展示的图标（26 款设计）')
+        Text(this.appLanguage.t('settings.icon_hint'))
           .fontSize(12)
           .fontColor(Theme.textMuted)
       }
@@ -392,10 +392,10 @@ export struct SettingsIndexPage {
         .fontColor([Theme.accent2])
         .width(26)
       Column({ space: 2 }) {
-        Text('关于 MovieClaw')
+        Text(this.appLanguage.t('settings.about'))
           .fontSize(15)
           .fontColor(Theme.text)
-        Text('版本与开源许可')
+        Text(this.appLanguage.t('settings.about_hint'))
           .fontSize(12)
           .fontColor(Theme.textMuted)
       }

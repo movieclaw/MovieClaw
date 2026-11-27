@@ -20,6 +20,7 @@ import { PlayerPrefs } from '../player/PlayerPrefs';
 import { MpvTrust } from '../playback/MpvTrust';
 import { OfflineDisk } from '../offline/OfflineDisk';
 import { OfflineDownloader } from '../offline/OfflineDownloader';
+import { OfflineSmartCache } from '../offline/OfflineSmartCache';
 import { NotifyPrefs } from '../notify/NotifyPrefs';
 import { NotifyCenter } from '../notify/NotifyCenter';
 import { NotifyRouter } from '../notify/NotifyRouter';
@@ -83,6 +84,7 @@ export default class EntryAbility extends UIAbility {
     // 离线下载的存档根目录与下载器（长时任务申请要 UIAbilityContext）
     OfflineDisk.init(this.context);
     OfflineDownloader.shared.activate(this.context);
+    OfflineSmartCache.shared.init(this.context);
     // 首屏秒开三件套：媒体库首页快照、发现页快照、海报/剧照磁盘 LRU 缓存必须在 onCreate 注入沙箱路径
     LibraryHomeStore.shared.init(this.context);
     DiscoverStore.shared.init(this.context);

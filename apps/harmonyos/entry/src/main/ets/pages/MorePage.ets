@@ -6,6 +6,7 @@ import { AccountSwitcherSheet } from '../common/AccountSwitcherSheet';
 import { GlassButtonModifier, GlassTone } from '../common/GlassControls';
 import { NativeDialog } from '../common/NativeDialog';
 import { DeviceApprovalDialog } from '../settings/DeviceApprovalDialog';
+import { PairingScanner, ScanOutcome, ScanOutcomeKind } from '../common/PairingScanner';
 import { AppModel, AppPhase, SavedAccount } from '../common/AppModel';
 import { ServerRoutes } from '../common/ServerRoutes';
 import { Permissions } from '../common/Permissions';
@@ -529,11 +530,37 @@ export struct MorePage {
 
   // MARK: 扫码批准（宿主工具栏的扫码钮）
 
+  private approvalInitialCode: string = '';
+  private approvalInitialHint: string = '';
+
   @Monitor('scanSignal')
   onScanSignal(): void {
     if (this.scanSignal > 0) {
-      this.openScanApproval();
+      this.scanForApproval(false);
     }
+  }
+
+  private async scanForApproval(reopenOnCancel: boolean): Promise<void> {
+    const outcome: ScanOutcome = await PairingScanner.scan(this.getUIContext().getHostContext());
+    if (outcome.kind === ScanOutcomeKind.cancelled) {
+      if (reopenOnCancel) {
+        this.approvalInitialCode = '';
+        this.approvalInitialHint = '';
+        this.openScanApproval();
+      }
+      return;
+    }
+    if (outcome.kind === ScanOutcomeKind.recognized) {
+      this.approvalInitialCode = outcome.text;
+      this.approvalInitialHint = '';
+    } else if (outcome.kind === ScanOutcomeKind.unrecognized) {
+      this.approvalInitialCode = '';
+      this.approvalInitialHint = '这不是 MovieClaw 的登录二维码，换一张试试';
+    } else {
+      this.approvalInitialCode = '';
+      this.approvalInitialHint = '这台设备上用不了相机扫码，请改为手动输入配对码';
+    }
+    this.openScanApproval();
   }
 
   private openScanApproval(): void {
@@ -597,7 +624,12 @@ export struct MorePage {
   @Builder
   ApprovalCard() {
     DeviceApprovalDialog({
-      scanFirst: true,
+      initialCode: this.approvalInitialCode,
+      initialHint: this.approvalInitialHint,
+      onRescan: (): void => {
+        this.closeApproval();
+        this.scanForApproval(true);
+      },
       onClose: (): void => {
         this.closeApproval();
       }

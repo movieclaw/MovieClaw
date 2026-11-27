@@ -14,6 +14,7 @@ import appLanguageTest from './AppLanguage.test';
 import chaptersTest from './Chapters.test';
 import playerDiagnosticsTest from './PlayerDiagnostics.test';
 import harmonyUpgradesTest from './HarmonyUpgrades.test';
+import harmonyPhase2Test from './HarmonyPhase2.test';
 
 export default function testsuite() {
   playerInteractionTest();
@@ -32,4 +33,5 @@ export default function testsuite() {
   chaptersTest();
   playerDiagnosticsTest();
   harmonyUpgradesTest();
+  harmonyPhase2Test();
 }

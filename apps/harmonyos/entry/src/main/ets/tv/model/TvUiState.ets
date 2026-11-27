@@ -12,7 +12,7 @@ import { preferences } from '@kit.ArkData';
 import { Context } from '@kit.AbilityKit';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import { TvMotion } from '../theme/TvTheme';
-import { AvPlayerEngine, PlayRequest } from '../../common/AvPlayerEngine';
+import { PlayRequest } from '../../playback/PlayRequest';
 import { TvPlaybackHost } from '../playback/TvPlaybackHost';
 
 /** 路由基类：子类用 instanceof 分派（ArkTS 无带关联值的枚举） */
@@ -302,7 +302,6 @@ export class TvUiState {
 
   /** 偏好存储初始化（TvIndex aboutToAppear 调一次） */
   init(context: Context): void {
-    AvPlayerEngine.appContext = context;
     TvPlaybackHost.appContext = context;
     if (this.store !== null) {
       return;

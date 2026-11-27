@@ -17,6 +17,7 @@ import { AppModel } from '../common/AppModel';
 import { Permissions } from '../common/Permissions';
 import { ShellChrome } from '../common/ShellChrome';
 import { TabBarStyle } from '../common/TabBarStyle';
+import { AppLanguage } from '../common/AppLanguage';
 import { TabBarCollapse } from '../common/TabBarCollapse';
 import { SpatialMaterial } from '../common/SpatialMaterial';
 import { SessionView } from '../api/Models';
@@ -91,6 +92,7 @@ export struct MainTabsPage {
   @Local private resume: ResumeBarStore = new ResumeBarStore();
   /** 底栏样式（悬浮胶囊 / 经典贴底栏）：设置页开关改的就是这个单例，改了整条底栏跟着重建 */
   @Local private tabBarStyle: TabBarStyle = TabBarStyle.shared();
+  @Local private appLanguage: AppLanguage = AppLanguage.shared();
   /** 内容往下滚后底栏收成圆形按钮的信号（各页签根页在滚动时上报） */
   @Local private collapse: TabBarCollapse = TabBarCollapse.shared();
   /** 官方胶囊是否处于「滑动后」状态（minibar 展开、页签栏收成圆钮的左右一行） */
@@ -182,6 +184,12 @@ export struct MainTabsPage {
         }).catch((): void => {
         });
       }
+      return;
+    }
+    if (target.kind === 'offline_storage') {
+      this.pushWhenStackReady(NavStacks.currentKey, (stack: NavPathStack): void => {
+        stack.pushPathByName('offlineStorage', null);
+      }, 0);
       return;
     }
     if (target.kind === 'continue_latest') {
@@ -718,12 +726,21 @@ export struct MainTabsPage {
     }
   }
 
+  private localizedTabTitle(title: string): string {
+    if (title === '媒体库') { return this.appLanguage.t('tabs.library'); }
+    if (title === '订阅') { return this.appLanguage.t('tabs.subscriptions'); }
+    if (title === '发现') { return this.appLanguage.t('tabs.discover'); }
+    if (title === '活动') { return this.appLanguage.t('tabs.activity'); }
+    if (title === '我的') { return this.appLanguage.t('tabs.me'); }
+    return title;
+  }
+
   @Builder
   TabLabel(tab: AppTabItem, index: number) {
     Column({ space: 2 }) {
       this.TabIcon(tab, this.currentTab === index)
       if (!this.tabBarStyle.floating) {
-        Text(tab.title).fontSize(10).fontColor(Theme.accentStrong)
+        Text(this.localizedTabTitle(tab.title)).fontSize(10).fontColor(Theme.accentStrong)
       }
     }
     .width('100%').height(48).justifyContent(FlexAlign.Center)
@@ -733,7 +750,7 @@ export struct MainTabsPage {
       .visibility(this.chrome.immersive ? Visibility.Hidden : Visibility.Visible)
     .id(`app-tab-${tab.title}`)
     .accessibilityGroup(true)
-    .accessibilityText(tab.title)
+    .accessibilityText(this.localizedTabTitle(tab.title))
     .accessibilitySelected(this.currentTab === index)
   }
 
