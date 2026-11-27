@@ -11,13 +11,13 @@ import SwiftUI
 struct JobCard: View {
     let job: API.JobView
     let store: TaskActivityStore
+    let onDismiss: () -> Void
 
     @Environment(\.api) private var api
     @Environment(Router.self) private var router
     @State private var busyAction: String?
     @State private var actionError: String?
     @State private var usageExpanded = false
-    @State private var dismissOpen = false
     @State private var filesOpen = false
 
     private var probe: LLMCapabilityProbe { .shared }
@@ -119,10 +119,6 @@ struct JobCard: View {
         .background(Color(red: 14 / 255, green: 16 / 255, blue: 22 / 255).opacity(0.52), in: .rect(cornerRadius: 16))
         .overlay(RoundedRectangle(cornerRadius: 16).strokeBorder(borderColor))
         .task { await probe.ensure(api: api) }
-        .sheet(isPresented: $dismissOpen) {
-            DismissJobSheet(job: job) { mute in await dismiss(muteSource: mute) }
-                .sheetFeedback()
-        }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("job-card-\(job.id)")
     }
@@ -149,7 +145,7 @@ struct JobCard: View {
                         Button(busyAction == action.type ? String(localized: .activityJobsProcessingAction) : action.label) { run(action) }
                     }
                     if dismissable {
-                        Button(String(localized: .activityJobsDismissAction), systemImage: "eye.slash") { dismissOpen = true }
+                        Button(String(localized: .activityJobsDismissAction), systemImage: "eye.slash") { onDismiss() }
                     }
                     if dismissed {
                         Button(busyAction == "undismiss" ? String(localized: .activityJobsRestoringAction) : String(localized: .activityJobsRestoreAction), systemImage: "arrow.uturn.backward") { undismiss() }
@@ -323,19 +319,6 @@ struct JobCard: View {
     private func undismiss() {
         perform("undismiss", fallback: String(localized: .activityJobsRestoreFailed)) {
             store.upsert(try await api.jobsUndismiss(jobId: job.id).job)
-        }
-    }
-
-    private func dismiss(muteSource: Bool) async {
-        busyAction = "dismiss"
-        actionError = nil
-        defer { busyAction = nil }
-        do {
-            store.upsert(try await api.jobsDismiss(jobId: job.id, body: API.JobDismissRequest(muteSource: muteSource)).job)
-            dismissOpen = false
-        } catch {
-            // 与卡片上其他动作同一展示方式：错误写在卡片内，弹层保持打开（Web dismissCurrentJob）
-            actionError = error.localizedDescription.isEmpty ? String(localized: .activityJobsDismissFailed) : error.localizedDescription
         }
     }
 

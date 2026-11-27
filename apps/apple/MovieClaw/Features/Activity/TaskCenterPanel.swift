@@ -123,6 +123,8 @@ final class TaskCenterActions {
     var bulkDismissing = false
     /// 待确认删除的种子任务（非 nil 即弹出确认层）
     var pendingDelete: API.DownloadTaskView?
+    /// 待确认忽略的失败作业（非 nil 即弹出确认层，由页面统一托管避免列表行回收打断弹层）
+    var pendingDismiss: API.JobView?
 
     func replace(_ task: API.DownloadTaskView, api: APIClient, feedback: Feedback, store: TaskActivityStore) {
         guard let downloaderId = task.downloaderId, replacingTaskId == nil else { return }
@@ -178,6 +180,15 @@ final class TaskCenterActions {
             } catch {
                 feedback.error(error.localizedDescription.isEmpty ? String(localized: .activityTaskCenterDismissAllFailed) : error.localizedDescription)
             }
+        }
+    }
+
+    func dismiss(_ job: API.JobView, muteSource: Bool, api: APIClient, feedback: Feedback, store: TaskActivityStore) async {
+        do {
+            store.upsert(try await api.jobsDismiss(jobId: job.id, body: API.JobDismissRequest(muteSource: muteSource)).job)
+            pendingDismiss = nil
+        } catch {
+            feedback.error(error.localizedDescription.isEmpty ? String(localized: .activityJobsDismissFailed) : error.localizedDescription)
         }
     }
 
