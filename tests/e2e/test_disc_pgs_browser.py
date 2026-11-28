@@ -32,6 +32,7 @@ from tests.e2e.test_media_share_browser import (
     _wait_for,
     _wait_http,
 )
+from tests.e2e.test_player_pgs_browser import _open_subtitle_menu
 from tests.playback.disc_fixture import Clip, make_bdmv, sup_presentations
 
 pytest.importorskip("playwright.sync_api")
@@ -100,6 +101,11 @@ def stack(tmp_path_factory):
     make_bdmv(movie_root / "某电影 (2020)", MULTI_CLIP, languages=["zho"])
     make_bdmv(movie_root / "单剪辑原盘 (2020)", SINGLE_CLIP, languages=["zho"])
     make_bdmv(movie_root / "读得慢的原盘 (2020)", SLOW_CLIP, languages=["zho"])
+    single_file = make_bdmv(root / "m2ts-fixture", SLOW_CLIP, languages=["zho"])
+    shutil.copyfile(
+        single_file / "BDMV" / "STREAM" / "00003.m2ts",
+        movie_root / "读得慢的单文件 (2020).m2ts",
+    )
 
     real_ffmpeg = shutil.which("ffmpeg")
     assert real_ffmpeg
@@ -408,6 +414,43 @@ def test_a_read_longer_than_the_request_can_wait_still_ends_in_subtitles(stack) 
             page.wait_for_timeout(1000)
             # 片长 30 秒，读完时已经放到头了：拖回字幕那一段
             _assert_timeline(page, stack, "slow", [(23, False, True), (28, False, False)])
+        finally:
+            stack["delay_file"].write_text("")
+            browser.close()
+
+
+def test_cold_m2ts_polls_for_pgs_and_renders_without_restarting_extraction(stack) -> None:
+    """真实网页经过代理拿到 202 后继续等待，抽完的 PGS 必须上屏。"""
+    from playwright.sync_api import expect, sync_playwright
+
+    base = stack["base"]
+    reads: Path = stack["read_log"]
+    before = reads.read_text().count("read")
+    stack["delay_file"].write_text(str(SLOW_READ_S))
+    with sync_playwright() as p:
+        browser, context, library_id = _session(p, stack)
+        try:
+            item = _item_id(context, base, library_id, "读得慢的单文件")
+            page = context.new_page()
+            watch = _Watch(page)
+            page.goto(f"{base}/play/{item}")
+            _play_current_video(page)
+            # 单文件的 MPEG-TS 未标记默认轨，要像用户一样手动开启。
+            _open_subtitle_menu(page)
+            page.get_by_role("button", name="PGS 图形").click()
+            preparing = page.get_by_test_id("subtitle-preparing")
+            expect(preparing).to_be_visible()
+            _wait_in_page(
+                page, lambda: 202 in watch.subtitle_status, timeout_s=15, what="收到字幕准备状态"
+            )
+            _wait_in_page(
+                page, lambda: 200 in watch.subtitle_status,
+                timeout_s=SLOW_READ_S + 20, what="字幕 .sup 下发",
+            )
+            expect(preparing).to_have_count(0)
+            assert reads.read_text().count("read") - before == 1
+            _assert_no_transcode(watch)
+            _assert_timeline(page, stack, "slow-m2ts", [(23, False, True), (28, False, False)])
         finally:
             stack["delay_file"].write_text("")
             browser.close()

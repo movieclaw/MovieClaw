@@ -264,6 +264,18 @@ test("PGS 字节：浏览器或反代等不及断开时接着等，直到拿到"
   assert.equal(calls.length, 3);
 });
 
+test("PGS 字节：202 和 204 都继续轮询，直到收到字幕内容", async (t) => {
+  const bytes = new Uint8Array([0x50, 0x47]);
+  const calls = stubFetch(t, [
+    new Response(null, { status: 202 }),
+    new Response(null, { status: 204 }),
+    new Response(bytes),
+  ]);
+  const data = await fetchSupBytes("/sub?track=embedded:6&token=signed", new AbortController().signal, 1);
+  assert.deepEqual(new Uint8Array(data), bytes);
+  assert.deepEqual(calls.map(({ url }) => url), Array(3).fill("/sub?track=embedded:6&token=signed&poll=true"));
+});
+
 test("PGS 字节：4xx 是真的拿不到，不再反复问", async (t) => {
   const calls = stubFetch(t, [new Response("", { status: 404 })]);
   await assert.rejects(fetchSupBytes("/sub", new AbortController().signal, 1), /404/);

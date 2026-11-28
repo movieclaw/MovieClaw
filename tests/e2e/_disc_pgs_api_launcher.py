@@ -9,7 +9,7 @@ from pathlib import Path
 
 import _fake_tmdb
 
-_MOVIES = {"单剪辑原盘": 301, "读得慢的原盘": 302}
+_MOVIES = {"单剪辑原盘": 301, "读得慢的原盘": 302, "读得慢的单文件": 303}
 
 for _title, _tmdb_id in _MOVIES.items():
     _fake_tmdb.ROUTES[f"/3/movie/{_tmdb_id}"] = {
