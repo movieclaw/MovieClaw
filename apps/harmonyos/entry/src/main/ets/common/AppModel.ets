@@ -17,7 +17,7 @@ import { ServerRoutes } from './ServerRoutes';
 import { SavedServer, SavedServers } from './SavedServers';
 import { TokenVault } from './TokenVault';
 import { PerfTelemetry } from './PerfTelemetry';
-import { clearImageCaches } from './RemoteImage';
+import { clearImageCaches } from './RemoteImageCache';
 import { ImageDiskCache } from './ImageDiskCache';
 
 /** 偏好存储键。集中定义避免散落的字符串拼错。 */

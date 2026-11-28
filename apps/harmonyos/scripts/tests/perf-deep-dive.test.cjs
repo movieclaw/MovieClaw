@@ -217,6 +217,8 @@ test('ApiClient conditional GET semantics, isolation across servers/accounts/coo
   let versionA = 1;
   let etagMode = 'v1';
   let slowGetGate = null;
+  let slowGetVersion = 1;
+  let slowPostGate = null;
 
   const srvA = await startServer((req, res) => {
     callsA.push({
@@ -301,7 +303,7 @@ test('ApiClient conditional GET semantics, isolation across servers/accounts/coo
         res.writeHead(200, { 'Content-Type': 'application/json', ETag: `"race-v${snapVersion}"` });
         res.end(JSON.stringify({ success: true, data: { version: snapVersion } }));
       };
-      if (slowGetGate && snapVersion === 1) {
+      if (slowGetGate && snapVersion === slowGetVersion) {
         slowGetGate.then(respond);
       } else {
         respond();
@@ -309,9 +311,18 @@ test('ApiClient conditional GET semantics, isolation across servers/accounts/coo
       return;
     }
     if (req.url === '/api/v1/bump' && req.method === 'POST') {
-      versionA += 1;
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ success: true, data: { version: versionA } }));
+      const finishPost = () => {
+        versionA += 1;
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ success: true, data: { version: versionA } }));
+      };
+      if (slowPostGate) {
+        const gate = slowPostGate;
+        slowPostGate = null;
+        gate.then(finishPost);
+      } else {
+        finishPost();
+      }
       return;
     }
     res.writeHead(404);
@@ -397,9 +408,10 @@ test('ApiClient conditional GET semantics, isolation across servers/accounts/coo
     r1.mutated = true;
     assert.equal(r2.mutated, undefined, 'coalesced callers must receive independent parsed objects');
 
-    // 7. Write-vs-inflight GET race: post-write GET must NOT coalesce onto pre-write GET,
-    //    and late pre-write GET must NOT write stale ETag back into cache!
+    // 7a. Write-vs-inflight GET race (GET starts BEFORE POST): post-write GET must NOT coalesce onto pre-write GET,
+    //     and late pre-write GET must NOT write stale ETag back into cache!
     let releaseSlow;
+    slowGetVersion = 1;
     slowGetGate = new Promise((r) => { releaseSlow = r; });
     const preWriteGet = alice.get('/race');
     await new Promise((r) => setTimeout(r, 20));
@@ -412,6 +424,42 @@ test('ApiClient conditional GET semantics, isolation across servers/accounts/coo
     // Next GET must carry race-v2, NOT stale race-v1 overwritten by late pre-write GET!
     await alice.get('/race');
     assert.equal(callsA[callsA.length - 1].inm, '"race-v2"', 'late pre-write GET must not overwrite post-write ETag');
+
+    // 7b. Write-vs-inflight GET race (GET starts WHILE POST is in-flight before server commits):
+    //     post-write refresh on same client MUST NOT reuse the in-flight GET started during the write!
+    let releaseDuringWriteGet;
+    let releaseSlowPost;
+    slowGetVersion = 2;
+    slowGetGate = new Promise((r) => { releaseDuringWriteGet = r; });
+    slowPostGate = new Promise((r) => { releaseSlowPost = r; });
+    const pendingPost = alice.post('/bump', '{}'); // starts at v2, will bump to v3 on releaseSlowPost
+    await new Promise((r) => setTimeout(r, 20));
+    const duringWriteGet = alice.get('/race'); // hits server while versionA is still 2
+    await new Promise((r) => setTimeout(r, 20));
+    releaseSlowPost();
+    await pendingPost; // versionA is now 3; finally invalidates inflightGets & bumps etagEpoch
+    const postCommitRefresh = await alice.get('/race'); // MUST NOT join duringWriteGet!
+    assert.equal(postCommitRefresh.version, 3, 'post-write refresh must not reuse GET started during write');
+    releaseDuringWriteGet();
+    assert.equal((await duringWriteGet).version, 2);
+    await alice.get('/race');
+    assert.equal(callsA[callsA.length - 1].inm, '"race-v3"', 'late during-write GET must not overwrite v3 ETag');
+
+    // 7c. Cross-instance write invalidation: write on another ApiClient instance must prevent
+    //     the first instance's post-write GET from coalescing onto its own pre-write inflight GET!
+    const aliceSecondClient = new ApiClient(srvA.origin, 'tok-alice');
+    aliceSecondClient.routeKind = 'lan';
+    let releaseCrossGet;
+    slowGetVersion = 3;
+    slowGetGate = new Promise((r) => { releaseCrossGet = r; });
+    const crossPreGet = alice.get('/race');
+    await new Promise((r) => setTimeout(r, 20));
+    await aliceSecondClient.post('/bump', '{}'); // bumps global etagEpoch; versionA is now 4
+    const crossPostGet = await alice.get('/race');
+    assert.equal(crossPostGet.version, 4, 'cross-instance write must break inflight coalescing on first client');
+    releaseCrossGet();
+    assert.equal((await crossPreGet).version, 3);
+    slowGetGate = null;
 
     // 8. Logout / setToken clears ETag cache & inflight
     alice.setToken('tok-alice-2');
@@ -535,7 +583,7 @@ test('RemoteImage cache pipeline isolates accounts/servers/logout and reports ac
     },
   };
 
-  let decodeFailNext = false;
+  let decodeMode = 'ok';
   const imgRequests = [];
   const srv = await startServer((req, res) => {
     imgRequests.push({ url: req.url, auth: req.headers['authorization'] || '', cookie: req.headers['cookie'] || '' });
@@ -552,38 +600,35 @@ test('RemoteImage cache pipeline isolates accounts/servers/logout and reports ac
   try {
     ImageDiskCache.init({ cacheDir: tmpDir }, 1024 * 1024);
 
-    // Load only the cache/pipeline classes from RemoteImage.ets (strip @Component struct UI block)
-    const remoteMod = loadEts(
-      'common/RemoteImage.ets',
-      {
-        '@kit.NetworkKit': createNodeHttpKit(),
-        '@kit.ImageKit': {},
-        '@kit.ArkUI': { display: { getDefaultDisplaySync: () => ({ width: 1080, height: 2400, densityPixels: 3 }) } },
-        '@kit.ArkTS': {
-          taskpool: {
-            async execute(fn, buf, edge) {
-              if (decodeFailNext) {
-                decodeFailNext = false;
-                return null;
-              }
-              return { label: Buffer.from(buf).toString('utf8'), edge };
-            },
+    // Load pure non-UI RemoteImageCache.ets directly (no UI slicing needed)
+    const remoteMod = loadEts('common/RemoteImageCache.ets', {
+      '@kit.NetworkKit': createNodeHttpKit(),
+      '@kit.ImageKit': {},
+      '@kit.ArkUI': { display: { getDefaultDisplaySync: () => ({ width: 1080, height: 2400, densityPixels: 3 }) } },
+      '@kit.ArkTS': {
+        taskpool: {
+          async execute(fn, buf, edge) {
+            if (decodeMode === 'null') {
+              decodeMode = 'ok';
+              return null;
+            }
+            if (decodeMode === 'throw') {
+              decodeMode = 'ok';
+              throw new Error('taskpool native decode crash');
+            }
+            return { label: Buffer.from(buf).toString('utf8'), edge };
           },
         },
-        '../theme/AppTheme': { Theme: {} },
-        './AppModel': { AppModel: mockAppModel },
-        '../api/ApiClient': mockApiClient,
-        './ImageDiskCache': { ImageDiskCache },
-        './ImageLruPolicy': { ImageLruPolicy },
-        './ImageDecodeTask': { decodeImageBytes: () => null },
       },
-      (src) => {
-        const cut = src.indexOf('@Component\nexport struct RemoteImage');
-        return src.slice(0, cut) + '\nexport const __cache = RemoteImageCache.shared;\n';
-      }
-    );
+      './AppModel': { AppModel: mockAppModel },
+      '../api/ApiClient': mockApiClient,
+      './ImageDiskCache': { ImageDiskCache },
+      './ImageLruPolicy': { ImageLruPolicy },
+      './ImageDecodeTask': { decodeImageBytes: () => null },
+    });
 
-    const { __cache: cache, remoteImageStats, clearImageCaches } = remoteMod;
+    const { RemoteImageCache, remoteImageStats, clearImageCaches } = remoteMod;
+    const cache = RemoteImageCache.shared;
     const posterUrl = `${srv.origin}/poster/1.jpg`;
 
     // 1. Alice cold fetch -> networkFetches=1, diskHits=0, memoryHits=0, decodes=1
@@ -634,12 +679,33 @@ test('RemoteImage cache pipeline isolates accounts/servers/logout and reports ac
     assert.equal(remoteImageStats().diskHits, 1, 'Alice should hit her own L2 disk cache');
     assert.equal(remoteImageStats().networkFetches, 2, 'No extra network fetch on L2 hit');
 
-    // 6. Corrupt disk decode self-heals: diskHits not incremented & disk entry removed
+    // 6a. Corrupt disk decode returning null self-heals: diskHits not incremented & disk entry removed
     clearImageCaches(null, false);
-    decodeFailNext = true;
+    decodeMode = 'null';
     assert.equal(await cache.acquire(posterUrl, 360).task, null);
     assert.equal(remoteImageStats().diskHits, 1, 'corrupt disk decode must not increment diskHits');
     assert.equal(ImageDiskCache.contains('http://srv-a|alice', posterUrl), false);
+
+    // 6b. taskpool.execute throwing on network fetch resolves safely to null, cleans inflight, and recovers on retry
+    const throwUrl = `${srv.origin}/poster/throw-net.jpg`;
+    decodeMode = 'throw';
+    assert.equal(await cache.acquire(throwUrl, 360).task, null, 'decode throw must resolve to null, not reject');
+    const recoveredNet = await cache.acquire(throwUrl, 360).task;
+    assert.equal(recoveredNet.label, 'ALICE_IMG', 'inflight slot must be cleaned so retry succeeds');
+
+    // 6c. taskpool.execute throwing on disk L2 hit resolves safely to null, does not count diskHit,
+    //     removes corrupt disk entry, and recovers from network on retry
+    clearImageCaches(null, false);
+    assert.equal(ImageDiskCache.contains('http://srv-a|alice', throwUrl), true);
+    const diskHitsBeforeThrow = remoteImageStats().diskHits;
+    const netFetchesBeforeThrow = remoteImageStats().networkFetches;
+    decodeMode = 'throw';
+    assert.equal(await cache.acquire(throwUrl, 360).task, null, 'disk decode throw must resolve to null, not reject');
+    assert.equal(remoteImageStats().diskHits, diskHitsBeforeThrow, 'disk decode throw must not increment diskHits');
+    assert.equal(ImageDiskCache.contains('http://srv-a|alice', throwUrl), false, 'corrupt disk entry must be removed on decode throw');
+    const recoveredDisk = await cache.acquire(throwUrl, 360).task;
+    assert.equal(recoveredDisk.label, 'ALICE_IMG');
+    assert.equal(remoteImageStats().networkFetches, netFetchesBeforeThrow + 1, 'retry after corrupt disk eviction should re-fetch from network');
 
     // 7. Share-cookie protected image is never persisted to disk cache
     cookieValue = 'movieclaw_share=secret';
