@@ -47,11 +47,21 @@ export struct PlayerPage {
   /** 起播打点只报一次：host.playing 首次变 true 时结束 playback_open 计时 */
   private reportedPlaybackOpen: boolean = false;
   aboutToAppear(): void {
+    this.reportedPlaybackOpen = false;
     PerfTelemetry.begin('playback_open');
     this.host.bindUI(this.getUIContext());
     this.host.aboutToAppear();
+    if (this.host.playing) {
+      this.reportedPlaybackOpen = true;
+      PerfTelemetry.end('playback_open');
+    }
   }
-  aboutToDisappear(): void { this.host.aboutToDisappear(); }
+  aboutToDisappear(): void {
+    if (!this.reportedPlaybackOpen) {
+      PerfTelemetry.cancel('playback_open');
+    }
+    this.host.aboutToDisappear();
+  }
 
   /** 首次进入播放态 = 起播耗时终点（只报一次；暂停/续播不重复计） */
   @Monitor('host.playing')
@@ -59,6 +69,14 @@ export struct PlayerPage {
     if (this.host.playing && !this.reportedPlaybackOpen) {
       this.reportedPlaybackOpen = true;
       PerfTelemetry.end('playback_open');
+    }
+  }
+
+  /** 起播前失败：撤消未完成的起播计时，避免残留旧标记 */
+  @Monitor('host.phase')
+  onHostPhaseChange(): void {
+    if (!this.reportedPlaybackOpen && this.host.phase === PlayerPhase.failed) {
+      PerfTelemetry.cancel('playback_open');
     }
   }
 

@@ -107,6 +107,11 @@ class PosterRowItem {
     this.info = info;
   }
 
+  /** LazyForEach 渲染键：条目元数据或封面变化时键随内容变，避免同 id 复用旧显示。 */
+  renderKey(): string {
+    return `${this.id}|${this.title}|${this.year ?? ''}|${this.url ?? ''}|${this.aspect}|${this.info.join('\u0001')}`;
+  }
+
   static fromItem(item: LibraryItemView, fallbackLibrary: number, origin: string): PosterRowItem {
     const info: string[] = [];
     if (item.kind === 'tv' && item.recent_addition !== null && item.recent_addition !== undefined) {
@@ -224,10 +229,11 @@ class PosterRowSource implements IDataSource {
  */
 @Component
 struct PosterRowView {
-  title: string = '';
-  moreTitle: string = '';
-  items: PosterRowItem[] = [];
-  onMore: () => void = () => {
+  @Prop rowId: string = '';
+  @Prop title: string = '';
+  @Prop moreTitle: string = '';
+  @Prop @Watch('onItemsChanged') items: PosterRowItem[] = [];
+  onMore: (rowId: string) => void = (_rowId: string): void => {
   };
   onOpenItem: (item: PosterRowItem) => void = (_item: PosterRowItem): void => {
   };
@@ -238,13 +244,17 @@ struct PosterRowView {
     this.source.setItems(this.items);
   }
 
+  private onItemsChanged(): void {
+    this.source.setItems(this.items);
+  }
+
   build() {
     Column({ space: 12 }) {
       LibrarySectionHeader({
         title: this.title,
         trailingText: this.moreTitle,
         onTrailing: (): void => {
-          this.onMore();
+          this.onMore(this.rowId);
         }
       })
       List({ space: 12 }) {
@@ -265,7 +275,7 @@ struct PosterRowView {
             })
             .bindContextMenu(this.PosterInfoMenu(item), ResponseType.LongPress)
           }
-        }, (item: PosterRowItem) => `${item.id}`)
+        }, (item: PosterRowItem) => item.renderKey())
       }
       .listDirection(Axis.Horizontal)
       .scrollBar(BarState.Off)
@@ -1323,6 +1333,26 @@ export struct LibraryHomeView {
     };
   }
 
+  /** 按最新行配置打开「查看全部」，避免外层 LazyForEach 复用 PosterRowView 后持有旧行闭包。 */
+  private openMoreForRow(rowId: string): void {
+    for (let index = 0; index < this.rows.length; index++) {
+      const row: HomeRow = this.rows[index];
+      if (row.id !== rowId) {
+        continue;
+      }
+      if (row.kind instanceof FavoritesKind) {
+        this.navStack.pushPathByName('favorites', null);
+      } else if (row.kind instanceof LibraryRowKind) {
+        this.moreForLibrary(row.kind as LibraryRowKind)();
+      } else if (row.kind instanceof CollectionRowKind) {
+        this.moreForCollection(row.kind as CollectionRowKind)();
+      } else if (row.kind instanceof MediaKindRowKind) {
+        this.moreForMediaKind(row.kind as MediaKindRowKind)();
+      }
+      return;
+    }
+  }
+
   @Builder
   RowView(row: HomeRow) {
     if (row.kind instanceof UpNextKind) {
@@ -1333,16 +1363,13 @@ export struct LibraryHomeView {
       this.LibrariesRow(row)
     } else if (row.kind instanceof LibraryRowKind) {
       // @Builder 里不能写 const，直接内联
-      this.PosterRow(row.title(), '查看全部', this.rowPosterItems(row),
-        this.moreForLibrary(row.kind as LibraryRowKind))
+      this.PosterRow(row.id, row.title(), '查看全部', this.rowPosterItems(row))
     } else if (row.kind instanceof CollectionRowKind) {
-      this.PosterRow(row.title(), '查看全部', this.rowPosterItems(row),
-        this.moreForCollection(row.kind as CollectionRowKind))
+      this.PosterRow(row.id, row.title(), '查看全部', this.rowPosterItems(row))
     } else if (row.kind instanceof MediaKindRowKind) {
       // 没条目不占一行（同 iOS：items 为空整行不出现）
       if (this.rowPosterItems(row).length > 0) {
-        this.PosterRow(row.title(), '查看全部', this.rowPosterItems(row),
-          this.moreForMediaKind(row.kind as MediaKindRowKind))
+        this.PosterRow(row.id, row.title(), '查看全部', this.rowPosterItems(row))
       }
     } else if (row.kind instanceof GenresKind) {
       this.GenresRow(row.kind as GenresKind)
@@ -1429,9 +1456,7 @@ export struct LibraryHomeView {
   @Builder
   FavoritesRow(row: HomeRow) {
     if (this.favoritesItems.length > 0) {
-      this.PosterRow(row.title(), `查看全部 ${this.favoritesTotal} 部`, this.favoritesItems, (): void => {
-        this.navStack.pushPathByName('favorites', null);
-      })
+      this.PosterRow(row.id, row.title(), `查看全部 ${this.favoritesTotal} 部`, this.favoritesItems)
     }
   }
 
@@ -1653,12 +1678,15 @@ export struct LibraryHomeView {
 
   /** 横滚海报行（收藏行 / 库行 / 合集行统一形态）：行内只建视区附近的格子（见 PosterRowView） */
   @Builder
-  PosterRow(title: string, moreTitle: string, items: PosterRowItem[], onMore: () => void) {
+  PosterRow(rowId: string, title: string, moreTitle: string, items: PosterRowItem[]) {
     PosterRowView({
+      rowId: rowId,
       title: title,
       moreTitle: moreTitle,
       items: items,
-      onMore: onMore,
+      onMore: (id: string): void => {
+        this.openMoreForRow(id);
+      },
       onOpenItem: (item: PosterRowItem): void => {
         this.navStack.pushPathByName('libraryItem', new ItemRouteParams(item.libraryId, item.id));
       }

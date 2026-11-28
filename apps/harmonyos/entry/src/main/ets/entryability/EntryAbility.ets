@@ -145,6 +145,8 @@ export default class EntryAbility extends UIAbility {
     const entryPage: string = isCar ? 'car/CarIndex' : (isTv ? 'tv/TvIndex' : 'pages/Index');
     windowStage.loadContent(entryPage, (err) => {
       if (err.code) {
+        PerfTelemetry.cancel('cold_start');
+        PerfTelemetry.cancel('session_ready');
         hilog.error(DOMAIN, 'MovieClaw', 'Failed to load the content. Cause: %{public}s', JSON.stringify(err));
         return;
       }

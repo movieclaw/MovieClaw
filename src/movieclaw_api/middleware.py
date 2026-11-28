@@ -14,7 +14,6 @@
 零开销。
 """
 
-import hashlib
 import logging
 import time
 
@@ -242,142 +241,6 @@ class ForegroundPressureMiddleware:
                 foreground.request_responding()
 
 
-class JsonEtagMiddleware:
-    """/api/v1 JSON GET 响应的 ETag 协商缓存（纯 ASGI，只包 send，不碰 receive）。
-
-    解决的问题：App 每次回前台都整库刷新，库没变也要把几百 KB 的 JSON 重传、
-    客户端重解析一遍。启用后内容未变的 GET 从 200+全量 降为 304+空体——
-    内容与服务端**当面**比对过，逐字节相同才 304，不存在陈旧风险。
-
-    接管条件（全部满足才缓冲计算）：
-
-    - GET 且路径在 API 前缀内；
-    - 响应 200、``application/json``、带 ``content-length`` 且 ≤ 4MB；
-      FastAPI 的 JSONResponse 本来就整块生成、一次 send，这里只是收齐再转发，
-      不增加内存峰值；流式响应（SSE/取流/大导出）没有 content-length，天然直通；
-    - 响应没带自己的 ETag（自带协商的路由不接管）。
-
-    ETag = 响应体 md5（内容指纹，内容变即变）。304 时保留原响应头
-    （去掉 content-length/content-type），补 ``Cache-Control: private, no-cache``
-    防共享缓存把用户数据错发给别人。客户端不带 If-None-Match 时照常返回
-    200 + ETag，让客户端下次有能力协商。
-    """
-
-    MAX_BODY_BYTES = 4 * 1024 * 1024
-
-    def __init__(self, app: ASGIApp, *, api_prefix: str) -> None:
-        self.app = app
-        self.api_prefix = api_prefix
-
-    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
-        if (
-            scope["type"] != "http"
-            or scope.get("method") != "GET"
-            or not scope.get("path", "").startswith(self.api_prefix)
-        ):
-            await self.app(scope, receive, send)
-            return
-        if_none_match = _parse_if_none_match(scope.get("headers", ()))
-
-        started: Message | None = None
-        chunks: list[bytes] = []
-
-        async def send_with_etag(message: Message) -> None:
-            nonlocal started, chunks
-            if message["type"] == "http.response.start":
-                if not self._is_etaggable(message.get("status", 200), message.get("headers", [])):
-                    await send(message)
-                    return
-                started = message
-                chunks = []
-                return
-            if message["type"] == "http.response.body" and started is not None:
-                body = message.get("body", b"")
-                if body:
-                    chunks.append(body)
-                if message.get("more_body", False):
-                    return
-                await self._finish(send, started, b"".join(chunks), if_none_match)
-                return
-            await send(message)
-
-        await self.app(scope, receive, send_with_etag)
-
-    async def _finish(
-        self,
-        send: Send,
-        started: Message,
-        body: bytes,
-        if_none_match: frozenset[bytes] | None,
-    ) -> None:
-        etag = b'"' + hashlib.md5(body).hexdigest().encode("ascii") + b'"'
-        original: list = list(started.get("headers", []))
-        if if_none_match is not None and (b"*" in if_none_match or etag in if_none_match):
-            headers = [
-                (name, value)
-                for name, value in original
-                if name.lower() not in (b"content-length", b"content-type")
-            ]
-            headers.append((b"etag", etag))
-            if not any(name.lower() == b"cache-control" for name, _ in headers):
-                headers.append((b"cache-control", b"private, no-cache"))
-            await send({**started, "status": 304, "headers": headers})
-            await send({"type": "http.response.body", "body": b"", "more_body": False})
-            return
-        headers = original + [(b"etag", etag)]
-        if not any(name.lower() == b"cache-control" for name, _ in headers):
-            headers.append((b"cache-control", b"private, no-cache"))
-        await send({**started, "headers": headers})
-        await send({"type": "http.response.body", "body": body, "more_body": False})
-
-    def _is_etaggable(self, status: int, raw_headers) -> bool:
-        if status != 200:
-            return False
-        content_type: bytes | None = None
-        content_length: bytes | None = None
-        for name, value in raw_headers:
-            lower = name.lower()
-            if lower == b"content-type":
-                content_type = value
-            elif lower == b"content-length":
-                content_length = value
-            elif lower == b"etag":
-                return False
-        if content_type is None or not content_type.startswith(b"application/json"):
-            return False
-        if content_length is None:
-            return False
-        try:
-            return int(content_length) <= self.MAX_BODY_BYTES
-        except ValueError:
-            return False
-
-
-def _parse_if_none_match(headers) -> frozenset[bytes] | None:
-    """请求头里的 If-None-Match：逗号拆分、去弱校验前缀（``W/``）；``*`` 单独成集合。
-
-    没带该头返回 None（不协商）；弱比较按 RFC 9110（GET 的 If-None-Match 忽略 W/）。
-    """
-    raw: bytes | None = None
-    for name, value in headers:
-        if name == b"if-none-match":
-            raw = value
-            break
-    if raw is None:
-        return None
-    entries: set[bytes] = set()
-    for part in raw.split(b","):
-        part = part.strip()
-        if not part:
-            continue
-        if part == b"*":
-            return frozenset({b"*"})
-        if part[:2].lower() == b"w/":
-            part = part[2:].strip()
-        entries.add(part)
-    return frozenset(entries)
-
-
 def register_middlewares(app: FastAPI, settings: Settings) -> None:
     # add_middleware 后注册者在外层：访问日志最外层，与原 @app.middleware 顺序一致。
     # 安全头挂在最内层：它只补自己那几个字段，与另外两层互不干扰；放最内可以
@@ -387,8 +250,6 @@ def register_middlewares(app: FastAPI, settings: Settings) -> None:
     app.add_middleware(LocaleMiddleware)
     app.add_middleware(SecurityHeadersMiddleware)
     app.add_middleware(AccessAddressMiddleware)
-    # ETag 协商缓存：在 SpecHash/访问日志内层——外层照常给 304 补 spec 头、记 304 状态
-    app.add_middleware(JsonEtagMiddleware, api_prefix=settings.api_v1_prefix)
     app.add_middleware(SpecHashHeaderMiddleware, api_prefix=settings.api_v1_prefix)
     app.add_middleware(AccessLogMiddleware, enabled=settings.access_log_enabled)
     # 最外层：从请求进门到响应头出门都算在途，不受访问日志开关影响

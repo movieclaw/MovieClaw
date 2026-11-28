@@ -197,12 +197,14 @@ export class ApiClient {
   private static cookies: StoredCookie[] = [];
 
   /**
-   * ETag 协商缓存（GET 响应文本，按 `token|path` 隔离账号）。
-   * 预算 4MB 文本；条目只在 304 时被复用，200 时整体换新。
+   * ETag 协商缓存（GET 响应文本，按 `origin + token + routeKind + cookie + path` 隔离）。
+   * 预算 4MB 文本；条目只在 304 时被复用，200 时整体换新；带 `Cache-Control: no-store` 不落缓存。
    */
   private static readonly ETAG_BUDGET_CHARS: number = 4 * 1024 * 1024;
   private static readonly etagEntries: Map<string, EtagEntry> = new Map<string, EtagEntry>();
   private static readonly etagPolicy: ImageLruPolicy = new ImageLruPolicy();
+  /** 失效代次：写请求或账号切换/注销时递增，防止在途旧 GET 晚归后把旧条目写回缓存。 */
+  private static etagEpoch: number = 0;
 
   /** 在途 GET 共享：同键并发请求只发一次网络，跟随者各自解析（同文本不同对象，互不串改）。 */
   private readonly inflightGets: Map<string, Promise<string>> = new Map<string, Promise<string>>();
@@ -230,7 +232,27 @@ export class ApiClient {
   }
 
   setToken(token: string | null): void {
-    this.token = token;
+    if (this.token !== token) {
+      this.token = token;
+      this.inflightGets.clear();
+      ApiClient.invalidateEtags();
+    }
+  }
+
+  /** 清空本实例的在途 GET 槽（路由切换/会话退出时避免新请求并入旧在途请求）。 */
+  clearInflight(): void {
+    this.inflightGets.clear();
+  }
+
+  /**
+   * 会话隔离清理（切账号/切服务器/注销/401 过期调用）：
+   * 立即清空 ETag 协商缓存并推进代次，按需一并清掉访客 cookie 罐。
+   */
+  static clearSessionCaches(clearCookies: boolean = false): void {
+    ApiClient.invalidateEtags();
+    if (clearCookies) {
+      ApiClient.cookies = [];
+    }
   }
 
   /**
@@ -351,13 +373,17 @@ export class ApiClient {
    * 返回的 (result, message) 元组）：清空观看记录这类接口的成功反馈文案在信封 message 里。
    */
   async delWithMessage<T>(path: string, bodyText: string | null): Promise<ApiMessageResult<T>> {
-    ApiClient.invalidateEtags();
-    const envelope: ApiEnvelope<T> | null =
-      await this.perform<ApiEnvelope<T>>(http.RequestMethod.DELETE, path, bodyText, false, undefined);
-    if (envelope === null) {
-      throw ApiError.decoding('响应不是有效的 JSON');
+    this.invalidateBeforeWrite();
+    try {
+      const envelope: ApiEnvelope<T> | null =
+        await this.perform<ApiEnvelope<T>>(http.RequestMethod.DELETE, path, bodyText, false, undefined, false);
+      if (envelope === null) {
+        throw ApiError.decoding('响应不是有效的 JSON');
+      }
+      return { data: envelope.data, message: envelope.message ?? '' };
+    } finally {
+      ApiClient.invalidateEtags();
     }
-    return { data: envelope.data, message: envelope.message ?? '' };
   }
 
   patchVoid(path: string, bodyText?: string | null): Promise<void> {
@@ -367,26 +393,41 @@ export class ApiClient {
   /**
    * 不拆信封的 GET（少数接口如 `/health` 直接返回对象，对应 iOS 端 `raw()`）。
    * timeoutMs 供连接测试等场景用短超时，避免填错局域网地址时干等。
+   * 探测类请求不参与 ETag 缓存，避免连接探针命中旧缓存或污染协商表。
    */
   rawGet<T>(path: string, timeoutMs?: number): Promise<T> {
-    return this.perform<T>(http.RequestMethod.GET, path, null, false, timeoutMs);
+    return this.perform<T>(http.RequestMethod.GET, path, null, false, timeoutMs, false);
   }
 
-  /** 统一入口（写请求）：先让协商缓存整仓失效，再发请求 → 非 2xx 抛业务错误 → 2xx 拆信封取 data。 */
-  private async send<T>(method: http.RequestMethod, path: string, bodyText: string | null): Promise<T> {
+  /** 写前失效：清空本实例在途 GET 并推进 ETag 代次，防并发 GET 与写后读互相串味。 */
+  private invalidateBeforeWrite(): void {
+    this.inflightGets.clear();
     ApiClient.invalidateEtags();
-    return this.perform<T>(method, path, bodyText, true, undefined);
+  }
+
+  /** 统一入口（写请求）：写前后均失效协商缓存，再发请求 → 非 2xx 抛业务错误 → 2xx 拆信封取 data。 */
+  private async send<T>(method: http.RequestMethod, path: string, bodyText: string | null): Promise<T> {
+    this.invalidateBeforeWrite();
+    try {
+      return await this.perform<T>(method, path, bodyText, true, undefined, false);
+    } finally {
+      ApiClient.invalidateEtags();
+    }
   }
 
   private async sendVoid(method: http.RequestMethod, path: string, bodyText: string | null): Promise<void> {
-    ApiClient.invalidateEtags();
-    await this.perform<null>(method, path, bodyText, true, undefined);
+    this.invalidateBeforeWrite();
+    try {
+      await this.perform<null>(method, path, bodyText, true, undefined, false);
+    } finally {
+      ApiClient.invalidateEtags();
+    }
   }
 
   /** 发请求 → 拿原始 JSON 文本（304 复用协商缓存；非 2xx 抛业务错误）。解析在 perform / parseEnvelopeText。 */
   private async perform<T>(method: http.RequestMethod, path: string, bodyText: string | null,
-    unwrapEnvelope: boolean, timeoutMs?: number): Promise<T> {
-    const text: string = await this.fetchText(method, path, bodyText, timeoutMs);
+    unwrapEnvelope: boolean, timeoutMs?: number, allowEtag: boolean = true): Promise<T> {
+    const text: string = await this.fetchText(method, path, bodyText, timeoutMs, allowEtag);
     if (text.length === 0) {
       return null as T;
     }
@@ -407,23 +448,26 @@ export class ApiClient {
   }
 
   /**
-   * 在途 GET 合并：同键（令牌+路径）并发请求只发一次网络。
+   * 在途 GET 合并：同键（origin + 令牌 + 路由 + cookie + 路径）并发请求只发一次网络。
    * 跟随者拿到同一份原始文本**各自解析**——对象图不共享，调用方改自己的副本互不影响。
-   * 请求结束（无论成败）即清槽，之后的同路径请求是新鲜请求。
+   * 请求结束（无论成败）仅清自己这一槽，避免写前旧请求晚归误删写后新槽。
    */
   private sharedGetText(path: string): Promise<string> {
-    const key: string = this.getCacheKey(path);
+    const fullUrl: string = `${this.origin}/api/v1${path}`;
+    const cookie: string = ApiClient.cookieHeaderFor(fullUrl);
+    const key: string = this.getCacheKey(path, cookie);
     const existing: Promise<string> | undefined = this.inflightGets.get(key);
     if (existing !== undefined) {
       return existing;
     }
-    const text: Promise<string> = this.fetchText(http.RequestMethod.GET, path, null, undefined);
+    const text: Promise<string> = this.fetchText(http.RequestMethod.GET, path, null, undefined, true);
     this.inflightGets.set(key, text);
-    text.then((): void => {
-      this.inflightGets.delete(key);
-    }, (): void => {
-      this.inflightGets.delete(key);
-    });
+    const cleanup = (): void => {
+      if (this.inflightGets.get(key) === text) {
+        this.inflightGets.delete(key);
+      }
+    };
+    text.then(cleanup, cleanup);
     return text;
   }
 
@@ -442,17 +486,17 @@ export class ApiClient {
     return envelope.data;
   }
 
-  /** 协商缓存 / 在途合并共用的键：账号（令牌）+ 路径。未登录（令牌空）也照常工作。 */
-  private getCacheKey(path: string): string {
-    return `${this.token ?? ''}|${path}`;
+  /** 协商缓存 / 在途合并共用的键：服务器 + 账号令牌 + 路由 + 访客 cookie + 路径。 */
+  private getCacheKey(path: string, cookie: string): string {
+    return `${this.origin}\u0000${this.token ?? ''}\u0000${this.routeKind}\u0000${cookie}\u0000${path}`;
   }
 
   /**
    * 取响应文本：构建请求头（鉴权/路由/cookie/If-None-Match）→ 发送 → 304 复用协商缓存
-   * → 非 2xx 抛业务错误 → 2xx（GET 且带 ETag）落协商缓存 → 返回原始 JSON 文本。
+   * → 非 2xx 抛业务错误 → 2xx（GET 且带 ETag 且非 no-store）落协商缓存 → 返回原始 JSON 文本。
    */
   private async fetchText(method: http.RequestMethod, path: string, bodyText: string | null,
-    timeoutMs?: number): Promise<string> {
+    timeoutMs?: number, allowEtag: boolean = true): Promise<string> {
     const fullUrl = `${this.origin}/api/v1${path}`;
     const httpRequest = http.createHttp();
     try {
@@ -475,9 +519,10 @@ export class ApiClient {
         header['Cookie'] = cookie;
       }
       // ETag 协商：GET 有缓存条目就带上 If-None-Match；服务端内容未变会回 304
-      const isGet: boolean = method === http.RequestMethod.GET;
-      const cacheKey: string = this.getCacheKey(path);
-      const etagHit: EtagEntry | undefined = isGet ? ApiClient.etagEntries.get(cacheKey) : undefined;
+      const isEtagGet: boolean = allowEtag && method === http.RequestMethod.GET;
+      const cacheKey: string = this.getCacheKey(path, cookie);
+      const startEpoch: number = ApiClient.etagEpoch;
+      const etagHit: EtagEntry | undefined = isEtagGet ? ApiClient.etagEntries.get(cacheKey) : undefined;
       if (etagHit !== undefined) {
         header['If-None-Match'] = etagHit.etag;
       }
@@ -495,8 +540,21 @@ export class ApiClient {
       const text = resp.result as string;
       ApiClient.captureCookies(this.origin, resp.header);
 
-      // 304 Not Modified：内容已与服务端当面确认未变，直接复用缓存文本
+      const cacheControl: string = ApiClient.readHeader(resp.header, 'cache-control');
+      const noStore: boolean = ApiClient.hasCacheDirective(cacheControl, 'no-store');
+
+      // 304 Not Modified：内容已与服务端当面确认未变，直接复用缓存文本并续命 LRU
       if (resp.responseCode === 304 && etagHit !== undefined) {
+        if (noStore) {
+          ApiClient.removeEtag(cacheKey);
+        } else if (ApiClient.etagEpoch === startEpoch) {
+          const updatedEtag: string = ApiClient.readHeader(resp.header, 'etag');
+          if (updatedEtag.length > 0 && updatedEtag !== etagHit.etag) {
+            ApiClient.storeEtag(cacheKey, updatedEtag, etagHit.body);
+          } else {
+            ApiClient.etagPolicy.touch(cacheKey);
+          }
+        }
         return etagHit.body;
       }
 
@@ -537,11 +595,17 @@ export class ApiClient {
         throw ApiError.http(resp.responseCode, message, code);
       }
 
-      // 2xx + GET + ETag：按账号+路径落协商缓存（下次同请求可 304）
-      if (isGet) {
-        const etag: string = ApiClient.readEtagHeader(resp.header);
-        if (etag.length > 0) {
-          ApiClient.storeEtag(cacheKey, etag, text);
+      // 2xx + GET：遵循 Cache-Control: no-store 与代次守卫；无 ETag 或超预算时移除旧条目
+      if (isEtagGet) {
+        if (noStore) {
+          ApiClient.removeEtag(cacheKey);
+        } else if (ApiClient.etagEpoch === startEpoch) {
+          const etag: string = ApiClient.readHeader(resp.header, 'etag');
+          if (etag.length > 0 && text.length <= ApiClient.ETAG_BUDGET_CHARS) {
+            ApiClient.storeEtag(cacheKey, etag, text);
+          } else {
+            ApiClient.removeEtag(cacheKey);
+          }
         }
       }
       return text;
@@ -555,13 +619,23 @@ export class ApiClient {
     }
   }
 
-  /** 写请求（POST/PUT/DELETE/PATCH）让协商缓存整仓失效：确定性不命中，留着只是白占内存。 */
+  /** 写请求/切换账号让协商缓存整仓失效并推进代次：确定性不命中，防在途旧响应回写。 */
   private static invalidateEtags(): void {
+    ApiClient.etagEpoch++;
     ApiClient.etagEntries.clear();
     ApiClient.etagPolicy.clearAll();
   }
 
+  private static removeEtag(key: string): void {
+    ApiClient.etagEntries.delete(key);
+    ApiClient.etagPolicy.remove(key);
+  }
+
   private static storeEtag(key: string, etag: string, body: string): void {
+    if (body.length > ApiClient.ETAG_BUDGET_CHARS) {
+      ApiClient.removeEtag(key);
+      return;
+    }
     ApiClient.etagEntries.set(key, new EtagEntry(etag, body));
     ApiClient.etagPolicy.insert(key, body.length);
     const evicted: string[] = ApiClient.etagPolicy.evictOverBudget(ApiClient.ETAG_BUDGET_CHARS);
@@ -570,17 +644,48 @@ export class ApiClient {
     }
   }
 
-  /** 响应头里的 ETag（大小写两种键都认；没有返回空串）。 */
-  private static readEtagHeader(header: Object): string {
-    const record: Record<string, Object> = header as Record<string, Object>;
-    let raw: Object | undefined = record['etag'];
-    if (raw === undefined || raw === null) {
-      raw = record['ETag'];
-    }
-    if (raw === undefined || raw === null) {
+  /** 大小写无关读响应头（支持字符串与字符串数组；不存在返回空串）。 */
+  private static readHeader(header: Object | undefined | null, lowerName: string): string {
+    if (header === undefined || header === null) {
       return '';
     }
-    return `${raw}`.trim();
+    const record: Record<string, Object> = header as Record<string, Object>;
+    const keys: string[] = Object.keys(record);
+    for (let index = 0; index < keys.length; index++) {
+      const key: string = keys[index];
+      if (key.toLowerCase() !== lowerName) {
+        continue;
+      }
+      const raw: Object | undefined = record[key];
+      if (raw === undefined || raw === null) {
+        return '';
+      }
+      if (Array.isArray(raw)) {
+        const parts: string[] = [];
+        const list: Object[] = raw as Object[];
+        for (let i = 0; i < list.length; i++) {
+          parts.push(`${list[i]}`);
+        }
+        return parts.join(', ').trim();
+      }
+      return `${raw}`.trim();
+    }
+    return '';
+  }
+
+  /** 判断 Cache-Control 是否含指定指令（如 no-store）。 */
+  private static hasCacheDirective(cacheControl: string, directive: string): boolean {
+    if (cacheControl.length === 0) {
+      return false;
+    }
+    const parts: string[] = cacheControl.toLowerCase().split(',');
+    for (let index = 0; index < parts.length; index++) {
+      const token: string = parts[index].trim();
+      if (token === directive || token.startsWith(`${directive}=`)) {
+        return true;
+      }
+    }
+    return false;
   }
 
   /**

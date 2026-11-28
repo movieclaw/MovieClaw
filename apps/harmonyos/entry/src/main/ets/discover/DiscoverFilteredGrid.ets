@@ -15,6 +15,7 @@ import {
 } from '../api/Models';
 import { DiscoverDetailParams } from './DiscoverDetailPage';
 import { DiscoverFilterSheet, DiscoverGenreCatalog, DiscoveryFilters } from './DiscoverFilter';
+import { shouldPaginateOnReachEnd, shouldPrefetchOnScrollIndex } from './DiscoverPrefetchGuard';
 import { SpatialMaterial } from '../common/SpatialMaterial';
 
 /**
@@ -368,11 +369,29 @@ export struct DiscoverFilteredGrid {
       .contentEndOffset(Theme.tabBarInset)
       .padding({ left: Theme.pagePadding, right: Theme.pagePadding })
       .onReachEnd(() => {
-        this.loadPage();
+        // 已有错误/防抖中/空列表时不自动续页（错误态只由用户点「重试」触发）
+        if (shouldPaginateOnReachEnd(
+          this.rowsSource.totalCount(),
+          this.hasMore,
+          this.loading,
+          this.error.length > 0,
+          this.debounceTimer >= 0
+        )) {
+          this.loadPage();
+        }
       })
-      // 近底预取：倒数第 3 行就开拉下一页，滚到底时数据多半已就位；onReachEnd 仍是兜底
-      .onScrollIndex((first: number, last: number) => {
-        if (last >= this.rowsSource.totalCount() - 3) {
+      // 近底预取：扣除前置导航占位与 Header(2 项) 后距底 3 行开拉；错误/空列表/防抖期间绝不重入
+      .onScrollIndex((_first: number, last: number) => {
+        if (shouldPrefetchOnScrollIndex(
+          this.rowsSource.totalCount(),
+          last,
+          2,
+          3,
+          this.hasMore,
+          this.loading,
+          this.error.length > 0,
+          this.debounceTimer >= 0
+        )) {
           this.loadPage();
         }
       })
