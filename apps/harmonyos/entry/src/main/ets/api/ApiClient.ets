@@ -172,6 +172,12 @@ class EtagEntry {
   }
 }
 
+/** 在途 GET 槽：绑定发起时的失效代次，写操作结束后同实例或跨实例的新读绝不并入写前在途读。 */
+interface InflightGet {
+  readonly epoch: number;
+  readonly promise: Promise<string>;
+}
+
 /**
  * MovieClaw 业务接口客户端（对应 iOS 端 APIClient）。
  *
@@ -207,7 +213,7 @@ export class ApiClient {
   private static etagEpoch: number = 0;
 
   /** 在途 GET 共享：同键并发请求只发一次网络，跟随者各自解析（同文本不同对象，互不串改）。 */
-  private readonly inflightGets: Map<string, Promise<string>> = new Map<string, Promise<string>>();
+  private readonly inflightGets: Map<string, InflightGet> = new Map<string, InflightGet>();
 
   /**
    * RequestMethod 枚举未收录 PATCH（底层 curl 支持；字符串枚举按值比较，
@@ -373,7 +379,7 @@ export class ApiClient {
    * 返回的 (result, message) 元组）：清空观看记录这类接口的成功反馈文案在信封 message 里。
    */
   async delWithMessage<T>(path: string, bodyText: string | null): Promise<ApiMessageResult<T>> {
-    this.invalidateBeforeWrite();
+    this.invalidateForWrite();
     try {
       const envelope: ApiEnvelope<T> | null =
         await this.perform<ApiEnvelope<T>>(http.RequestMethod.DELETE, path, bodyText, false, undefined, false);
@@ -382,7 +388,7 @@ export class ApiClient {
       }
       return { data: envelope.data, message: envelope.message ?? '' };
     } finally {
-      ApiClient.invalidateEtags();
+      this.invalidateForWrite();
     }
   }
 
@@ -399,28 +405,28 @@ export class ApiClient {
     return this.perform<T>(http.RequestMethod.GET, path, null, false, timeoutMs, false);
   }
 
-  /** 写前失效：清空本实例在途 GET 并推进 ETag 代次，防并发 GET 与写后读互相串味。 */
-  private invalidateBeforeWrite(): void {
+  /** 写前/写后统一失效：清空本实例在途 GET 并推进全局代次，保证写后刷新绝不复用写前或写中发起的在途读。 */
+  private invalidateForWrite(): void {
     this.inflightGets.clear();
     ApiClient.invalidateEtags();
   }
 
-  /** 统一入口（写请求）：写前后均失效协商缓存，再发请求 → 非 2xx 抛业务错误 → 2xx 拆信封取 data。 */
+  /** 统一入口（写请求）：写前后均清在途 GET 并失效协商缓存，再发请求 → 非 2xx 抛业务错误 → 2xx 拆信封取 data。 */
   private async send<T>(method: http.RequestMethod, path: string, bodyText: string | null): Promise<T> {
-    this.invalidateBeforeWrite();
+    this.invalidateForWrite();
     try {
       return await this.perform<T>(method, path, bodyText, true, undefined, false);
     } finally {
-      ApiClient.invalidateEtags();
+      this.invalidateForWrite();
     }
   }
 
   private async sendVoid(method: http.RequestMethod, path: string, bodyText: string | null): Promise<void> {
-    this.invalidateBeforeWrite();
+    this.invalidateForWrite();
     try {
       await this.perform<null>(method, path, bodyText, true, undefined, false);
     } finally {
-      ApiClient.invalidateEtags();
+      this.invalidateForWrite();
     }
   }
 
@@ -448,22 +454,24 @@ export class ApiClient {
   }
 
   /**
-   * 在途 GET 合并：同键（origin + 令牌 + 路由 + cookie + 路径）并发请求只发一次网络。
+   * 在途 GET 合并：同键（origin + 令牌 + 路由 + cookie + 路径）且同失效代次的并发请求只发一次网络。
    * 跟随者拿到同一份原始文本**各自解析**——对象图不共享，调用方改自己的副本互不影响。
-   * 请求结束（无论成败）仅清自己这一槽，避免写前旧请求晚归误删写后新槽。
+   * 请求结束（无论成败）仅清自己这一槽，避免写前/写中旧请求晚归误删写后新槽。
    */
   private sharedGetText(path: string): Promise<string> {
     const fullUrl: string = `${this.origin}/api/v1${path}`;
     const cookie: string = ApiClient.cookieHeaderFor(fullUrl);
     const key: string = this.getCacheKey(path, cookie);
-    const existing: Promise<string> | undefined = this.inflightGets.get(key);
-    if (existing !== undefined) {
-      return existing;
+    const epoch: number = ApiClient.etagEpoch;
+    const existing: InflightGet | undefined = this.inflightGets.get(key);
+    if (existing !== undefined && existing.epoch === epoch) {
+      return existing.promise;
     }
     const text: Promise<string> = this.fetchText(http.RequestMethod.GET, path, null, undefined, true);
-    this.inflightGets.set(key, text);
+    const slot: InflightGet = { epoch: epoch, promise: text };
+    this.inflightGets.set(key, slot);
     const cleanup = (): void => {
-      if (this.inflightGets.get(key) === text) {
+      if (this.inflightGets.get(key) === slot) {
         this.inflightGets.delete(key);
       }
     };
