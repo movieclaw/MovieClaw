@@ -150,13 +150,21 @@ class ReelItemView(BaseModel):
 
 
 class ReelClipProgressView(BaseModel):
-    """片段预切的进度（只在开关开着、App 会放 clip 时给）。"""
+    """片段预切的进度（只在管理员与当前主体两级开关均开启、且 App 会放 clip 时给）。"""
 
     ready: int = Field(description="当前筛选下切好了几部（刷片只出这些）")
     total: int = Field(description="当前筛选下一共几部")
     state: Literal["running", "paused", "done"] = Field(
         description="running 还在切 / paused 因播放暂停 / done 能切的都切完了（剩下的切不了）"
     )
+
+
+class ReelClipPolicyView(BaseModel):
+    """当前登录主体视角下的片段预切两级开关状态（只读）。"""
+
+    allowed: bool = Field(description="管理员是否开启了服务端片段预切（允许成员使用）")
+    preferred: bool = Field(description="当前主体自己的「使用预切片段」个人偏好")
+    effective: bool = Field(description="当前主体此刻是否生效（allowed 且 preferred）")
 
 
 class ReelFeedView(BaseModel):
@@ -166,7 +174,9 @@ class ReelFeedView(BaseModel):
     items: list[ReelItemView] = Field(default_factory=list)
     clips: ReelClipProgressView | None = Field(
         default=None,
-        description="片段预切进度；None = 没开预切（或 App 不会放 clip），刷的是原片",
+        description=(
+            "片段预切进度；None = 管理员或当前主体未开启预切（或 App 不会放 clip），刷的是原片"
+        ),
     )
 
 

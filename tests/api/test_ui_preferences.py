@@ -66,6 +66,8 @@ DEFAULT_PREFS = {
         "hover_only": False,
         "min_rating": 0.0,
     },
+    # 刷片与大图预告个人偏好：默认不启用预切小片
+    "reels": {"use_clips": False},
 }
 
 
@@ -397,3 +399,19 @@ def test_old_clients_do_not_reset_poster_badges(client: TestClient) -> None:
         client.get("/api/v1/ui/preferences").json()["data"]["poster_badges"]
         == DEFAULT_PREFS["poster_badges"]
     )
+
+
+def test_reels_prefs_persist_and_old_clients_do_not_reset_it(client: TestClient) -> None:
+    """片段预切的个人偏好支持持久化，且不带 reels 的老客户端整体回写不会冲回默认。"""
+    resp = client.put("/api/v1/ui/preferences", json={"reels": {"use_clips": True}})
+    assert resp.status_code == 200
+    assert resp.json()["data"]["reels"] == {"use_clips": True}
+    assert client.get("/api/v1/ui/preferences").json()["data"]["reels"] == {"use_clips": True}
+
+    legacy = client.put("/api/v1/ui/preferences", json={"theme": "silver"})
+    assert legacy.status_code == 200
+    assert legacy.json()["data"]["reels"] == {"use_clips": True}
+    assert client.get("/api/v1/ui/preferences").json()["data"]["reels"] == {"use_clips": True}
+
+    client.put("/api/v1/ui/preferences", json={"reels": {"use_clips": False}})
+    assert client.get("/api/v1/ui/preferences").json()["data"]["reels"] == {"use_clips": False}

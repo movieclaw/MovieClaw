@@ -535,6 +535,20 @@ class PosterBadgePrefs(BaseModel):
     )
 
 
+class ReelsUiPrefs(BaseModel):
+    """刷片与首页大图预告的个人偏好（每个成员一份，超管走全局域）。
+
+    仅表达「我愿不愿意使用服务端预切好的小片」：最终是否生效由管理员开关
+    ``PlaybackPolicySetting.reel_clips_enabled`` 与本开关共同决定（docs/design/reels.md §8）。
+    默认关闭；成员改动它不会停止后台预切，也不会删除已切好的文件或影响他人。
+    """
+
+    use_clips: bool = Field(
+        default=False,
+        description="是否在刷片与首页大图预告中优先播放预切好的小片（需管理员先开启服务端片段预切）",
+    )
+
+
 @register_setting(namespace="ui.preferences", title="界面偏好")
 class UiPreferencesSetting(SettingSchema):
     """全站界面样式偏好，按页面分组。新页面的设定加嵌套模型字段即可。"""
@@ -569,6 +583,10 @@ class UiPreferencesSetting(SettingSchema):
     home: HomeUiPrefs = Field(default_factory=HomeUiPrefs, description="媒体库首页的行清单")
     poster_badges: PosterBadgePrefs = Field(
         default_factory=PosterBadgePrefs, description="媒体库海报墙的角标（默认全关）"
+    )
+    reels: ReelsUiPrefs = Field(
+        default_factory=ReelsUiPrefs,
+        description="刷片与大图预告的个人使用偏好（默认不启用预切小片）",
     )
 
 

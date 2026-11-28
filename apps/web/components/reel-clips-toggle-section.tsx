@@ -43,7 +43,11 @@ export function progressText(progress: ReelClipProgress | null, locale: AppLocal
  *
  * 关闭时若已有切好的片段，问一句要不要一并删除（默认保留，重新打开即可直接用）。
  */
-export function ReelClipsToggleRow() {
+export function ReelClipsToggleRow({
+  onEnabledChange,
+}: {
+  onEnabledChange?: (enabled: boolean) => void;
+} = {}) {
   const t = useTranslations();
   const locale = useLocale();
   const confirm = useConfirm();
@@ -59,6 +63,7 @@ export function ReelClipsToggleRow() {
         if (!alive) return;
         setEnabled(policy.reel_clips_enabled);
         setProgress(policy.reel_clips_progress);
+        onEnabledChange?.(policy.reel_clips_enabled);
       })
       .catch((e: Error) => {
         if (alive) setError(e.message);
@@ -66,7 +71,7 @@ export function ReelClipsToggleRow() {
     return () => {
       alive = false;
     };
-  }, []);
+  }, [onEnabledChange]);
 
   const polling = enabled === true && progress?.state !== "done";
   useEffect(() => {
@@ -115,15 +120,17 @@ export function ReelClipsToggleRow() {
         const policy = await savePlaybackPolicy({ reel_clips_enabled: next });
         setEnabled(policy.reel_clips_enabled);
         setProgress(policy.reel_clips_progress);
+        onEnabledChange?.(policy.reel_clips_enabled);
         if (purge) await deleteReelClips();
       } catch (e) {
         setEnabled(previous);
+        if (previous !== null) onEnabledChange?.(previous);
         setError((e as Error).message);
       } finally {
         setBusy(false);
       }
     },
-    [confirm, enabled, t],
+    [confirm, enabled, onEnabledChange, t],
   );
 
   return (

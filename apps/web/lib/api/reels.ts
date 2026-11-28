@@ -86,8 +86,24 @@ export interface ReelFeed {
   next_offset: number;
   has_more: boolean;
   items: ReelItem[];
-  /** 服务端开了「片段预切」时：当前条件下切好了几部（刷片只出这些） */
+  /** 管理员与当前主体两级开关均开启时：当前条件下切好了几部（刷片只出这些） */
   clips: { ready: number; total: number; state: string } | null;
+}
+
+/** 当前登录主体视角下的片段预切两级开关状态（只读）。 */
+export interface ReelClipPolicy {
+  /** 管理员是否开启了服务端片段预切（允许成员使用） */
+  allowed: boolean;
+  /** 当前主体自己的使用偏好 */
+  preferred: boolean;
+  /** 当前是否生效（allowed && preferred） */
+  effective: boolean;
+}
+
+/** 读取当前主体的片段预切策略（所有登录成员均可调用）。 */
+export async function fetchReelClipPolicy(init?: RequestInit): Promise<ReelClipPolicy> {
+  const response = await request<ApiEnvelope<ReelClipPolicy>>("/reels/clips/policy", init);
+  return response.data;
 }
 
 /** 筛选条件：与媒体库筛选同一个模型、同一套参数，另加只刷电影 / 剧集 / 其他（kind） */

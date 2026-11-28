@@ -61,9 +61,9 @@ class PlaybackPolicySetting(SettingSchema):
     reel_clips_enabled: bool = Field(
         default=False,
         description=(
-            "片段预切（docs/design/reels.md §8）：后台把每部影片挑好的那一段预先切成 1080p "
-            "小文件，电视大图预告与刷片放它，不再每次从片库直推原画。默认关闭：开启后要在"
-            "后台把全库处理一遍（有人观看时自动让路），并占用约每部 20 MB 的空间。"
+            "片段预切（docs/design/reels.md §8）：允许成员使用预切好的 1080p 小片，并控制后台是否"
+            "把全库挑好的精彩片段预先切出来。开启后后台会处理全库（有人观看时自动让路），占用约每部"
+            " 20 MB 空间；每个成员（含管理员）需在自己的偏好里打开「使用预切片段」才会生效。"
         ),
     )
     played_threshold_percent: float = Field(default=90, ge=80, le=100)

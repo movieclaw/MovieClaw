@@ -425,7 +425,7 @@ async def build_feed(
 ) -> ReelPage:
     """组一页。``modes`` 里没有本服务能出的放法时返回空页；``filters`` / ``kind`` 收窄抽样池。"""
     seed = seed if seed is not None else secrets.randbelow(2**31)
-    clip_mode = MODE_CLIP in modes and await clips.enabled()
+    clip_mode = await clips.is_active_for(principal, modes, session=session)
     if MODE_SEEK not in modes and not clip_mode:
         return ReelPage(seed=seed, next_offset=offset, has_more=False)
     reel_pool = await pool_libraries(session, principal, kind)
