@@ -22,14 +22,22 @@ spec.loader.exec_module(module)
 
 
 class HarmonyReleaseTest(unittest.TestCase):
-    def hap(self, folder, *, debug=False, missing=None):
+    def expected_app(self):
+        return json.loads((ROOT / "apps/harmonyos/AppScope/app.json5").read_text())["app"]
+
+    def other_version(self, version):
+        major, minor, patch = (int(part) for part in version.split("."))
+        return f"{major}.{minor}.{patch + 1}"
+
+    def hap(self, folder, *, debug=False, missing=None, version_name=None, version_code=None):
+        expected = self.expected_app()
         path = Path(folder) / "input.hap"
         app = {
             "bundleName": module.BUNDLE,
             "debug": debug,
             "buildMode": "debug" if debug else "release",
-            "versionName": "1.0.0",
-            "versionCode": 1000002,
+            "versionName": expected["versionName"] if version_name is None else version_name,
+            "versionCode": expected["versionCode"] if version_code is None else version_code,
             "minAPIVersion": 60101024,
         }
         with zipfile.ZipFile(path, "w") as archive:
@@ -77,8 +85,9 @@ class HarmonyReleaseTest(unittest.TestCase):
         validator = textwrap.dedent(
             workflow.split("python3 - <<'PY'\n", 1)[1].split("\n          PY", 1)[0]
         )
+        version = self.expected_app()["versionName"]
         base = {
-            "RELEASE_TAG": "harmony-v1.0.0",
+            "RELEASE_TAG": f"harmony-v{version}",
             "BUILD_ONLY": "true",
             "HARMONY_TOOLS_URL": "https://example.invalid/tools.zip",
             "HARMONY_TOOLS_SHA256": "a" * 64,
@@ -87,7 +96,7 @@ class HarmonyReleaseTest(unittest.TestCase):
             ({}, True),
             ({"BUILD_ONLY": "false"}, False),
             ({"HARMONY_TOOLS_SHA256": ""}, False),
-            ({"RELEASE_TAG": "harmony-v1.0.1"}, False),
+            ({"RELEASE_TAG": f"harmony-v{self.other_version(version)}"}, False),
         ]:
             with self.subTest(change):
                 result = subprocess.run(
@@ -107,6 +116,7 @@ class HarmonyReleaseTest(unittest.TestCase):
                     module.inspect(self.hap(tmp, missing=name))
 
     def test_real_cli_inspects_hap_and_rejects_debug(self):
+        expected = self.expected_app()
         with tempfile.TemporaryDirectory() as tmp:
             hap = self.hap(tmp)
             result = subprocess.run(
@@ -115,16 +125,31 @@ class HarmonyReleaseTest(unittest.TestCase):
                 text=True,
                 check=True,
             )
-            self.assertEqual(json.loads(result.stdout)["versionName"], "1.0.0")
-            self.hap(tmp, debug=True)
-            self.assertNotEqual(
-                subprocess.run(
-                    [sys.executable, str(SCRIPT), "inspect", str(hap)], capture_output=True
-                ).returncode,
-                0,
-            )
+            inspected = json.loads(result.stdout)
+            self.assertEqual(inspected["versionName"], expected["versionName"])
+            self.assertEqual(inspected["versionCode"], expected["versionCode"])
+            for kwargs, expected_error in [
+                ({"version_code": expected["versionCode"] - 1}, "AppScope/app.json5"),
+                (
+                    {"version_name": self.other_version(expected["versionName"])},
+                    "AppScope/app.json5",
+                ),
+                ({"debug": True}, "debug"),
+            ]:
+                with self.subTest(kwargs):
+                    bad_hap = self.hap(tmp, **kwargs)
+                    rejected = subprocess.run(
+                        [sys.executable, str(SCRIPT), "inspect", str(bad_hap)],
+                        capture_output=True,
+                        text=True,
+                    )
+                    self.assertNotEqual(rejected.returncode, 0)
+                    self.assertIn(expected_error, rejected.stderr)
 
     def test_verified_profile_binds_release_metadata_to_actual_hap(self):
+        expected = self.expected_app()
+        version = expected["versionName"]
+        other_version = self.other_version(version)
         with (
             tempfile.TemporaryDirectory() as tmp,
             patch.dict(os.environ, self.signing_env()),
@@ -139,12 +164,13 @@ class HarmonyReleaseTest(unittest.TestCase):
             self.assertTrue(any("verify-app" in args.args[0] for args in run.call_args_list))
             self.assertTrue(entry["signed"])
             self.assertEqual(entry["product"], "harmony")
+            self.assertEqual(entry["build"], str(expected["versionCode"]))
             subprocess.run(
                 [
                     sys.executable,
                     str(ROOT / "scripts/build-download-manifest.py"),
                     "--tag",
-                    "harmony-v1.0.0",
+                    f"harmony-v{version}",
                     "--directory",
                     str(out),
                 ],
@@ -152,9 +178,12 @@ class HarmonyReleaseTest(unittest.TestCase):
                 capture_output=True,
             )
             manifest = json.loads((out / "downloads.json").read_text())
-            self.assertEqual(manifest["packages"][0]["version"], "1.0.0")
+            self.assertEqual(manifest["packages"][0]["version"], version)
             # Public download metadata must reject a different tag or modified payload.
-            for tag, tamper in [("harmony-v1.0.1", False), ("harmony-v1.0.0", True)]:
+            for tag, tamper in [
+                (f"harmony-v{other_version}", False),
+                (f"harmony-v{version}", True),
+            ]:
                 if tamper:
                     with (out / module.ASSET).open("ab") as stream:
                         stream.write(b"tampered")

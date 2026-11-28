@@ -915,7 +915,27 @@ async def preview(
 
     reference_notice: str | None = None
     notice_message = None
-    if audio and not selected.excluded:
+    source_unreadable: dict | None = None
+    fingerprint: dict[str, int] | None = None
+    if (
+        selected is not None
+        and selected_key is not None
+        and (selected.candidate.kind == "embedded" or (audio and not selected.excluded))
+    ):
+        # 与发起接口（enqueue_generation_job → _source_fingerprint）共用同一读取契约：
+        # 本地文件已腾空或不可读时，预检不能把不可读的内封/音轨标成可直接生成，
+        # 否则预检成功、提交才报 400（#1341 / #1325）。
+        try:
+            fingerprint = await _source_fingerprint(row, selected_key)
+        except BadRequestException as exc:
+            if exc.message_key != "errors.subtitles.referenceUnreadable":
+                raise
+            source_unreadable = stored_fields(exc.message_key, **exc.params)
+            warnings.append(source_unreadable["message"])
+            warning_messages.append(source_unreadable)
+    if source_unreadable is not None:
+        chosen, events = None, []
+    elif audio and not selected.excluded:
         # 预检对音轨识别什么也不做：讲清楚会怎么识别（或直接用上次的结果）、要多久
         chosen, events = selected, []
         reused = (
@@ -964,7 +984,9 @@ async def preview(
             # 还没读过不等于「做不了」：照常选中它，blocker 留空；读取与完整度检查
             # 都在任务里做，不合格会在调用模型之前停下。
             chosen, events = selected, []
-            notice_message = await _reading_message(row)
+            notice_message = await _reading_message(
+                row, size_bytes=fingerprint["size_bytes"] if fingerprint else None
+            )
             reference_notice = notice_message["message"]
 
     pgs_conversion = (
@@ -975,7 +997,7 @@ async def preview(
             requested_candidate_key=(candidate_key(selected) if selected is not None else None),
             requested_ocr_language=pgs_ocr_language,
         )
-        if chosen is None
+        if chosen is None and source_unreadable is None
         else None
     )
     est = 0
@@ -995,7 +1017,18 @@ async def preview(
         reference_notice_message=notice_message,
         pgs_conversion=pgs_conversion,
         blocker=(
-            _preview_blocker(
+            _blocker(
+                "unusable_text",
+                "library.subtitlePreflight.unusableTitle",
+                None,
+                [
+                    stored_fields("library.subtitlePreflight.chooseComplete"),
+                    stored_fields("library.subtitlePreflight.rescan"),
+                ],
+                detail=source_unreadable,
+            )
+            if source_unreadable is not None
+            else _preview_blocker(
                 ranked,
                 pgs_conversion,
                 target_language,
@@ -1061,11 +1094,14 @@ def _format_size(size: int) -> str:
     return f"{max(1, size // 1024)} KB"
 
 
-async def _reading_message(row: LibraryFile) -> dict:
-    try:
-        size = (await asyncio.to_thread(Path(row.file_path).stat)).st_size
-    except OSError:
-        size = 0
+async def _reading_message(row: LibraryFile, *, size_bytes: int | None = None) -> dict:
+    if size_bytes is None:
+        try:
+            size = (await asyncio.to_thread(Path(row.file_path).stat)).st_size
+        except OSError:
+            size = 0
+    else:
+        size = size_bytes
     return stored_fields(
         "library.subtitlePreflight.readNotice",
         hasSize="yes" if size else "no",
@@ -1170,7 +1206,15 @@ async def _prepare_generation(
         retranscribe=retranscribe,
     )
     if pv.chosen is None:
-        if convert_pgs and source_candidate_key and pv.pgs_conversion is None:
+        if (
+            convert_pgs
+            and source_candidate_key
+            and pv.pgs_conversion is None
+            and not (
+                pv.blocker is not None
+                and pv.blocker.message_key == "errors.subtitles.referenceUnreadable"
+            )
+        ):
             raise BadRequestException(message_key="errors.subtitles.pgsChanged")
         language_ready = bool(
             pv.pgs_conversion

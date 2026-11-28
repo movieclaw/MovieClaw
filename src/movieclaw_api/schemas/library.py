@@ -617,7 +617,6 @@ class LibraryFacetsView(BaseModel):
     )
     # —— 以下只在 tier=all 时返回（「更多筛选」面板打开才要）——
     ratings: list[FacetValueView] = Field(default_factory=list, description="评分档（找片）")
-    my_ratings: list[FacetValueView] = Field(default_factory=list, description="我的评分档（找片）")
     runtimes: list[FacetValueView] = Field(default_factory=list, description="片长档（找片）")
     languages: list[FacetValueView] = Field(default_factory=list, description="原始语言（找片）")
     resolutions: list[FacetValueView] = Field(default_factory=list, description="分辨率（查库）")
@@ -978,13 +977,6 @@ class LibraryItemView(BaseModel):
             "或不认人的调用为 null"
         ),
     )
-    user_rating: int | None = Field(
-        default=None,
-        description=(
-            "当前观看者的个人评分（1–10 整数，1=半星，10=5 星）；"
-            "未评分、没请求 badges=my_rating 或不认人的调用为 null"
-        ),
-    )
 
     @field_serializer("added_at")
     def _serialize_utc(self, value: datetime | None) -> str | None:
@@ -1333,10 +1325,6 @@ class LibraryItemDetailView(BaseModel):
     air_status: Literal["airing", "ended"] | None = Field(
         default=None,
         description="剧集播出状态（同海报墙）：airing=在播 / ended=完结；电影或状态未知为 null",
-    )
-    user_rating: int | None = Field(
-        default=None,
-        description="当前成员的个人评分（1–10 整数，1=半星，10=5 星）；未评分为 null",
     )
 
 

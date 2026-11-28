@@ -12,8 +12,6 @@ import { formatVideoResolution } from "./format.ts";
  * components/poster-wall.tsx 的 InventoryCell），老用户升级后墙面必须一格不变。
  */
 export interface PosterBadgePrefs {
-  /** 左上角我的评分（已评分时优先替代外部评分，默认开启；未评分条目无视觉变化） */
-  my_rating: boolean;
   rating: boolean;
   year: boolean;
   resolution: boolean;
@@ -28,13 +26,12 @@ export interface PosterBadgePrefs {
   unwatched: boolean;
   /** 顶部角标只在悬停 / 聚焦时显示；底部标记（中字、未看集数、进度条）不受影响 */
   hover_only: boolean;
-  /** 外部评分低于它不显示评分角标（不作用于我的评分）；0 = 都显示 */
+  /** 评分低于它不显示评分角标；0 = 都显示 */
   min_rating: number;
 }
 
-/** 与后端 PosterBadgePrefs 的默认值一致：仅我的评分默认开启（未评分海报外观不变）。 */
+/** 与后端 PosterBadgePrefs 的默认值一致：全关。 */
 export const DEFAULT_POSTER_BADGES: PosterBadgePrefs = {
-  my_rating: true,
   rating: false,
   year: false,
   resolution: false,
@@ -50,7 +47,6 @@ export const DEFAULT_POSTER_BADGES: PosterBadgePrefs = {
 
 /** 设置页逐个列出的开关，顺序即界面顺序（顶部 → 底部）。 */
 export const POSTER_BADGE_TOGGLES = [
-  "my_rating",
   "rating",
   "year",
   "resolution",
@@ -89,21 +85,18 @@ export interface PosterBadgeSource {
   has_chinese_subtitle?: boolean | null;
   progress_percent?: number | null;
   unplayed_count?: number | null;
-  /** 当前观看者的个人评分（1–10 整数）；需请求 badges=my_rating */
-  user_rating?: number | null;
 }
 
 /**
  * 角标开关 → 海报墙请求的 `badges` 参数（逗号分隔、排好序的分组；一个都不要为 ""）。
  *
- * 每个分组在服务端都是一份额外查询（中文字幕、Atmos 要展开字幕 / 音轨 JSON，进度、
- * 未看集数与个人评分要查观看状态），所以只点名用户打开了的那几枚。
- * 外部评分、年份、分辨率、播出状态墙本来就带，不需要点名。
+ * 每个分组在服务端都是一份额外查询（中文字幕、Atmos 要展开字幕 / 音轨 JSON，进度与
+ * 未看集数要查观看状态），所以只点名用户打开了的那几枚；全关时不带参数，墙的成本与
+ * 没有角标时一样。评分、年份、分辨率、播出状态墙本来就带，不需要点名。
  */
 export function posterBadgeRequest(prefs: PosterBadgePrefs): string {
   const groups: string[] = [];
   if (prefs.format) groups.push("atmos", "hdr");
-  if (prefs.my_rating) groups.push("my_rating");
   if (prefs.progress) groups.push("progress");
   if (prefs.unwatched) groups.push("unwatched");
   if (prefs.chinese_subtitle) groups.push("zh");
@@ -121,8 +114,6 @@ export function addsBadgeGroups(before: string, after: string): boolean {
 
 /** 一格最终要画的角标；全空 = 什么都不画。 */
 export interface PosterBadgeSet {
-  /** 我的评分（5 星刻度 0.5–5.0）；有值时同一位置替代外部 rating，不受 min_rating 过滤 */
-  myRating: number | null;
   rating: number | null;
   year: number | null;
   status: "ended" | "airing" | null;
@@ -163,21 +154,8 @@ export function bestResolutionLabel(resolutions: readonly string[]): string | nu
 
 export function posterBadges(item: PosterBadgeSource, prefs: PosterBadgePrefs): PosterBadgeSet {
   const isTv = item.kind === "tv";
-  const myRating =
-    prefs.my_rating &&
-    item.user_rating != null &&
-    item.user_rating >= 1 &&
-    item.user_rating <= 10
-      ? item.user_rating / 2
-      : null;
-  // 同一位置只出一个评分角标：打过分且开了 my_rating 时显示我的评分，否则回落到外部评分；
-  // min_rating 只作用于外部评分，不过滤我的评分。
   const rating =
-    myRating == null &&
-    prefs.rating &&
-    item.rating != null &&
-    item.rating > 0 &&
-    item.rating >= prefs.min_rating
+    prefs.rating && item.rating != null && item.rating > 0 && item.rating >= prefs.min_rating
       ? item.rating
       : null;
   const status =
@@ -194,7 +172,6 @@ export function posterBadges(item: PosterBadgeSource, prefs: PosterBadgePrefs): 
   const progress = item.progress_percent;
   const unplayed = item.unplayed_count;
   return {
-    myRating,
     rating,
     year: prefs.year && item.year ? item.year : null,
     status,
@@ -218,9 +195,7 @@ export function hasAnyBadge(set: PosterBadgeSet): boolean {
 
 /** 顶部那一排（评分 / 年份 / 状态 / 分辨率 / 格式）有没有东西 */
 export function hasTopBadges(set: PosterBadgeSet): boolean {
-  return Boolean(
-    set.myRating != null || set.rating != null || set.year || set.status || set.resolution || set.formats.length,
-  );
+  return Boolean(set.rating != null || set.year || set.status || set.resolution || set.formats.length);
 }
 
 /**

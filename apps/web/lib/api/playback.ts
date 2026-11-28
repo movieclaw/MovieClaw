@@ -170,42 +170,6 @@ export async function listFavorites(
 }
 
 /**
- * 首页「我的高分作品」的一格：单库海报墙条目视图 + 落点库 + 最近评分时间。
- */
-export interface RatedItem extends LibraryItem {
-  /** 卡片的详情落点库（同一作品跨库时取首页顺序第一个可见库） */
-  library_id: number;
-  rated_at: string | null;
-}
-
-export interface RatedPage {
-  items: RatedItem[];
-  /** 满足最低评分门槛的作品总数；items 受 limit 截断 */
-  total: number;
-}
-
-export type RatedSort = "my_rating" | "rated_at";
-
-/** 当前账号在可见媒体库中达到门槛评分的作品，默认 4 星及以上（min_rating=8），按我的评分倒序。 */
-export async function listRated(
-  limit = 20,
-  offset = 0,
-  options?: {
-    minRating?: number;
-    sort?: RatedSort;
-    order?: LibraryItemOrder;
-  },
-): Promise<RatedPage> {
-  const query = new URLSearchParams({ limit: String(limit), offset: String(offset) });
-  if (options?.minRating != null) query.set("min_rating", String(options.minRating));
-  if (options?.sort && options.sort !== "my_rating") query.set("sort", options.sort);
-  if (options?.order) query.set("order", options.order);
-  appendWallBadges(query);
-  const response = await request<ApiEnvelope<RatedPage>>(`/playback/rated?${query}`);
-  return response.data;
-}
-
-/**
  * 「全部收藏」页图床浏览模式的数据源：与 listFavorites 同一份名单与顺序
  * （`sort` / `order` 传同一个值），一组是一部作品的全部图（海报 / 剧照 / 分集
  * 剧照 / 章节场景图）。分页口径同单库图廊——offset / limit 都按作品数，没有图的
@@ -1021,8 +985,6 @@ export interface PlaybackMarks {
   is_favorite: boolean;
   /** 整剧 / 整季尚未看完的集数；电影与单集为 null */
   unplayed_count: number | null;
-  /** 当前观看者的个人评分（1–10 整数，1=半星、10=5 星）；未评分或老服务端为 null/undefined */
-  user_rating?: number | null;
 }
 
 function markParams(target: PlaybackMarkTarget): URLSearchParams {
@@ -1046,7 +1008,7 @@ export async function fetchPlaybackMarks(target: PlaybackMarkTarget): Promise<Pl
  */
 export async function setPlaybackMarks(
   target: PlaybackMarkTarget,
-  change: { played?: boolean; favorite?: boolean; rating?: number },
+  change: { played?: boolean; favorite?: boolean },
 ): Promise<PlaybackMarks> {
   const response = await request<ApiEnvelope<PlaybackMarks>>("/playback/marks", {
     method: "POST",

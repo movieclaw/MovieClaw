@@ -177,7 +177,9 @@ async def test_source_fingerprint_detects_external_subtitle_replacement(tmp_path
     assert before != after
 
 
-async def test_preview_loads_only_the_requested_reference(monkeypatch) -> None:
+async def test_preview_loads_only_the_requested_reference(tmp_path: Path, monkeypatch) -> None:
+    video = tmp_path / "Movie.mkv"
+    video.write_bytes(b"video")
     row = _file(
         [
             {"codec": "subrip", "language": "jpn"},
@@ -185,6 +187,7 @@ async def test_preview_loads_only_the_requested_reference(monkeypatch) -> None:
         ],
         [],
     )
+    row.file_path = str(video)
     loaded: list[str] = []
     complete = [(i * 100_000, i * 100_000 + 2000, f"line {i}") for i in range(60)]
 
@@ -1985,6 +1988,135 @@ async def test_prepare_generation_surfaces_unusable_text_instead_of_pgs_changed(
             convert_pgs=True,
         )
     assert pgs_changed.value.message_key == "errors.subtitles.pgsChanged"
+
+
+async def test_preview_blocks_unreadable_embedded_track_consistently_with_submit(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """#1341/#1325：本地腾空或不可读时，预检与提交遵循同一读取契约，不选不可读内封也不自动回退。"""
+    from movieclaw_api.services import llm_config, media_extract
+    from movieclaw_playback import streaming
+
+    video = tmp_path / "Offloaded.mkv"
+    video.write_bytes(b"0" * 1024)
+    stat = video.stat()
+    row = LibraryFile(
+        id=88,
+        library_id=1,
+        media_item_id=1,
+        file_path=str(video),
+        size_bytes=stat.st_size,
+        file_mtime_ns=stat.st_mtime_ns,
+        duration_seconds=3600,
+        subtitle_streams=[{"codec": "subrip", "language": "eng"}],
+        audio_streams=[{"codec": "aac", "language": "eng", "channels": 2}],
+        external_subtitles=[],
+        local_bytes=True,
+        source="scanned",
+    )
+    cache = tmp_path / "playback-subs"
+    monkeypatch.setattr(media_extract, "cache_dir", lambda: cache)
+
+    async def fake_load_row(_session, _file_id):  # noqa: ANN001
+        return row
+
+    async def fake_context(_session, _row):  # noqa: ANN001
+        return CTX, "eng"
+
+    async def fake_router(_session):  # noqa: ANN001
+        return object()
+
+    monkeypatch.setattr(tasks, "_load_row", fake_load_row)
+    monkeypatch.setattr(tasks, "_film_context", fake_context)
+    monkeypatch.setattr(llm_config, "acquire_llm_router", fake_router)
+
+    # 1) 仍可读对照：本地文件存在时，预检正常选中内封轨并给出读取提示，准备入队也通过
+    readable_pv = await tasks.preview(None, 88, "chs")  # type: ignore[arg-type]
+    assert readable_pv.blocker is None
+    assert readable_pv.chosen is not None
+    assert tasks.candidate_key(readable_pv.chosen) == "embedded:0"
+    assert readable_pv.reference_notice is not None
+    _prep_pv, initial = await tasks._prepare_generation(None, 88, "chs")  # type: ignore[arg-type]
+    assert initial.source_candidate_key == "embedded:0"
+
+    # 2) 本地腾空后（原场景，未缓存）：预检不得再返回可提交的 embedded:0，也不得自动切音轨
+    video.unlink()
+    row.local_bytes = False
+    offloaded_pv = await tasks.preview(None, 88, "chs")  # type: ignore[arg-type]
+    assert offloaded_pv.chosen is None
+    assert offloaded_pv.selected_source_key == "embedded:0"
+    assert offloaded_pv.reference_notice is None
+    assert offloaded_pv.estimated_tokens == 0
+    assert offloaded_pv.blocker is not None
+    assert offloaded_pv.blocker.code == "unusable_text"
+    assert offloaded_pv.blocker.message_key == "errors.subtitles.referenceUnreadable"
+    assert all(c.candidate.kind != "audio" for c in offloaded_pv.candidates)
+    with pytest.raises(BadRequestException) as submit_err:
+        await tasks._prepare_generation(None, 88, "chs")  # type: ignore[arg-type]
+    assert submit_err.value.message_key == "errors.subtitles.referenceUnreadable"
+
+    # 3) 本地腾空后即使命中历史抽轨缓存（云端指纹可命中），提交仍会 400，预检也必须一致阻断
+    spec = media_extract._extraction_spec(row, 0)
+    assert spec is not None
+    spec.out_path.parent.mkdir(parents=True, exist_ok=True)
+    srt_lines = "\n".join(
+        f"{i + 1}\n00:{(i * 40) // 60:02d}:{(i * 40) % 60:02d},000 --> "
+        f"00:{(i * 40 + 2) // 60:02d}:{(i * 40 + 2) % 60:02d},000\nLine {i + 1}\n"
+        for i in range(60)
+    )
+    spec.out_path.write_text(srt_lines, encoding="utf-8")
+    streaming.bind_cloud(
+        lambda path: path == str(video),
+        lambda _path: None,
+        lambda path: (stat.st_size, stat.st_mtime_ns) if path == str(video) else None,
+    )
+    try:
+        assert media_extract.cached_track(row, 0) is not None
+        cached_pv = await tasks.preview(None, 88, "chs")  # type: ignore[arg-type]
+        assert cached_pv.chosen is None
+        assert cached_pv.blocker is not None
+        assert cached_pv.blocker.message_key == "errors.subtitles.referenceUnreadable"
+    finally:
+        streaming.bind_cloud(None, None)
+
+    # 4) 同目录有可读外挂字幕：默认仍选内封并阻断（不自动回退）；显式选外挂则预检与提交均通过
+    sidecar = tmp_path / "Offloaded.eng.srt"
+    sidecar.write_text(srt_lines, encoding="utf-8")
+    row.external_subtitles = [{"filename": sidecar.name, "format": "srt", "language": "eng"}]
+    default_pv = await tasks.preview(None, 88, "chs")  # type: ignore[arg-type]
+    assert default_pv.selected_source_key == "embedded:0"
+    assert default_pv.chosen is None
+    assert default_pv.blocker is not None
+    assert default_pv.blocker.message_key == "errors.subtitles.referenceUnreadable"
+
+    external_pv = await tasks.preview(
+        None,  # type: ignore[arg-type]
+        88,
+        "chs",
+        source_candidate_key=f"external:{sidecar.name}",
+    )
+    assert external_pv.blocker is None
+    assert external_pv.chosen is not None
+    assert tasks.candidate_key(external_pv.chosen) == f"external:{sidecar.name}"
+    assert external_pv.event_count == 60
+
+    # 5) 腾空后的内封 PGS 轨：预检不给转换入口，带 convert_pgs=True 提交也不误报 pgsChanged
+    row.subtitle_streams = [{"codec": "hdmv_pgs_subtitle", "language": "eng"}]
+    row.external_subtitles = []
+    pgs_pv = await tasks.preview(None, 88, "chs")  # type: ignore[arg-type]
+    assert pgs_pv.chosen is None
+    assert pgs_pv.pgs_conversion is None
+    assert pgs_pv.blocker is not None
+    assert pgs_pv.blocker.message_key == "errors.subtitles.referenceUnreadable"
+    with pytest.raises(BadRequestException) as pgs_err:
+        await tasks._prepare_generation(
+            None,  # type: ignore[arg-type]
+            88,
+            "chs",
+            source_candidate_key="embedded:0",
+            convert_pgs=True,
+        )
+    assert pgs_err.value.message_key == "errors.subtitles.referenceUnreadable"
 
 
 async def test_reading_phase_reports_queue_and_position(monkeypatch) -> None:

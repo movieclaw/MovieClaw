@@ -46,7 +46,7 @@ const PAGE_SIZE = 60;
 function sortOptions(kind: HomeMediaKind, locale?: AppLocale): readonly (readonly [WallSortPref, string])[] {
   const t = appTranslator(locale);
   const skip = new Set<string>(
-    kind === "video" ? ["added_at", "rating", "my_rating", "release_date"] : ["added_at"],
+    kind === "video" ? ["added_at", "rating", "release_date"] : ["added_at"],
   );
   return [
     ["default", t("library.sort.recentAdded")],

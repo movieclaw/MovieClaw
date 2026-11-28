@@ -143,13 +143,12 @@ var knownNonGenerated = []string{
 	"transcode.artifact.put",
 	"playback.progress",
 	"playback.resume",
-	// 已看 / 收藏 / 个人评分标记与「我的收藏 / 我的高分作品」（含收藏页图床浏览的图廊）：
-	// 详情页、首页与收藏页的 Web 动作，命令行无消费方
+	// 已看 / 收藏标记与「我的收藏」（含收藏页图床浏览的图廊）：详情页与收藏页的
+	// Web 动作，命令行无消费方
 	"playback.marks.get",
 	"playback.marks.set",
 	"playback.favorites",
 	"playback.favorites.gallery",
-	"playback.rated",
 	// 合集页的图床浏览：与 ui.library.gallery / playback.favorites.gallery 同一类 Web 数据源
 	"collection.gallery",
 	"playback.policy.show",

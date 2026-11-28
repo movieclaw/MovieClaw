@@ -500,7 +500,6 @@ def test_facets_endpoint_is_wired(tmp_path, monkeypatch) -> None:
             "watching",
             "played",
             "favorite",
-            "rated",
         ]
 
         # /items 与 /item-index 吃同一组参数，不能因为多带筛选就 422

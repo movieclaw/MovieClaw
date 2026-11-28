@@ -26,7 +26,6 @@ import {
   isFilterEmpty,
 } from "@/lib/api/libraries";
 import { filterKey, rulesToFilter } from "@/lib/library-filter";
-import { formatMyRatingThreshold } from "@/lib/user-rating";
 import { useLayout } from "@/lib/ui-prefs";
 import { useIsMobile } from "@/lib/use-media-query";
 
@@ -301,7 +300,6 @@ function dimensions(t: ReturnType<typeof appTranslator>) {
     { key: "countries", label: t("library.filters.regions") },
     { key: "watch", label: t("library.filters.watch") },
     { key: "ratingGte", label: t("library.filters.rating") },
-    { key: "myRatingGte", label: t("library.filters.myRating") },
     { key: "runtimes", label: t("library.filters.runtime") },
     { key: "languages", label: t("library.filters.language") },
     { key: "resolutions", label: t("library.filters.quality") },
@@ -334,7 +332,6 @@ function labelFallback(dim: string, value: string): string {
 function hasSecondary(filter: LibraryFilter): boolean {
   return Boolean(
     filter.ratingGte != null ||
-      filter.myRatingGte != null ||
       filter.runtimes?.length ||
       filter.languages?.length ||
       filter.resolutions?.length ||
@@ -359,8 +356,6 @@ function poolOf(key: string, facets: LibraryFacets | null): FacetValue[] | undef
       return facets?.watch;
     case "ratingGte":
       return facets?.ratings;
-    case "myRatingGte":
-      return facets?.my_ratings;
     case "runtimes":
       return facets?.runtimes;
     case "languages":
@@ -395,24 +390,12 @@ function ConditionRow({
   const t = useTranslations();
   /** 取值 → 展示名。查不到就给省略号，**绝不把裸值印出来**（见 labelFallback）。 */
   const labelOf = (dim: string, value: string): string =>
-    dim === "watch" && value === "seen"
-      ? t("library.watchFilter.seen")
-      : dim === "watch" && value === "rated"
-        ? poolOf(dim, facets)?.find((row) => row.value === value)?.label ?? t("library.facets.rated")
-        : dim === "myRatingGte"
-          ? poolOf(dim, facets)?.find((row) => row.value === value)?.label ??
-            formatMyRatingThreshold(Number(value))
-          : poolOf(dim, facets)?.find((row) => row.value === value)?.label ?? labelFallback(dim, value);
+    dim === "watch" && value === "seen" ? t("library.watchFilter.seen")
+      : poolOf(dim, facets)?.find((row) => row.value === value)?.label ?? labelFallback(dim, value);
 
   /** 摘掉一个取值。单值维度清成 null，多值维度只去掉这一个。 */
   const drop = (dim: string, value: string) => {
-    if (
-      dim === "watch" ||
-      dim === "ratingGte" ||
-      dim === "myRatingGte" ||
-      dim === "hdr" ||
-      dim === "actor"
-    ) {
+    if (dim === "watch" || dim === "ratingGte" || dim === "hdr" || dim === "actor") {
       onFilterChange({ ...filter, [dim]: null });
       return;
     }
@@ -428,8 +411,6 @@ function ConditionRow({
       values = filter.watch ? [filter.watch] : [];
     } else if (key === "ratingGte") {
       values = filter.ratingGte == null ? [] : [String(filter.ratingGte)];
-    } else if (key === "myRatingGte") {
-      values = filter.myRatingGte == null ? [] : [String(filter.myRatingGte)];
     } else if (key === "hdr") {
       // facet 里 HDR/SDR 的取值是 "1"/"0"，与筛选条件的布尔值对上
       values = filter.hdr == null ? [] : [filter.hdr ? "1" : "0"];
@@ -486,8 +467,8 @@ function ConditionRow({
         {t("common.clear")}
       </button>
       {/* 已经等于某个合集时不再提「存为合集」——那只会存出一个重名的孪生体。
-          有演员或个人评分门槛条件时也不提：合集规则没有这两维，存下来会比眼前这面墙多 */}
-      {onSaveAsCollection && !collectionName && !filter.actor && filter.myRatingGte == null && (
+          有演员条件时也不提：合集规则没有演员这一维，存下来会比眼前这面墙多 */}
+      {onSaveAsCollection && !collectionName && !filter.actor && (
         <button
           type="button"
           onClick={onSaveAsCollection}
@@ -514,7 +495,6 @@ export function librarySortLabels(locale?: AppLocale): Record<LibraryItemSort, s
     release_date: t("library.sort.contentDate"),
     probing: t("library.sort.probing"),
     rating: t("library.sort.rating"),
-    my_rating: t("library.sort.myRating"),
     runtime: t("library.sort.runtime"),
     size: t("library.sort.size"),
     last_played: t("library.sort.lastPlayed"),
@@ -681,10 +661,8 @@ export function FilterEmptyState({
 
   /** 单值维度清成 null，多值维度只摘掉这一个取值。dim 名与筛选字段同名。 */
   const drop = (dim: string, value: string) => {
-    if (dim === "watch" || dim === "rating_gte" || dim === "my_rating_gte" || dim === "hdr") {
-      const field =
-        dim === "rating_gte" ? "ratingGte" : dim === "my_rating_gte" ? "myRatingGte" : dim;
-      onFilterChange({ ...filter, [field]: null });
+    if (dim === "watch" || dim === "rating_gte" || dim === "hdr") {
+      onFilterChange({ ...filter, [dim === "rating_gte" ? "ratingGte" : dim]: null });
       return;
     }
     const key = dim as MultiDim;
@@ -844,17 +822,6 @@ function MoreFiltersPanel({
               ...filter,
               // 评分是阈值不是集合：再点一次同一档就是取消
               ratingGte: filter.ratingGte === Number(v) ? null : Number(v),
-            })
-          }
-        />
-        <PillGroup
-          label={t("library.filters.myRating")}
-          options={facets?.my_ratings ?? []}
-          selected={filter.myRatingGte != null ? [String(filter.myRatingGte)] : []}
-          onToggle={(v) =>
-            onFilterChange({
-              ...filter,
-              myRatingGte: filter.myRatingGte === Number(v) ? null : Number(v),
             })
           }
         />

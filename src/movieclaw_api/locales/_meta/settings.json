@@ -1186,14 +1186,5 @@
   },
   "scheduledTasks.catalog.llmCatalogRefreshDescription": {
     "sourceHash": "563a43741094355b14f81cf12dc6a4206a47187356c6493acc005002d072ae73"
-  },
-  "webhook.events.libraryItemRated": {
-    "sourceHash": "96fff2e26c8d1027df97d60d71f6002bfe509c7adced87a38d2fb92f7700e06c"
-  },
-  "webhook.events.libraryItemUnrated": {
-    "sourceHash": "382cb5df5b928bfdecfe8c864e2c35ed925fdd820a774d8bb922bd172cd16da0"
-  },
-  "webhook.groups.ratings": {
-    "sourceHash": "96fff2e26c8d1027df97d60d71f6002bfe509c7adced87a38d2fb92f7700e06c"
   }
 }

@@ -33,7 +33,7 @@ import os
 import re
 import shutil
 import uuid
-from collections.abc import Awaitable, Callable, Mapping, Sequence
+from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass, field, replace
 from datetime import UTC, date, datetime
 from pathlib import Path, PurePath
@@ -334,7 +334,6 @@ WallSort = Literal[
     # 方向的取舍：评分/体积/最近观看都是「大的在前」，唯独片长是**升序**
     # ——「今晚只有 90 分钟」是真实诉求，「最长的在前」几乎没人要。
     "rating",
-    "my_rating",
     "runtime",
     "size",
     "last_played",
@@ -361,7 +360,6 @@ _NATURAL_ASC: dict[str, bool] = {
     "release_date_asc": True,
     "probing": True,
     "rating": False,
-    "my_rating": False,
     "runtime": True,
     "size": False,
     "last_played": False,
@@ -396,7 +394,7 @@ def _ascending(sort: WallSort, order: WallOrder | None) -> bool:
 #: ``seen`` = watching ∪ played（"不是 unwatched"）：只是接口取值，不进筛选条、不进 facet
 #: 计数——媒体库首页「最近观看的 X」行用它把从没播过的片挡在外面（度量档把空度量
 #: 沉底而不是排除，取 20 条时看过的排完就轮到没播过的，首页那一行不能这样）
-WatchFilter = Literal["unwatched", "unfinished", "watching", "played", "favorite", "seen", "rated"]
+WatchFilter = Literal["unwatched", "unfinished", "watching", "played", "favorite", "seen"]
 
 #: 年代档 → 年份闭区间；None 表示不设下界。缺年份的条目（release_date 与
 #: media_item.year 都为空）不属于任何一档——「未知年份」不是年代，硬塞进
@@ -435,7 +433,6 @@ class LibraryFilter:
     watch: WatchFilter | None = None  # 按观看者算，需要 member_id
     # —— 二级·找片（作品是什么样的，来自刮削档案）——
     rating_gte: float | None = None  # 评分下限
-    my_rating_gte: int | None = None  # 我的个人评分下限（1–10 整数，按观看者算）
     runtimes: tuple[str, ...] = ()  # _RUNTIME_RANGES 的键
     languages: tuple[str, ...] = ()  # 原始语言码
     # —— 二级·查库（文件是什么规格，来自库存台账）——
@@ -460,7 +457,6 @@ class LibraryFilter:
             or self.decades
             or self.watch
             or self.rating_gte is not None
-            or self.my_rating_gte is not None
             or self.runtimes
             or self.languages
             or self.resolutions
@@ -509,17 +505,6 @@ def _json_any_of(column, values: Sequence) -> Any:
     return select(1).select_from(each).where(each.c.value.in_(list(values))).exists()
 
 
-def _item_sentinel_cond():
-    """条目级收藏 / 个人评分的哨兵单元条件：剧集 ``(-1,-1)``、电影/视频 ``(0,0)``。
-
-    与 ``services/playback/marks.item_favorite_unit`` 同一份约定。"""
-    is_tv = MediaItem.kind == MediaKind.TV.value
-    return or_(
-        and_(is_tv, PlaybackState.season_number == -1, PlaybackState.episode_number == -1),
-        and_(not_(is_tv), PlaybackState.season_number == 0, PlaybackState.episode_number == 0),
-    )
-
-
 def _watch_clause(watch: WatchFilter, member_id: int, library_id: LibraryScope | None = None):
     """观看状态的判定（按 member_id 隔离，与 playback_state 的成员维度一致）。
 
@@ -561,14 +546,16 @@ def _watch_clause(watch: WatchFilter, member_id: int, library_id: LibraryScope |
         return and_(not_(watching), not_(played))
     if watch == "seen":
         return or_(watching, played)
-    if watch == "rated":
-        return _exists(
-            PlaybackState.user_rating.is_not(None),  # type: ignore[union-attr]
-            _item_sentinel_cond(),
-        )
     # favorite：条目级收藏落在哨兵单元上（剧 (-1,-1) / 电影 (0,0)），
     # 与 services/playback/marks.item_favorite_unit 同一份约定
-    return _exists(PlaybackState.is_favorite.is_(True), _item_sentinel_cond())
+    is_tv = MediaItem.kind == MediaKind.TV.value
+    return _exists(
+        PlaybackState.is_favorite.is_(True),
+        or_(
+            and_(is_tv, PlaybackState.season_number == -1, PlaybackState.episode_number == -1),
+            and_(not_(is_tv), PlaybackState.season_number == 0, PlaybackState.episode_number == 0),
+        ),
+    )
 
 
 def _filter_subquery(
@@ -614,18 +601,6 @@ def _filter_subquery(
         conds.append(_watch_clause(filters.watch, member_id or 0, library_id))
     if filters.rating_gte is not None and skip != "rating_gte":
         conds.append(MediaMetadata.vote_average >= filters.rating_gte)
-    if filters.my_rating_gte is not None and skip != "my_rating_gte":
-        conds.append(
-            select(1)
-            .select_from(PlaybackState)
-            .where(
-                PlaybackState.media_item_id == MediaItem.id,
-                PlaybackState.member_id == (member_id or 0),
-                PlaybackState.user_rating >= filters.my_rating_gte,
-                _item_sentinel_cond(),
-            )
-            .exists()
-        )
     if filters.runtimes and skip != "runtimes":
         spans = []
         for key in filters.runtimes:
@@ -937,7 +912,6 @@ def _watch_labels() -> list[tuple[WatchFilter, str]]:
         ("watching", t("library.facets.watching")),
         ("played", t("library.facets.played")),
         ("favorite", t("library.facets.favorite")),
-        ("rated", t("library.facets.rated")),
     ]
 
 
@@ -1084,21 +1058,6 @@ async def _second_tier_facets(
         [(str(v), f"≥ {v:g}", LibraryFilter(rating_gte=v)) for v in (9, 8, 7)],
         content_limit,
     )
-    my_ratings = await _bucket_facet(
-        session,
-        library_id,
-        filters,
-        member_id,
-        "my_rating_gte",
-        [
-            ("10", "5★", LibraryFilter(my_rating_gte=10)),
-            ("9", "≥ 4.5★", LibraryFilter(my_rating_gte=9)),
-            ("8", "≥ 4★", LibraryFilter(my_rating_gte=8)),
-            ("6", "≥ 3★", LibraryFilter(my_rating_gte=6)),
-            ("4", "≥ 2★", LibraryFilter(my_rating_gte=4)),
-        ],
-        content_limit,
-    )
     runtimes = await _bucket_facet(
         session,
         library_id,
@@ -1168,7 +1127,6 @@ async def _second_tier_facets(
     ).all()
     return {
         "ratings": ratings,
-        "my_ratings": my_ratings,
         "runtimes": runtimes,
         "hdr": hdr,
         "stock": stock,
@@ -1298,7 +1256,6 @@ _DIM_MESSAGE_KEYS = {
     "decades": "library.filters.decades",
     "watch": "library.filters.watch",
     "rating_gte": "library.filters.rating",
-    "my_rating_gte": "library.filters.myRating",
     "runtimes": "library.filters.runtime",
     "languages": "library.filters.language",
     "resolutions": "library.filters.quality",
@@ -1385,7 +1342,6 @@ async def build_library_relax(
     for dim, current in (
         ("watch", filters.watch),
         ("rating_gte", filters.rating_gte),
-        ("my_rating_gte", filters.my_rating_gte),
         ("hdr", filters.hdr),
     ):
         if current is None:
@@ -1394,10 +1350,7 @@ async def build_library_relax(
         left = await _count_matching(session, library_id, trimmed, member_id, content_limit)
         rows.append((dim, str(current), left))
 
-    watch_labels: dict[str, str] = {
-        **dict(_watch_labels()),
-        "rated": t("library.facets.rated"),
-    }
+    watch_labels = dict(_watch_labels())
 
     def _label(dim: str, value: str) -> str:
         if dim == "genres":
@@ -1410,9 +1363,6 @@ async def build_library_relax(
             return watch_labels.get(value, value)  # type: ignore[arg-type]
         if dim == "rating_gte":
             return f"≥ {float(value):g}"
-        if dim == "my_rating_gte":
-            n = int(value)
-            return "5★" if n >= 10 else f"≥ {n / 2:g}★"
         if dim == "hdr":
             return "HDR" if value == "True" else "SDR"
         return _relax_value_labels().get(value, value)
@@ -1512,18 +1462,6 @@ def _sorted_ids_query(
     #    而不是随排序方向在头尾之间跳
     if sort == "rating":
         measure = func.max(MediaMetadata.vote_average)
-    elif sort == "my_rating":
-        # 按当前成员的条目级哨兵行外连接：唯一键保证每个条目至多命中一行（不发生行膨胀），
-        # 用 func.max 满足 PostgreSQL 严格 GROUP BY 要求，并由下方 nullslast 统一双库 NULL 沉底。
-        query = query.outerjoin(
-            PlaybackState,
-            and_(
-                PlaybackState.media_item_id == MediaItem.id,  # type: ignore[arg-type]
-                PlaybackState.member_id == (member_id or 0),
-                _item_sentinel_cond(),
-            ),
-        )
-        measure = func.max(PlaybackState.user_rating)
     elif sort == "runtime":
         measure = func.max(MediaMetadata.runtime_minutes)
     elif sort == "size":
@@ -2215,10 +2153,8 @@ def _best_dynamic_range(labels: Sequence[str | None]) -> str | None:
 #:   hdr       → dynamic_range：文件查询多取一列 ``hdr``
 #:   progress  → progress_percent：观看状态一次查询 + 文件多取一列 ``duration_seconds``
 #:   unwatched → unplayed_count：观看状态一次查询（与 progress 同一次，都要时只查一回）
-#:   my_rating → user_rating：条目级个人评分（与 progress / unwatched 同批查 ``playback_state``，
-#:               单独请求时只捞非空评分行，整页至多 1 条查询）
 #: 评分、分辨率、播出状态这些墙本来就带，不需要请求。
-WALL_BADGE_GROUPS = ("zh", "atmos", "hdr", "progress", "unwatched", "my_rating")
+WALL_BADGE_GROUPS = ("zh", "atmos", "hdr", "progress", "unwatched")
 
 
 def parse_wall_badges(raw: str | None) -> frozenset[str]:
@@ -2321,87 +2257,6 @@ async def _watch_states_many(
             last_played_at,
         )
     return states
-
-
-async def _user_ratings_many(
-    session: AsyncSession,
-    in_page,
-    member_id: int,
-    kinds: Mapping[int, str],
-) -> dict[int, int]:
-    """这批条目在当前观看者名下的条目级个人评分（海报角标 ``my_rating``）。
-
-    复用收藏哨兵单元（电影 ``(0,0)``、整剧 ``(-1,-1)``），整页一条查询、不随条目数增长。
-    """
-    from movieclaw_api.services.playback.marks import item_favorite_unit
-
-    rows = await session.execute(
-        select(
-            PlaybackState.media_item_id,
-            PlaybackState.season_number,
-            PlaybackState.episode_number,
-            PlaybackState.user_rating,
-        ).where(
-            PlaybackState.member_id == member_id,
-            PlaybackState.media_item_id.in_(in_page),  # type: ignore[attr-defined]
-            PlaybackState.user_rating.is_not(None),  # type: ignore[union-attr]
-        )
-    )
-    return {
-        item_id: user_rating
-        for item_id, season, episode, user_rating in rows.all()
-        if user_rating is not None
-        and item_id in kinds
-        and (item_id, season, episode) == item_favorite_unit(item_id, kinds[item_id])
-    }
-
-
-async def _viewer_states_many(
-    session: AsyncSession,
-    in_page,
-    member_id: int,
-    kinds: Mapping[int, str],
-) -> tuple[
-    dict[int, dict[tuple[int, int], tuple[bool, int, datetime | None]]],
-    dict[int, int],
-]:
-    """同时请求观看进度/未看集数与个人评分时，合并为单条 ``playback_state`` 批量查询。"""
-    from movieclaw_api.services.playback.marks import item_favorite_unit
-
-    rows = await session.execute(
-        select(
-            PlaybackState.media_item_id,
-            PlaybackState.season_number,
-            PlaybackState.episode_number,
-            PlaybackState.played,
-            PlaybackState.position_ms,
-            PlaybackState.last_played_at,
-            PlaybackState.user_rating,
-        ).where(
-            PlaybackState.member_id == member_id,
-            PlaybackState.media_item_id.in_(in_page),  # type: ignore[attr-defined]
-            or_(
-                and_(PlaybackState.season_number >= 0, PlaybackState.episode_number >= 0),
-                PlaybackState.user_rating.is_not(None),  # type: ignore[union-attr]
-            ),
-        )
-    )
-    watch_states: dict[int, dict[tuple[int, int], tuple[bool, int, datetime | None]]] = {}
-    ratings: dict[int, int] = {}
-    for item_id, season, episode, played, position_ms, last_played_at, user_rating in rows.all():
-        if season >= 0 and episode >= 0:
-            watch_states.setdefault(item_id, {})[(season, episode)] = (
-                bool(played),
-                position_ms or 0,
-                last_played_at,
-            )
-        if (
-            user_rating is not None
-            and item_id in kinds
-            and (item_id, season, episode) == item_favorite_unit(item_id, kinds[item_id])
-        ):
-            ratings[item_id] = user_rating
-    return watch_states, ratings
 
 
 def _watch_badges(
@@ -2580,27 +2435,14 @@ async def _aggregate_wall_views(
     posters = await poster_facts_many(session, list(grouped.keys()))
     # 横版剧照与海报同批装配（同一条规则），billboard 横幅位消费
     backdrops = await backdrop_facts_many(session, list(grouped.keys()))
-    # 海报角标：只查客户端请求了的分组。字幕两条、音轨一条批量查询；观看状态与个人评分
-    # 整页合为一条（progress / unwatched / my_rating 共用，且只在认人时查）
+    # 海报角标：只查客户端请求了的分组。字幕两条、音轨一条批量查询；观看状态
+    # 整页一条（进度与未看集数共用，且只在认人时查）
     chinese_subtitle_ids = (
         await _chinese_subtitle_ids(session, file_scope) if "zh" in badges else None
     )
     atmos_ids = await _atmos_ids(session, file_scope) if "atmos" in badges else None
     want_watch = member_id is not None and not badges.isdisjoint(("progress", "unwatched"))
-    want_rating = member_id is not None and "my_rating" in badges
-    kinds = {item_id: item.kind for item_id, (item, _) in grouped.items()}
-    if want_watch and want_rating:
-        assert member_id is not None
-        watch_states, user_ratings = await _viewer_states_many(session, in_page, member_id, kinds)
-    elif want_watch:
-        assert member_id is not None
-        watch_states, user_ratings = await _watch_states_many(session, in_page, member_id), {}
-    elif want_rating:
-        assert member_id is not None
-        watch_states = {}
-        user_ratings = await _user_ratings_many(session, in_page, member_id, kinds)
-    else:
-        watch_states, user_ratings = {}, {}
+    watch_states = await _watch_states_many(session, in_page, member_id) if want_watch else {}
     by_id: dict[int, LibraryItemView] = {}
     for item, files in grouped.values():
         season_episode_counts = season_episode_counts_by_item.get(item.id, {})  # type: ignore[arg-type]
@@ -2706,7 +2548,6 @@ async def _aggregate_wall_views(
             ),
             progress_percent=progress_percent if "progress" in badges else None,
             unplayed_count=unplayed_count if "unwatched" in badges else None,
-            user_rating=user_ratings.get(item.id) if want_rating else None,
         )
     # 顺序以调用方给定的 ordered_ids 为准，不在这里二次排序
     return [by_id[i] for i in ordered_ids if i in by_id]

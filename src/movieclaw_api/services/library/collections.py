@@ -354,14 +354,17 @@ async def pinned_collection_ids(session: AsyncSession, member_id: int) -> list[i
     """
     from pydantic import ValidationError
 
-    from movieclaw_api.settings.schemas import UiPreferencesSetting, get_ui_preferences
+    from movieclaw_api.settings.schemas import (
+        get_ui_preferences,
+        parse_stored_ui_preferences,
+    )
     from movieclaw_db.models import Member
 
     try:
         if member_id:
             member = await session.get(Member, member_id)
             raw = member.ui_prefs if member is not None else None
-            prefs = UiPreferencesSetting.model_validate(raw) if raw else UiPreferencesSetting()
+            prefs = parse_stored_ui_preferences(raw)
         else:
             prefs = await get_ui_preferences()
     except ValidationError:

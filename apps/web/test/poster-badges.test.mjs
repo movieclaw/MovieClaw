@@ -42,9 +42,8 @@ const show = {
 };
 const movie = { ...show, kind: "movie", air_status: null, unplayed_count: null };
 
-test("defaults are all off except my_rating: a fresh user's unrated poster looks exactly like before", () => {
-  assert.equal(DEFAULT_POSTER_BADGES.my_rating, true, "my_rating");
-  for (const key of [...POSTER_BADGE_TOGGLES.filter((k) => k !== "my_rating"), "hover_only"]) {
+test("defaults are all off: a fresh user's poster looks exactly like before", () => {
+  for (const key of [...POSTER_BADGE_TOGGLES, "hover_only"]) {
     assert.equal(DEFAULT_POSTER_BADGES[key], false, key);
   }
   assert.equal(DEFAULT_POSTER_BADGES.min_rating, 0);
@@ -69,7 +68,6 @@ test("normalize fills missing groups and fields, drops wrong types, clamps the t
 test("each toggle drives exactly its own badge", () => {
   const full = posterBadges(show, ALL_ON);
   assert.deepEqual(full, {
-    myRating: null,
     rating: 8.26,
     year: 2021,
     status: "ended",
@@ -185,7 +183,7 @@ test("settings panel lists one labelled switch per badge in both languages", () 
     assert.match(html, new RegExp(title));
     if (!hanAllowed) assert.doesNotMatch(html, /[㐀-鿿]/);
     assert.equal((html.match(/role="switch"/g) ?? []).length, POSTER_BADGE_TOGGLES.length);
-    assert.equal((html.match(/aria-checked="true"/g) ?? []).length, 3, "my_rating + rating switch + 'always' radio");
+    assert.equal((html.match(/aria-checked="true"/g) ?? []).length, 2, "rating switch + 'always' radio");
     assert.match(html, /role="radiogroup"/);
     assert.equal((html.match(/role="radio"/g) ?? []).length, 2);
     assert.match(html, /<select/);
@@ -267,14 +265,12 @@ test("accessible descriptions read every visible badge in the reader's language"
 
 test("badge request names only the server-computed groups of enabled badges", () => {
   const { posterBadgeRequest } = badges;
-  // 默认开启 my_rating：请求 my_rating 分组；全部关闭时不带参数
-  assert.equal(posterBadgeRequest(DEFAULT_POSTER_BADGES), "my_rating");
-  const allOff = { ...DEFAULT_POSTER_BADGES, my_rating: false };
-  assert.equal(posterBadgeRequest(allOff), "");
+  // 全关（默认）：不点名任何分组，墙请求与没有角标时一模一样
+  assert.equal(posterBadgeRequest(DEFAULT_POSTER_BADGES), "");
   // 评分 / 年份 / 分辨率 / 播出状态 / 仅悬停：墙本来就带，不需要服务端多算
   assert.equal(
     posterBadgeRequest({
-      ...allOff,
+      ...DEFAULT_POSTER_BADGES,
       rating: true,
       year: true,
       resolution: true,
@@ -285,12 +281,12 @@ test("badge request names only the server-computed groups of enabled badges", ()
     }),
     "",
   );
-  assert.equal(posterBadgeRequest({ ...allOff, format: true }), "atmos,hdr");
-  assert.equal(posterBadgeRequest({ ...allOff, chinese_subtitle: true }), "zh");
-  assert.equal(posterBadgeRequest({ ...allOff, progress: true }), "progress");
-  assert.equal(posterBadgeRequest({ ...allOff, unwatched: true }), "unwatched");
-  // 全开：六个分组，排好序（同一组开关永远是同一个串，缓存键稳定）
-  assert.equal(posterBadgeRequest(ALL_ON), "atmos,hdr,my_rating,progress,unwatched,zh");
+  assert.equal(posterBadgeRequest({ ...DEFAULT_POSTER_BADGES, format: true }), "atmos,hdr");
+  assert.equal(posterBadgeRequest({ ...DEFAULT_POSTER_BADGES, chinese_subtitle: true }), "zh");
+  assert.equal(posterBadgeRequest({ ...DEFAULT_POSTER_BADGES, progress: true }), "progress");
+  assert.equal(posterBadgeRequest({ ...DEFAULT_POSTER_BADGES, unwatched: true }), "unwatched");
+  // 全开：五个分组，排好序（同一组开关永远是同一个串，缓存键稳定）
+  assert.equal(posterBadgeRequest(ALL_ON), "atmos,hdr,progress,unwatched,zh");
 });
 
 test("walls refetch only when a badge group is added, not when one is removed", () => {
