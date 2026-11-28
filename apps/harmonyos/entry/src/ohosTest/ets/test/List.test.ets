@@ -7,6 +7,8 @@ import playbackSessionTest from '../../../test/PlaybackSession.test';
 import playbackE2ETest from './Playback.e2e.test';
 import abilityTest from './Ability.test';
 import libraryActorFilterTest from './LibraryActorFilter.test';
+import imageLruPolicyTest from '../../../test/ImageLruPolicy.test';
+import discoverPrefetchGuardTest from '../../../test/DiscoverPrefetchGuard.test';
 
 export default function testsuite() {
   playerInteractionTest();
@@ -16,6 +18,8 @@ export default function testsuite() {
   playbackGatewayTest();
   playbackSessionTest();
   libraryActorFilterTest();
+  imageLruPolicyTest();
+  discoverPrefetchGuardTest();
   playbackE2ETest();
   appTabsE2E();
 }
