@@ -17,6 +17,8 @@ import { ServerRoutes } from './ServerRoutes';
 import { SavedServer, SavedServers } from './SavedServers';
 import { TokenVault } from './TokenVault';
 import { PerfTelemetry } from './PerfTelemetry';
+import { clearImageCaches } from './RemoteImage';
+import { ImageDiskCache } from './ImageDiskCache';
 
 /** 偏好存储键。集中定义避免散落的字符串拼错。 */
 class SessionKeys {
@@ -237,10 +239,12 @@ export class AppModel {
     }
     // 从「单账号」版本升级上来的：把旧的那一枚令牌搬进关键资产，别让用户白重登一次
     if (this.server === null && await this.migrateLegacySession()) {
+      PerfTelemetry.end('session_ready', 'legacy');
       return;
     }
     if (this.server === null) {
       this.phase = AppPhase.needsServer;
+      PerfTelemetry.cancel('session_ready');
       return;
     }
     if (await this.tryRestoreSnapshot()) {
@@ -249,8 +253,12 @@ export class AppModel {
       return;
     }
     await this.reconnect();
-    // 会话就绪打点：重连路径（快照缺失/失效时走全量同步）
-    PerfTelemetry.end('session_ready', 'reconnect');
+    // 只有真正进入 ready 才计 session_ready；失败/未登录/不可达时撤消计时，不报假就绪
+    if (this.phase === AppPhase.ready) {
+      PerfTelemetry.end('session_ready', 'reconnect');
+    } else {
+      PerfTelemetry.cancel('session_ready');
+    }
   }
 
   /**
@@ -583,6 +591,8 @@ export class AppModel {
       await AppModel.revokeDevice(address.origin, saved);
     }
     await TokenVault.delete(address.origin, username);
+    ApiClient.clearSessionCaches(false);
+    ImageDiskCache.clearOwner(`${address.origin}|${username}`);
     let list: SavedServer[] = SavedServers.removingAccount(this.savedServers, username, address);
     list = SavedServers.pruned(list, this.server);
     this.savedServers = list;
@@ -600,11 +610,14 @@ export class AppModel {
     if (address === null || current === null) {
       return;
     }
+    const oldOwner: string = `${address.origin}|${current.username}`;
     if (token !== null) {
       await AppModel.revokeDevice(address.origin, token);
     }
     await TokenVault.delete(address.origin, current.username);
     this.forgetCurrentToken();
+    ApiClient.clearSessionCaches(true);
+    clearImageCaches(oldOwner, false);
     let list: SavedServer[] = SavedServers.removingAccount(this.savedServers, current.username, address);
     this.savedServers = list;
     await SavedServers.save(list);
@@ -631,6 +644,8 @@ export class AppModel {
     }
     await TokenVault.clearAll();
     this.forgetCurrentToken();
+    ApiClient.clearSessionCaches(true);
+    clearImageCaches(null, true);
     const emptied: SavedServer[] = [];
     for (const saved of this.savedServers) {
       emptied.push(new SavedServer(saved.address, [], saved.lastUsed));
@@ -696,12 +711,21 @@ export class AppModel {
 
   /** 进入某台服务器上的某个账号：记下服务器与令牌、更新本机快照（对应 iOS `activate`） */
   private activate(address: ServerAddress, session: SessionView, token: string): void {
-    // 换了账号（含换到另一台服务器）：记下切走的那个，双击头像页签据此切回来
+    // 换了账号（含换到另一台服务器）：记下切走的那个，并清理旧会话的接口/图片内存与在途缓存
     const from: ServerAddress | null = this.server;
     const current: SessionView | null = this.session;
-    if (from !== null && current !== null
-      && (from.origin !== address.origin || current.username !== session.username)) {
-      this.writePrevious(new PreviousAccount(from.origin, current.username));
+    const switchedAccount: boolean = from !== null && current !== null
+      && (from.origin !== address.origin || current.username !== session.username);
+    const switchedServer: boolean = from !== null && from.origin !== address.origin;
+    if (switchedAccount) {
+      this.writePrevious(new PreviousAccount(from!.origin, current!.username));
+    }
+    if (switchedAccount || switchedServer) {
+      if (this.client !== null) {
+        this.client.clearInflight();
+      }
+      ApiClient.clearSessionCaches(false);
+      clearImageCaches(null, false);
     }
     this.server = address;
     this.token = token;
@@ -714,6 +738,9 @@ export class AppModel {
     ServerRoutes.shared().onRouteChange = (origin: string, kind: string): void => {
       if (this.phase !== AppPhase.ready || this.token === null) {
         return;
+      }
+      if (this.client !== null) {
+        this.client.clearInflight();
       }
       this.client = new ApiClient(origin, this.token);
       this.client.routeKind = kind;
@@ -743,6 +770,9 @@ export class AppModel {
   }
 
   private forgetCurrentToken(): void {
+    if (this.client !== null) {
+      this.client.clearInflight();
+    }
     this.token = null;
     this.client = null;
     this.api = null;
@@ -769,11 +799,15 @@ export class AppModel {
     }
     const address: ServerAddress | null = this.server;
     const current: SessionView | null = this.session;
+    const oldOwner: string | null = (address !== null && current !== null)
+      ? `${address.origin}|${current.username}` : null;
     if (address !== null && current !== null) {
       TokenVault.delete(address.origin, current.username);
       this.expiredUsername = current.username;
     }
     this.forgetCurrentToken();
+    ApiClient.clearSessionCaches(true);
+    clearImageCaches(oldOwner, false);
     this.phase = AppPhase.needsLogin;
   }
 

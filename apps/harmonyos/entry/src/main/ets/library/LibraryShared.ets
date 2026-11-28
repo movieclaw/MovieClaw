@@ -156,9 +156,9 @@ export function episodeCode(season: number, episode: number): string {
 /** 首页 / 详情页的分区头：标题 + 右侧入口（「查看全部」或 ⋯ 菜单） */
 @Component
 export struct LibrarySectionHeader {
-  title: string = '';
+  @Prop title: string = '';
   /** 右侧入口文字（「查看全部」/「全部合集 ›」）；空串 = 没有 */
-  trailingText: string = '';
+  @Prop trailingText: string = '';
   onTrailing: (() => void) | null = null;
   /** 右侧 ⋯ 菜单的选项（「接下来继续」行的清空观看记录）；空数组 = 不显示 */
   menuItems: MenuElement[] = [];
@@ -207,20 +207,34 @@ export struct LibrarySectionHeader {
 /*
  * @Reusable：海报格在墙 / 横滚行里被 LazyForEach 复用，滚动同尺寸格子时
  * 组件树整个复用、只换参数，省掉每次滑动的整树重建开销。
- * 全部成员是普通变量（无 @State），复用时由框架按新参数重设，无残留状态。
+ * 全部展示参数用 @Prop 并在 aboutToReuse 显式刷新（含缺省复位），保证池内复用与父更新同步重绘。
  */
 @Reusable
 @Component
 export struct LibraryArtwork {
   /** 图片 URL；空串 = 无图（印兜底文字或占位底色） */
-  url: string = '';
+  @Prop url: string = '';
   /** 主图真实宽高比；null 视为与框一致 */
-  imageAspect: number | null = null;
+  @Prop imageAspect: number | null = null;
   /** 框的宽高比 */
-  frameAspect: number = Theme.posterAspect;
-  placeholderSymbol: Resource = $r('sys.symbol.film');
+  @Prop frameAspect: number = Theme.posterAspect;
+  @Prop placeholderSymbol: Resource = $r('sys.symbol.film');
   /** 无图时在占位底上印的字（例如集号、片名） */
-  fallbackText: string | null = null;
+  @Prop fallbackText: string | null = null;
+
+  aboutToReuse(params: Record<string, Object | undefined | null>): void {
+    const url: Object | undefined | null = params['url'];
+    this.url = typeof url === 'string' ? url : '';
+    const imageAspect: Object | undefined | null = params['imageAspect'];
+    this.imageAspect = typeof imageAspect === 'number' ? imageAspect : null;
+    const frameAspect: Object | undefined | null = params['frameAspect'];
+    this.frameAspect = typeof frameAspect === 'number' ? frameAspect : Theme.posterAspect;
+    const symbol: Object | undefined | null = params['placeholderSymbol'];
+    this.placeholderSymbol = symbol !== undefined && symbol !== null
+      ? symbol as Resource : $r('sys.symbol.film');
+    const fallback: Object | undefined | null = params['fallbackText'];
+    this.fallbackText = typeof fallback === 'string' ? fallback : null;
+  }
 
   build() {
     Stack() {
@@ -260,34 +274,66 @@ export struct LibraryArtwork {
  */
 /*
  * @Reusable：墙 / 横滚行里滚出视区的海报格组件进池，滚入的同尺寸格子直接复用；
- * 全部成员为普通变量，复用时框架按新参数重设，无状态残留。
+ * 全部展示参数用 @Prop 并在 aboutToReuse 显式刷新（含缺省复位），防止复用残留旧片名/角标/海报。
  */
 @Reusable
 @Component
 export struct LibraryPosterCell {
-  title: string = '';
-  year: number | null = null;
+  @Prop title: string = '';
+  @Prop year: number | null = null;
   /** 副行附加信息（按评分排序时的「★ 8.1」等） */
-  extent: string | null = null;
-  url: string = '';
-  imageAspect: number | null = null;
-  frameAspect: number = Theme.posterAspect;
+  @Prop extent: string | null = null;
+  @Prop url: string = '';
+  @Prop imageAspect: number | null = null;
+  @Prop frameAspect: number = Theme.posterAspect;
   /** 右上角收藏心 */
-  favorite: boolean = false;
+  @Prop favorite: boolean = false;
   /** 右上角已看对勾 */
-  played: boolean = false;
+  @Prop played: boolean = false;
   /** 死条目：文件全部缺失 */
-  dead: boolean = false;
+  @Prop dead: boolean = false;
   /** 片名下方的异常提示（如「2 个文件缺失」） */
-  abnormal: string | null = null;
+  @Prop abnormal: string | null = null;
   /** 后台正在处理这一格的阶段文案 */
-  working: string | null = null;
+  @Prop working: string | null = null;
   /** 海报左上角的角标（例如收藏层级、季集摘要） */
-  cornerLabel: string | null = null;
+  @Prop cornerLabel: string | null = null;
   /** 只压暗海报图、不压暗片名（合集里库中还没有的那几部） */
-  artworkOpacity: number = 1;
+  @Prop artworkOpacity: number = 1;
   /** 无图时的占位符号（按条目类型区分，例如剧集/影片） */
-  placeholderSymbol: Resource = $r('sys.symbol.film');
+  @Prop placeholderSymbol: Resource = $r('sys.symbol.film');
+
+  aboutToReuse(params: Record<string, Object | undefined | null>): void {
+    const title: Object | undefined | null = params['title'];
+    this.title = typeof title === 'string' ? title : '';
+    const year: Object | undefined | null = params['year'];
+    this.year = typeof year === 'number' ? year : null;
+    const extent: Object | undefined | null = params['extent'];
+    this.extent = typeof extent === 'string' ? extent : null;
+    const url: Object | undefined | null = params['url'];
+    this.url = typeof url === 'string' ? url : '';
+    const imageAspect: Object | undefined | null = params['imageAspect'];
+    this.imageAspect = typeof imageAspect === 'number' ? imageAspect : null;
+    const frameAspect: Object | undefined | null = params['frameAspect'];
+    this.frameAspect = typeof frameAspect === 'number' ? frameAspect : Theme.posterAspect;
+    const favorite: Object | undefined | null = params['favorite'];
+    this.favorite = typeof favorite === 'boolean' ? favorite : false;
+    const played: Object | undefined | null = params['played'];
+    this.played = typeof played === 'boolean' ? played : false;
+    const dead: Object | undefined | null = params['dead'];
+    this.dead = typeof dead === 'boolean' ? dead : false;
+    const abnormal: Object | undefined | null = params['abnormal'];
+    this.abnormal = typeof abnormal === 'string' ? abnormal : null;
+    const working: Object | undefined | null = params['working'];
+    this.working = typeof working === 'string' ? working : null;
+    const cornerLabel: Object | undefined | null = params['cornerLabel'];
+    this.cornerLabel = typeof cornerLabel === 'string' ? cornerLabel : null;
+    const artworkOpacity: Object | undefined | null = params['artworkOpacity'];
+    this.artworkOpacity = typeof artworkOpacity === 'number' ? artworkOpacity : 1;
+    const symbol: Object | undefined | null = params['placeholderSymbol'];
+    this.placeholderSymbol = symbol !== undefined && symbol !== null
+      ? symbol as Resource : $r('sys.symbol.film');
+  }
 
   private subLabel(): string {
     const parts: string[] = [];

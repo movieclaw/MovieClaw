@@ -11,6 +11,7 @@ import staleLoadGuardTest from './StaleLoadGuard.test';
 import pgsPrepareGuardTest from './PgsPrepareGuard.test';
 import playbackTrackSelectionTest from './PlaybackTrackSelection.test';
 import imageLruPolicyTest from './ImageLruPolicy.test';
+import discoverPrefetchGuardTest from './DiscoverPrefetchGuard.test';
 
 export default function testsuite() {
   playerInteractionTest();
@@ -26,4 +27,5 @@ export default function testsuite() {
   pgsPrepareGuardTest();
   playbackTrackSelectionTest();
   imageLruPolicyTest();
+  discoverPrefetchGuardTest();
 }

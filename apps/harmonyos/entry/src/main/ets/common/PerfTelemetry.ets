@@ -1,19 +1,20 @@
 import { hiAppEvent, hilog } from '@kit.PerformanceAnalysisKit';
-import { BusinessError } from '@kit.BasicServicesKit';
+import { BusinessError, systemDateTime } from '@kit.BasicServicesKit';
 
 /**
  * 性能打点统一出口（hiAppEvent BEHAVIOR 事件 + hilog 结构化行 + 供诊断页读的最近值）。
  *
  * 设计约束：
  * - **DFX 不能反过来干扰功能**：所有上报 fire-and-forget，失败静默（一行 warn 留痕）；
- * - 事件名 ≤48 字符、字母数字下划线（hiAppEvent 规格）；耗时一律毫秒；
- * - `end` 只对已有 `begin` 的名字生效——冷启动这类「一次会话只报一次」的指标，
- *   后续重入（再次 restore / 再开播放页）不会重复上报旧计时；
+ * - 计时优先使用单调时钟（`systemDateTime.getUptime`），系统回拨墙钟不会产生负数耗时；
+ * - 事件名 ≤48 字符、字母数字下划线（hiAppEvent 规格）；耗时一律毫秒且下限为 0；
+ * - `end` 只对已有 `begin` 的名字生效，失败/中途退出路径调 `cancel` 撤消未完成标记，
+ *   不把失败耗时或残留旧标记误报成成功指标；
  * - 最近值留在内存 Map 里，AboutPage 的诊断块直接读，不落盘、不驻后台。
  *
  * 事件清单（关键链路全覆盖）：
  * - `cold_start`：EntryAbility.onCreate → 首页 loadContent 完成；
- * - `session_ready`：onCreate → AppModel.restore() 会话就绪（首次同步完成）；
+ * - `session_ready`：onCreate → AppModel.restore() 真正进入 ready；
  * - `playback_open`：PlayerPage 打开 → 首次进入播放态。
  */
 export class PerfTelemetry {
@@ -22,19 +23,33 @@ export class PerfTelemetry {
   private static readonly HILOG_DOMAIN: number = 0x0690;
   private static readonly TAG: string = 'MovieClawPerf';
 
-  /** begin 时间戳（Date.now，毫秒） */
+  /** begin 单调时间戳（毫秒） */
   private static readonly marks: Map<string, number> = new Map<string, number>();
   /** 最近一次上报值（诊断页展示） */
   private static readonly lastValues: Map<string, number> = new Map<string, number>();
 
+  /** 单调时钟（ms）：NTP 回拨墙钟不倒退；模拟器/异常时退回 Date.now。 */
+  private static nowMs(): number {
+    try {
+      return systemDateTime.getUptime(systemDateTime.TimeType.STARTUP, false);
+    } catch (error) {
+      return Date.now();
+    }
+  }
+
   /** 开始计时；同名重复 begin 覆盖（以后一次为准）。 */
   static begin(name: string): void {
-    PerfTelemetry.marks.set(name, Date.now());
+    PerfTelemetry.marks.set(name, PerfTelemetry.nowMs());
+  }
+
+  /** 撤消未完成的计时标记（失败、未登录、未起播即退出时调用，避免残留旧标记或误报）。 */
+  static cancel(name: string): void {
+    PerfTelemetry.marks.delete(name);
   }
 
   /**
-   * 结束计时并上报；返回耗时 ms。
-   * 没有对应 begin（未启动/已消费）返回 -1 且**不上报**——
+   * 结束计时并上报；返回耗时 ms（下限 0）。
+   * 没有对应 begin（未启动/已消费/已撤消）返回 -1 且**不上报**——
    * 冷启动类指标因此天然只报首次，重入路径零噪音。
    */
   static end(name: string, detail?: string): number {
@@ -43,7 +58,7 @@ export class PerfTelemetry {
       return -1;
     }
     PerfTelemetry.marks.delete(name);
-    const elapsedMs: number = Date.now() - startedAt;
+    const elapsedMs: number = Math.max(0, Math.round(PerfTelemetry.nowMs() - startedAt));
     PerfTelemetry.report(name, elapsedMs, detail);
     return elapsedMs;
   }

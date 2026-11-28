@@ -939,21 +939,37 @@ const EMPTY_ITEM: LibraryItemView = {
  */
 /*
  * @Reusable：墙滚动时同尺寸格子组件进池复用，配合格内 LibraryPosterCell /
- * LibraryArtwork / RemoteImage 的池化，整条复用链路无整树重建。
- * 成员全是普通变量（item 每次整体换新），复用时框架按新参数重设。
+ * LibraryArtwork 的池化与 @Prop 同步，复用时在 aboutToReuse 显式刷新全部字段与点击回调。
  */
 @Reusable
 @Component
 export struct LibraryInventoryCell {
-  item: LibraryItemView = EMPTY_ITEM;
-  libraryId: number = 0;
+  @Prop item: LibraryItemView = EMPTY_ITEM;
+  @Prop libraryId: number = 0;
   /** 宽版（16:9 缩略图区）时锁定 16:9 框 */
-  frameAspect: number = Theme.posterAspect;
+  @Prop frameAspect: number = Theme.posterAspect;
   /** 按评分排序 / 筛选时副行常显评分 */
-  showRating: boolean = false;
-  working: string | null = null;
+  @Prop showRating: boolean = false;
+  @Prop working: string | null = null;
   onOpen: (item: LibraryItemView) => void = () => {
   };
+
+  aboutToReuse(params: Record<string, Object | undefined | null>): void {
+    const item: Object | undefined | null = params['item'];
+    this.item = item !== undefined && item !== null ? item as LibraryItemView : EMPTY_ITEM;
+    const libraryId: Object | undefined | null = params['libraryId'];
+    this.libraryId = typeof libraryId === 'number' ? libraryId : 0;
+    const frameAspect: Object | undefined | null = params['frameAspect'];
+    this.frameAspect = typeof frameAspect === 'number' ? frameAspect : Theme.posterAspect;
+    const showRating: Object | undefined | null = params['showRating'];
+    this.showRating = typeof showRating === 'boolean' ? showRating : false;
+    const working: Object | undefined | null = params['working'];
+    this.working = typeof working === 'string' ? working : null;
+    const onOpen: Object | undefined | null = params['onOpen'];
+    if (typeof onOpen === 'function') {
+      this.onOpen = onOpen as (item: LibraryItemView) => void;
+    }
+  }
 
   private dead(): boolean {
     return this.item.file_count > 0 && this.item.missing_count >= this.item.file_count;

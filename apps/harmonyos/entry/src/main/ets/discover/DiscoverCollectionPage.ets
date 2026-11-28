@@ -9,6 +9,7 @@ import { ApiError } from '../api/ApiClient';
 import { MovieClawApi } from '../api/Endpoints';
 import { DiscoveredTitleView, DiscoveryCollectionTitlesView } from '../api/Models';
 import { DiscoverDetailParams } from './DiscoverDetailPage';
+import { shouldPaginateOnReachEnd, shouldPrefetchOnScrollIndex } from './DiscoverPrefetchGuard';
 
 /**
  * 榜单全列表页（对齐 iOS `DiscoverCollectionView`）：`discoverBrowseCollection` 翻页拉全量。
@@ -419,14 +420,29 @@ export struct DiscoverCollectionPage {
         .cachedCount(3)
         .padding({ left: Theme.pagePadding, right: Theme.pagePadding })
         .onReachEnd(() => {
-          // 过滤期间不自动续页（同 iOS：只翻「未过滤」的完整榜单）
-          if (!this.filteringActive()) {
+          // 过滤期间或已有续页错误时不自动续页（错误态只由用户点「重试下一页」触发）
+          if (shouldPaginateOnReachEnd(
+            this.rowsSource.totalCount(),
+            this.hasMore,
+            this.loadingMore,
+            this.moreError.length > 0,
+            this.filteringActive() || !this.isTMDB || this.items === null
+          )) {
             this.loadNextPage();
           }
         })
-        // 近底预取：倒数第 3 行就开拉下一页，滚到底时数据多半已就位；onReachEnd 仍是兜底
-        .onScrollIndex((first: number, last: number) => {
-          if (!this.filteringActive() && last >= this.rowsSource.totalCount() - 3) {
+        // 近底预取：扣除前置 Header(1 项) 后距底 3 行开拉；错误/空列表/过滤期间绝不重入
+        .onScrollIndex((_first: number, last: number) => {
+          if (shouldPrefetchOnScrollIndex(
+            this.rowsSource.totalCount(),
+            last,
+            1,
+            3,
+            this.hasMore,
+            this.loadingMore,
+            this.moreError.length > 0,
+            this.filteringActive() || !this.isTMDB || this.items === null
+          )) {
             this.loadNextPage();
           }
         })
